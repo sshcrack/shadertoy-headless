@@ -9,3 +9,6 @@ NodeEditor.json
 *.ini
 install
 .DS_Store
+
+cmake-build-debug
+.idea

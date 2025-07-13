@@ -23,6 +23,8 @@
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
+#include <cmath>
+
 SHADERTOY_NAMESPACE_BEGIN
 
 static const char* const shaderVersionDirective = "#version 410 core\n";

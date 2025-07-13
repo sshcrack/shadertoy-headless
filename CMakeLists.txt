@@ -10,7 +10,7 @@ SET(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
 SET(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
 
 project(shadertoy VERSION 0.1.2 HOMEPAGE_URL "https://github.com/dtcxzyw/shadertoy")
-
+add_compile_options(-Wno-error=shadow)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Supported build types: Debug Release" FORCE)
 endif()
