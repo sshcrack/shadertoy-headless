@@ -15,9 +15,8 @@
 #pragma once
 #include "PipelineEditor.hpp"
 #include "shadertoy/Config.hpp"
-#include "shadertoy/NodeEditor/Builders.hpp"
-#include "shadertoy/NodeEditor/Widgets.hpp"
 #include "shadertoy/STTF.hpp"
+#include <imgui-node-editor/imgui_node_editor.h>
 #include "shadertoy/ShaderToyContext.hpp"
 
 #include "shadertoy/SuppressWarningPush.hpp"
@@ -43,7 +42,6 @@ public:
 
 namespace ed = ax::NodeEditor;
 using namespace ax;
-using ax::Widgets::IconType;
 
 enum class PinKind { Output, Input };
 
@@ -163,15 +161,6 @@ struct EditorVolume final : EditorNode {
     }
 };
 
-struct EditorKeyboard final : EditorNode {
-    EditorKeyboard(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
-    void fromSTTF(Node& node) override;
-
-    [[nodiscard]] NodeClass getClass() const noexcept override {
-        return NodeClass::Keyboard;
-    }
-};
 
 struct EditorLink final {
     ed::LinkId id;
@@ -223,7 +212,6 @@ class PipelineEditor final {
     EditorRenderOutput& spawnRenderOutput();
     EditorLastFrame& spawnLastFrame();
     EditorShader& spawnShader(NodeType type);
-    EditorKeyboard& spawnKeyboard();
     void updateNodeType();
     std::unique_ptr<Pipeline> buildPipeline();
 
