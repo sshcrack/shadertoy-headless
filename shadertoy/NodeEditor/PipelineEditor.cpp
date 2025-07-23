@@ -26,7 +26,7 @@
 #include <hello_imgui/dpi_aware.h>
 #include <hello_imgui/hello_imgui.h>
 #include <httplib.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <nlohmann/json.hpp>
 #include <stb_image.h>
 
