@@ -1,4 +1,5 @@
 file(GLOB SHADERTOY_SRC "*.cpp" "NodeEditor/*.cpp")
+file(GLOB SHADERTOY_HEADERS "*.hpp" "NodeEditor/*.hpp")
 
 find_package(fmt CONFIG REQUIRED)
 find_package(GLEW CONFIG REQUIRED)
@@ -18,6 +19,7 @@ find_path(CPP_BASE64_INCLUDE_DIRS "cpp-base64/base64.cpp")
 
 add_library(shadertoy-headless
 		${SHADERTOY_SRC}
+		${SHADERTOY_HEADERS}
 		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
 )
 
@@ -28,7 +30,7 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
 endif()
 #target_include_directories(shadertoy-headless PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
 target_link_libraries(shadertoy-headless PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
-target_include_directories(shadertoy-headless PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS})
+target_include_directories(shadertoy-headless PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/NodeEditor)
 
 if(APPLE)
 	find_library(AppleSecurityLib Security)
@@ -48,6 +50,8 @@ install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/licenses DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/examples DESTINATION .)
 install(TARGETS shadertoy-headless DESTINATION .)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp DESTINATION .)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/NodeEditor/*.hpp DESTINATION NodeEditor)
 
 # if(APPLE)
 # 	include(InstallRequiredSystemLibraries)

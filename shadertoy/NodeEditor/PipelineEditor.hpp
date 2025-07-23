@@ -14,7 +14,7 @@
 
 #pragma once
 #include "PipelineEditor.hpp"
-#include "shadertoy/dummies.h"
+#include "shadertoy/dummies.hpp"
 #include "shadertoy/Config.hpp"
 #include "shadertoy/STTF.hpp"
 #include "shadertoy/ShaderToyContext.hpp"
