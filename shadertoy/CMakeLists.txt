@@ -9,14 +9,14 @@ find_package(httplib CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_path(CPP_BASE64_INCLUDE_DIRS "cpp-base64/base64.cpp")
 
-add_subdirectory(thirdparty)
+#add_subdirectory(thirdparty)
 
-#hello_imgui_add_app(shadertoyLib
+#hello_imgui_add_app(shadertoy-headless
 #	${SHADERTOY_SRC}
 #	${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
 #)
 
-add_library(shadertoyLib
+add_library(shadertoy-headless
 		${SHADERTOY_SRC}
 		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
 )
@@ -26,14 +26,14 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 elseif(CMAKE_COMPILER_IS_GNUCXX)
 	set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Werror -Wconversion -Wshadow -Wno-psabi -Wno-array-bounds -Wno-unused-parameter")
 endif()
-target_include_directories(shadertoyLib PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
-target_link_libraries(shadertoyLib PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
-target_include_directories(shadertoyLib PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS})
+#target_include_directories(shadertoy-headless PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
+target_link_libraries(shadertoy-headless PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
+target_include_directories(shadertoy-headless PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS})
 
 if(APPLE)
 	find_library(AppleSecurityLib Security)
-	target_link_libraries(shadertoyLib PRIVATE ${AppleSecurityLib})
-#   set_target_properties(shadertoyLib PROPERTIES
+	target_link_libraries(shadertoy-headless PRIVATE ${AppleSecurityLib})
+#   set_target_properties(shadertoy-headless PROPERTIES
 #	    MACOSX_BUNDLE TRUE
 #		MACOSX_BUNDLE_BUNDLE_NAME "Shadertoy live viewer"
 #		MACOSX_BUNDLE_BUNDLE_VERSION ${CMAKE_PROJECT_VERSION}
@@ -47,7 +47,7 @@ endif(APPLE)
 install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/licenses DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/examples DESTINATION .)
-install(TARGETS shadertoyLib DESTINATION .)
+install(TARGETS shadertoy-headless DESTINATION .)
 
 # if(APPLE)
 # 	include(InstallRequiredSystemLibraries)
