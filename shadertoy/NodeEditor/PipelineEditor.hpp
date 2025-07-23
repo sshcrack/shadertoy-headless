@@ -25,33 +25,6 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
-class TextEditor {
-private:
-    std::string text;
-
-public:
-    std::string GetText() const {
-        return text;
-    }
-
-    void SetText(const std::string& str) {
-        text = str;
-    }
-};
-
-class ShaderToyEditor final {
-    TextEditor mEditor;
-
-public:
-    ShaderToyEditor();
-    ShaderToyEditor(const ShaderToyEditor&) = delete;
-    ShaderToyEditor& operator=(const ShaderToyEditor&) = delete;
-
-    [[nodiscard]] std::string getText() const;
-    void setText(const std::string& str);
-    void render(ImVec2 size);
-};
-
 namespace ed = ax::NodeEditor;
 using namespace ax;
 
@@ -103,7 +76,7 @@ struct EditorRenderOutput final : EditorNode {
 };
 
 struct EditorShader final : EditorNode {
-    ShaderToyEditor editor;
+    std::string currShaderText;
     bool isOpen = false;
     bool requestFocus = false;
 

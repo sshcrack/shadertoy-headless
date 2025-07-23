@@ -40,24 +40,6 @@ using HelloImGui::EmToVec2;
 
 SHADERTOY_NAMESPACE_BEGIN
 
-ShaderToyEditor::ShaderToyEditor() {
-    mEditor.SetText(R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-    fragColor = vec4(0.0,0.0,1.0,1.0);
-})");
-}
-
-[[nodiscard]] std::string ShaderToyEditor::getText() const {
-    return mEditor.GetText();
-}
-
-void ShaderToyEditor::setText(const std::string& str) {
-    mEditor.SetText(str);
-}
-
-void ShaderToyEditor::render(const ImVec2 size) {
-}
-
 static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     // Normalized pixel coordinates (from 0 to 1)
@@ -77,7 +59,7 @@ uint32_t PipelineEditor::nextId() {
 
 void PipelineEditor::setupInitialPipeline() {
     auto& shader = spawnShader(NodeType::Image);
-    shader.editor.setText(initialShader);
+    shader.currShaderText = initialShader;
     auto& sink = spawnRenderOutput();
 
     mLinks.emplace_back(nextId(), shader.outputs.front().id, sink.inputs.front().id);
@@ -312,7 +294,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 // TODO: error markers
                 auto guard = scopeFail(
                     [&] { HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to compile shader %s", node->name.c_str()); });
-                pipeline->addPass(dynamic_cast<EditorShader*>(node)->editor.getText(), node->type, target, std::move(channels),
+                pipeline->addPass(dynamic_cast<EditorShader*>(node)->currShaderText, node->type, target, std::move(channels),
                                   node == sinkNode);
                 if(target.front().t1)
                     textureMap.emplace(node,
@@ -400,12 +382,12 @@ bool EditorShader::renderContent() {
     return false;
 }
 std::unique_ptr<Node> EditorShader::toSTTF() const {
-    return std::make_unique<GLSLShader>(editor.getText(), type);
+    return std::make_unique<GLSLShader>(currShaderText, type);
 }
 void EditorShader::fromSTTF(Node& node) {
     const auto& shader = dynamic_cast<GLSLShader&>(node);
     type = shader.nodeType;
-    editor.setText(shader.source);
+    currShaderText = shader.source;
 }
 
 struct ImageStorage final {
@@ -818,7 +800,7 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
         } else if(type == "image" || type == "buffer" || type == "cubemap") {
             const auto output = pass.at("outputs")[0].at("id").get<std::string>();
             auto& node = spawnShader(type != "cubemap" ? NodeType::Image : NodeType::CubeMap);
-            node.editor.setText(code);
+            node.currShaderText = code;
             node.name = name;
             newShaderNodes.emplace(output, &node);
 
@@ -852,7 +834,7 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
 
     if(!common.empty()) {
         for(auto& [name, shader] : newShaderNodes) {
-            shader->editor.setText(common + shader->editor.getText());
+            shader->currShaderText = common + shader->currShaderText;
         }
     }
 
