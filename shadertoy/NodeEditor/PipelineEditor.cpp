@@ -25,9 +25,7 @@
 #include <fmt/format.h>
 #include <hello_imgui/dpi_aware.h>
 #include <hello_imgui/hello_imgui.h>
-#include <hello_imgui/image_from_asset.h>
 #include <httplib.h>
-#include <imgui/misc/cpp/imgui_stdlib.h>
 #include <magic_enum.hpp>
 #include <nlohmann/json.hpp>
 #include <stb_image.h>
@@ -79,8 +77,7 @@ void PipelineEditor::resetPipeline() {
     mShouldResetLayout = true;
 }
 
-PipelineEditor::~PipelineEditor() {
-}
+PipelineEditor::~PipelineEditor() = default;
 
 bool PipelineEditor::isUniqueName(const std::string_view& name, const EditorNode* exclude) const {
     return std::all_of(mNodes.cbegin(), mNodes.cend(), [&](auto& node) { return node.get() == exclude || node->name != name; });

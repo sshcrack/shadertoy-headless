@@ -11,30 +11,29 @@ find_path(CPP_BASE64_INCLUDE_DIRS "cpp-base64/base64.cpp")
 
 add_subdirectory(thirdparty)
 
-hello_imgui_add_app(shadertoy
-	${SHADERTOY_SRC}
-	${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
-	${IMGUI_NODE_EDITOR_SRC}
-)
-#add_library(shadertoyLib
-#		${SHADERTOY_SRC}
-#		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
-#		${IMGUI_NODE_EDITOR_SRC}
+#hello_imgui_add_app(shadertoyLib
+#	${SHADERTOY_SRC}
+#	${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
 #)
+
+add_library(shadertoyLib
+		${SHADERTOY_SRC}
+		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
+)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 	set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "/Wall /WX /wd4514 /wd4820 /wd4623 /wd4625 /wd4626 /wd5026 /wd5027 /wd4061 /wd5045 /wd4365 /wd4868 /wd4710 /wd5262 /wd4711 /wd4738 /D_CRT_SECURE_NO_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS")
 elseif(CMAKE_COMPILER_IS_GNUCXX)
 	set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Werror -Wconversion -Wshadow -Wno-psabi -Wno-array-bounds -Wno-unused-parameter")
 endif()
-target_include_directories(shadertoy PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
-target_link_libraries(shadertoy PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
-target_include_directories(shadertoy PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS} ${IMGUI_NODE_EDITOR_INCLUDE_DIRS})
+target_include_directories(shadertoyLib PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
+target_link_libraries(shadertoyLib PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
+target_include_directories(shadertoyLib PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS})
 
 if(APPLE)
 	find_library(AppleSecurityLib Security)
-	target_link_libraries(shadertoy PRIVATE ${AppleSecurityLib})
-#   set_target_properties(shadertoy PROPERTIES 
+	target_link_libraries(shadertoyLib PRIVATE ${AppleSecurityLib})
+#   set_target_properties(shadertoyLib PROPERTIES
 #	    MACOSX_BUNDLE TRUE
 #		MACOSX_BUNDLE_BUNDLE_NAME "Shadertoy live viewer"
 #		MACOSX_BUNDLE_BUNDLE_VERSION ${CMAKE_PROJECT_VERSION}
@@ -48,7 +47,7 @@ endif(APPLE)
 install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/licenses DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/examples DESTINATION .)
-install(TARGETS shadertoy DESTINATION .)
+install(TARGETS shadertoyLib DESTINATION .)
 
 # if(APPLE)
 # 	include(InstallRequiredSystemLibraries)

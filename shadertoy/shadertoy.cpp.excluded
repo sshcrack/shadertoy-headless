@@ -103,27 +103,7 @@ int shaderToyMain(int argc, char** argv) {
 
     runnerParams.callbacks.LoadAdditionalFonts = [] { HelloImGui::ImGuiDefaultSettings::LoadDefaultFont_WithFontAwesomeIcons(); };
 
-    runnerParams.imGuiWindowParams.defaultImGuiWindowType = HelloImGui::DefaultImGuiWindowType::ProvideFullScreenDockSpace;
-    runnerParams.imGuiWindowParams.enableViewports = true;
-
-    HelloImGui::DockingSplit splitMainBottom;
-    splitMainBottom.initialDock = "MainDockSpace";
-    splitMainBottom.newDock = "BottomSpace";
-    splitMainBottom.direction = ImGuiDir_Down;
-    splitMainBottom.ratio = 0.25f;
-
-    HelloImGui::DockingSplit splitMainLeft;
-    splitMainLeft.initialDock = "MainDockSpace";
-    splitMainLeft.newDock = "LeftSpace";
-    splitMainLeft.direction = ImGuiDir_Left;
-    splitMainLeft.ratio = 0.75f;
-
-    runnerParams.dockingParams.dockingSplits = { splitMainBottom, splitMainLeft };
-
-    HelloImGui::DockableWindow canvasWindow;
-    canvasWindow.label = "Canvas";
-    canvasWindow.dockSpaceName = "LeftSpace";
-    canvasWindow.GuiFunction = [&] {
+    runnerParams.callbacks.ShowGui = [&] {
         if(!initialPipeline.empty()) {
             if(startsWith(initialPipeline, "https://")) {
                 PipelineEditor::get().loadFromShaderToy(initialPipeline);
@@ -134,14 +114,10 @@ int shaderToyMain(int argc, char** argv) {
             initialPipeline.clear();
         }
 
+        PipelineEditor::get().render(ctx);
         ctx.tick();
         showCanvas(ctx);
     };
-    HelloImGui::DockableWindow editorWindow;
-    editorWindow.label = "Editor";
-    editorWindow.dockSpaceName = "MainDockSpace";
-    editorWindow.GuiFunction = [&] { PipelineEditor::get().render(ctx); };
-    runnerParams.dockingParams.dockableWindows = { canvasWindow, editorWindow };
 
     // 8x MSAA
     runnerParams.callbacks.PostInit = [] {
