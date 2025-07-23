@@ -36,15 +36,11 @@
 using HelloImGui::EmToVec2;
 
 #include "shadertoy/SuppressWarningPop.hpp"
+#include <unordered_set>
 
 SHADERTOY_NAMESPACE_BEGIN
 
 ShaderToyEditor::ShaderToyEditor() {
-    const auto lang = TextEditor::LanguageDefinition::GLSL();
-    // TODO: more keywords/built-ins
-    mEditor.SetLanguageDefinition(lang);
-    mEditor.SetTabSize(4);
-    mEditor.SetShowWhitespaces(false);
     mEditor.SetText(R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     fragColor = vec4(0.0,0.0,1.0,1.0);
@@ -60,10 +56,6 @@ void ShaderToyEditor::setText(const std::string& str) {
 }
 
 void ShaderToyEditor::render(const ImVec2 size) {
-    const auto cpos = mEditor.GetCursorPosition();
-    ImGui::Text("%6d/%-6d %6d lines  %s", cpos.mLine + 1, cpos.mColumn + 1, mEditor.GetTotalLines(),
-                mEditor.IsOverwrite() ? "Ovr" : "Ins");
-    mEditor.Render("TextEditor", size, false);
 }
 
 static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )

@@ -16,16 +16,28 @@
 #include "PipelineEditor.hpp"
 #include "shadertoy/Config.hpp"
 #include "shadertoy/STTF.hpp"
-#include <imgui-node-editor/imgui_node_editor.h>
 #include "shadertoy/ShaderToyContext.hpp"
+#include <imgui-node-editor/imgui_node_editor.h>
 
 #include "shadertoy/SuppressWarningPush.hpp"
-
-#include <ImGuiColorTextEdit/TextEditor.h>
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
+
+class TextEditor {
+private:
+    std::string text;
+
+public:
+    std::string GetText() const {
+        return text;
+    }
+
+    void SetText(const std::string& str) {
+        text = str;
+    }
+};
 
 class ShaderToyEditor final {
     TextEditor mEditor;
@@ -160,7 +172,6 @@ struct EditorVolume final : EditorNode {
         return NodeClass::Volume;
     }
 };
-
 
 struct EditorLink final {
     ed::LinkId id;

@@ -57,69 +57,11 @@ SHADERTOY_NAMESPACE_BEGIN
     reportFatalError("Not implemented feature");
 }
 
-static void openURL(const std::string& url) {
-#if defined(SHADERTOY_WINDOWS)
-    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#else
-    const auto ret = std::system(("open " + url).c_str());
-    SHADERTOY_UNUSED(ret);
-#endif
-}
-
-static std::optional<std::function<void()>> takeScreenshot;
 static bool endsWith(const std::string_view& str, const std::string_view& pattern) {
     return str.size() >= pattern.size() && str.substr(str.size() - pattern.size()) == pattern;
 }
 static bool startsWith(const std::string_view& str, const std::string_view& pattern) {
     return str.size() >= pattern.size() && str.substr(0, pattern.size()) == pattern;
-}
-static void saveScreenshot(const ImVec4& bound) {
-    const auto [width, height, bufferRgb] = HelloImGui::AppWindowScreenshotRgbBuffer();
-    if(bufferRgb.empty()) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to get screenshot since it is not supported by the backend");
-        return;
-    }
-
-    std::vector<uint8_t> img;
-    const auto bx = std::max(static_cast<int32_t>(bound.x), 0), by = std::max(static_cast<int32_t>(bound.y), 0),
-               ex = std::min(static_cast<int32_t>(bound.z), static_cast<int32_t>(width)),
-               ey = std::min(static_cast<int32_t>(bound.w), static_cast<int32_t>(height));
-    if(bx >= ex || by >= ey)
-        return;
-
-    const auto w = ex - bx;
-    const auto h = ey - by;
-    img.resize(static_cast<size_t>(w * h) * 3);
-    for(auto y = by; y < ey; ++y) {
-        std::copy(bufferRgb.begin() + static_cast<ptrdiff_t>((static_cast<size_t>(y) * width + bx) * 3),
-                  bufferRgb.begin() + static_cast<ptrdiff_t>((static_cast<size_t>(y) * width + bx + w) * 3),
-                  img.begin() + static_cast<ptrdiff_t>(static_cast<size_t>(y - by) * w * 3));
-    }
-
-    nfdchar_t* path;
-    if(NFD_SaveDialog("png,jpg,bmp,tga", nullptr, &path) != NFD_OKAY)
-        return;
-
-    auto handleStbError = [](const int ret) {
-        if(ret == 0) {
-            HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to save the screenshot");
-        }
-    };
-
-    const std::string_view imgPath = path;
-    const auto data = img.data();
-    const auto stride = w * 3;
-    if(endsWith(imgPath, ".png")) {
-        handleStbError(stbi_write_png(path, w, h, 3, data, stride));
-    } else if(endsWith(imgPath, ".jpg")) {
-        handleStbError(stbi_write_jpg(path, w, h, 3, data, 90));
-    } else if(endsWith(imgPath, ".bmp")) {
-        handleStbError(stbi_write_bmp(path, w, h, 3, data));
-    } else if(endsWith(imgPath, ".tga")) {
-        handleStbError(stbi_write_tga(path, w, h, 3, data));
-    } else {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Unrecognized image format");
-    }
 }
 
 static void showCanvas(ShaderToyContext& ctx) {
@@ -161,12 +103,6 @@ int shaderToyMain(int argc, char** argv) {
 
     runnerParams.imGuiWindowParams.showMenuBar = true;
     runnerParams.imGuiWindowParams.showMenu_App_Quit = false;
-    runnerParams.callbacks.PreNewFrame = [] {
-        if(takeScreenshot.has_value()) {
-            (*takeScreenshot)();
-            takeScreenshot.reset();
-        }
-    };
 
     runnerParams.callbacks.LoadAdditionalFonts = [] { HelloImGui::ImGuiDefaultSettings::LoadDefaultFont_WithFontAwesomeIcons(); };
 
