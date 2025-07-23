@@ -58,9 +58,6 @@ struct EditorNode {
     virtual ~EditorNode() = default;
 
     [[nodiscard]] virtual NodeClass getClass() const noexcept = 0;
-    virtual bool renderContent() {
-        return false;
-    }
 
     [[nodiscard]] virtual std::unique_ptr<Node> toSTTF() const = 0;
     virtual void fromSTTF(Node& node) = 0;
@@ -81,7 +78,6 @@ struct EditorShader final : EditorNode {
     bool requestFocus = false;
 
     EditorShader(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
     [[nodiscard]] NodeClass getClass() const noexcept override {
@@ -95,7 +91,6 @@ struct EditorLastFrame final : EditorNode {
     bool editing = false;
 
     EditorLastFrame(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    bool renderContent() override;
     void renderPopup();
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
@@ -109,7 +104,6 @@ struct EditorTexture final : EditorNode {
     std::unique_ptr<TextureObject> textureId;
 
     EditorTexture(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 
@@ -123,7 +117,6 @@ struct EditorCubeMap final : EditorNode {
     std::unique_ptr<TextureObject> textureId;
 
     EditorCubeMap(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 
@@ -137,7 +130,6 @@ struct EditorVolume final : EditorNode {
     std::unique_ptr<TextureObject> textureId;
 
     EditorVolume(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 

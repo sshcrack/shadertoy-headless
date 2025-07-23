@@ -29,7 +29,6 @@
 #include <httplib.h>
 #include <imgui/misc/cpp/imgui_stdlib.h>
 #include <magic_enum.hpp>
-#include <nfd.h>
 #include <nlohmann/json.hpp>
 #include <stb_image.h>
 
@@ -371,16 +370,6 @@ void EditorRenderOutput::fromSTTF(Node& node) {
     type = node.getNodeType();
 }
 
-bool EditorShader::renderContent() {
-    if(ImGui::Button(ICON_FA_EDIT " Edit")) {
-        isOpen = true;
-        requestFocus = true;
-    }
-    if(ImGui::Button(magic_enum::enum_name(type).data())) {
-        type = static_cast<NodeType>((static_cast<uint32_t>(type) + 1) % 3);
-    }
-    return false;
-}
 std::unique_ptr<Node> EditorShader::toSTTF() const {
     return std::make_unique<GLSLShader>(currShaderText, type);
 }
@@ -411,38 +400,6 @@ static ImageStorage loadImageFromFile(const char* path) {
     return { static_cast<uint32_t>(width), static_cast<uint32_t>(height), std::vector<uint32_t>{ begin, end } };
 }
 
-bool EditorTexture::renderContent() {
-    bool updateTex = false;
-    if(ImGui::Button(ICON_FA_FILE_IMAGE " Update")) {
-        [&] {
-            nfdchar_t* path;
-            if(NFD_OpenDialog("jpg,jpeg;bmp;png;tga;tiff", nullptr, &path) == NFD_OKAY) {
-                auto [width, height, img] = loadImageFromFile(path);
-                if(img.empty())
-                    return;
-                pixel = std::move(img);
-                textureId = loadTexture(width, height, pixel.data());
-                updateTex = true;
-            }
-        }();
-    }
-    if(textureId && ImGui::Button("Vertical Flip")) {
-        const auto width = static_cast<uint32_t>(textureId->size().x);
-        const auto height = static_cast<uint32_t>(textureId->size().y);
-        for(uint32_t i = 0, j = height - 1; i < j; ++i, --j) {
-            for(uint32_t k = 0; k < width; ++k)
-                std::swap(pixel[i * width + k], pixel[j * width + k]);
-        }
-        textureId = loadTexture(width, height, pixel.data());
-        updateTex = true;
-    }
-
-    if(textureId) {
-        // NOLINTNEXTLINE(performance-no-int-to-ptr)
-        ImGui::Image(reinterpret_cast<ImTextureID>(textureId->getTexture()), EmToVec2(3, 3), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
-    }
-    return updateTex;
-}
 std::unique_ptr<Node> EditorTexture::toSTTF() const {
     return std::make_unique<Texture>(static_cast<uint32_t>(textureId->size().x), static_cast<uint32_t>(textureId->size().y),
                                      pixel);
@@ -452,44 +409,6 @@ void EditorTexture::fromSTTF(Node& node) {
     pixel = texture.pixel;
     textureId = loadTexture(texture.width, texture.height, pixel.data());
 }
-bool EditorCubeMap::renderContent() {
-    bool updateTex = false;
-    if(ImGui::Button(ICON_FA_FILE_IMAGE " Update")) {
-        [&] {
-            nfdpathset_t pathSet;
-            if(NFD_OpenDialogMultiple("jpg,jpeg;bmp;png;tga;tiff", nullptr, &pathSet) == NFD_OKAY) {
-                auto guard = scopeExit([&] { NFD_PathSet_Free(&pathSet); });
-
-                if(NFD_PathSet_GetCount(&pathSet) != 6) {
-                    HelloImGui::Log(HelloImGui::LogLevel::Error, "Please choose exactly 6 images for cube map");
-                    return;
-                }
-
-                std::vector<uint32_t> tmp;
-                uint32_t size = 0;
-                for(int32_t idx = 0; idx < 6; ++idx) {
-                    auto [w, h, img] = loadImageFromFile(NFD_PathSet_GetPath(&pathSet, idx));
-                    if(img.empty())
-                        return;
-                    if(w != h)
-                        return;
-                    if(size == 0)
-                        size = w;
-                    else if(size != w)
-                        return;
-                    tmp.insert(tmp.end(), img.begin(), img.end());
-                }
-                tmp.swap(pixel);
-                textureId = loadCubeMap(size, pixel.data());
-                updateTex = true;
-            }
-        }();
-    }
-    // TODO: preview for cube map
-    ImGui::Text(textureId ? "Loaded" : "Unavailable");
-
-    return updateTex;
-}
 std::unique_ptr<Node> EditorCubeMap::toSTTF() const {
     return std::make_unique<CubeMap>(static_cast<uint32_t>(textureId->size().x), pixel);
 }
@@ -498,9 +417,7 @@ void EditorCubeMap::fromSTTF(Node& node) {
     pixel = texture.pixel;
     textureId = loadCubeMap(texture.size, pixel.data());
 }
-bool EditorVolume::renderContent() {
-    return false;
-}
+
 std::unique_ptr<Node> EditorVolume::toSTTF() const {
     const auto size = static_cast<uint32_t>(textureId->size().x);
     const auto channels = pixel.size() / (size * size * size);
@@ -512,17 +429,6 @@ void EditorVolume::fromSTTF(Node& node) {
     textureId = loadVolume(texture.size, texture.channels, pixel.data());
 }
 
-// See also https://github.com/thedmd/imgui-node-editor/issues/48
-bool EditorLastFrame::renderContent() {
-    const auto& editor = PipelineEditor::get();
-    auto& selectables = editor.mShaderNodes;
-    if(std::find(selectables.cbegin(), selectables.cend(), lastFrame) == selectables.cend())
-        lastFrame = nullptr;
-    if(ImGui::Button(lastFrame ? lastFrame->name.c_str() : "<Select One>")) {
-        openPopup = true;
-    }
-    return false;
-}
 void EditorLastFrame::renderPopup() {
     const auto& editor = PipelineEditor::get();
     const auto& names = editor.mShaderNodeNames;
