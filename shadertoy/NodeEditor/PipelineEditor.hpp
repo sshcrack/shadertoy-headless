@@ -190,7 +190,7 @@ public:
     PipelineEditor();
     ~PipelineEditor();
     void build(ShaderToyContext& context);
-    void render(ShaderToyContext& context);
+    void update(ShaderToyContext& context);
     void resetPipeline();
     void loadSTTF(const std::string& path);
     void saveSTTF(const std::string& path);

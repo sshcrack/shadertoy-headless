@@ -345,7 +345,7 @@ void PipelineEditor::build(ShaderToyContext& context) {
     }
 }
 
-void PipelineEditor::render(ShaderToyContext& context) {
+void PipelineEditor::update(ShaderToyContext& context) {
     if(mShouldBuildPipeline) {
         build(context);
         mShouldBuildPipeline = false;

@@ -29,7 +29,7 @@ SHADERTOY_NAMESPACE_BEGIN
 ShaderToyContext::ShaderToyContext() : mRunning{ true } {
     reset();
 }
-void ShaderToyContext::tick() {
+void ShaderToyContext::tick(const float frameRate) {
     if(!mRunning)
         return;
     const auto now = SystemClock::now();
@@ -39,7 +39,7 @@ void ShaderToyContext::tick() {
     mTimeDelta = (time - mTime) * timeScale;
     mTime = time * timeScale;
     ++mFrameCount;
-    mFrameRate = ImGui::GetIO().Framerate;
+    mFrameRate = frameRate;
 
     const auto offsetNow = mStartTime +
         std::chrono::duration_cast<SystemClock::duration>(
@@ -96,6 +96,7 @@ void ShaderToyContext::render(const ImVec2 base, const ImVec2 size, const std::o
                 const auto drawData = ImGui::GetDrawData();
                 const ImVec2 fbSize = drawData->DisplaySize * drawData->FramebufferScale;
                 const ImVec2 clipOff = drawData->DisplayPos;
+
                 const ImVec2 clipScale = drawData->FramebufferScale;
 
                 const auto ctx = static_cast<ShaderToyContext*>(cmd->UserCallbackData);
@@ -116,6 +117,11 @@ void ShaderToyContext::render(const ImVec2 base, const ImVec2 size, const std::o
 void ShaderToyContext::reset(std::unique_ptr<Pipeline> pipeline) {
     mPipeline = std::move(pipeline);
     reset();
+}
+std::vector<uint8_t> ShaderToyContext::renderToBuffer(ImVec2 size) {
+    if (!mPipeline) return {};
+    ShaderToyUniform uniform{ mTime, mTimeDelta, mFrameRate, mFrameCount, mMouse, mDate };
+    return mPipeline->renderToBuffer(size, uniform);
 }
 
 SHADERTOY_NAMESPACE_END

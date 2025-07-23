@@ -44,7 +44,7 @@ public:
     ShaderToyContext& operator=(const ShaderToyContext&) = delete;
     ShaderToyContext& operator=(ShaderToyContext&&) = delete;
     ~ShaderToyContext() = default;
-    void tick();
+    void tick(float frameRate = ImGui::GetIO().Framerate);
     [[nodiscard]] bool isRunning() const noexcept {
         return mRunning;
     }
@@ -56,6 +56,9 @@ public:
     void reset();
     void render(ImVec2 base, ImVec2 size, const std::optional<ImVec4>& mouse);
     void reset(std::unique_ptr<Pipeline> pipeline);
+
+    // Renders the scene to a buffer and returns the pixel data (RGB, row-major)
+    std::vector<uint8_t> renderToBuffer(ImVec2 size);
 
     [[nodiscard]] ImVec4 getMouseStatus() const noexcept {
         return mMouse;

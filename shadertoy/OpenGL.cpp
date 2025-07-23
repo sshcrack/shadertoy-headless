@@ -703,6 +703,31 @@ public:
                                                    std::move(update) });
         return mDynamicTextures.back().tex->getTexture();
     }
+    std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) override {
+        // Update dynamic textures first, like in the regular render function
+        for(auto& [tex, data, update] : mDynamicTextures) {
+            update(data.data());
+            const auto texId = static_cast<GLuint>(tex->getTexture());
+            glBindTexture(GL_TEXTURE_2D, texId);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(tex->size().x), static_cast<GLsizei>(tex->size().y), 0,
+                         GL_RGBA, GL_UNSIGNED_BYTE, data.data());  // R8G8B8A8
+            glBindTexture(GL_TEXTURE_2D, GL_NONE);
+        }
+        
+        auto fb = std::make_unique<GLFrameBuffer>();
+        fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+        
+        // Render all passes, not just the first one
+        for(const auto& pass : mRenderPasses) {
+            pass->render(size, ImVec2{0,0}, size, size, uniform,
+                         pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+        }
+        
+        std::vector<uint8_t> buffer(static_cast<size_t>(size.x) * static_cast<size_t>(size.y) * 3);
+        glReadPixels(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+        fb->unbind();
+        return buffer;
+    }
 };
 
 std::unique_ptr<Pipeline> createPipeline() {

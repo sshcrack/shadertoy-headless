@@ -111,6 +111,7 @@ public:
                          std::vector<Channel> channels, bool clampOutput) = 0;
     virtual void render(ImVec2 frameBufferSize, ImVec2 clipMin, ImVec2 clipMax, ImVec2 size, const ShaderToyUniform& uniform) = 0;
     virtual TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) = 0;
+    virtual std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) = 0;
 };
 
 std::unique_ptr<TextureObject> loadTexture(uint32_t width, uint32_t height, const uint32_t* data);
