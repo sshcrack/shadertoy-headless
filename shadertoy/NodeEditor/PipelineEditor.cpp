@@ -65,8 +65,6 @@ void PipelineEditor::setupInitialPipeline() {
 }
 
 PipelineEditor::PipelineEditor() {
-    mHeaderBackground = HelloImGui::ImTextureIdFromAsset("BlueprintBackground.png");
-
     setupInitialPipeline();
     mShouldBuildPipeline = true;
     mShouldResetLayout = true;

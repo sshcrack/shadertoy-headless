@@ -157,7 +157,6 @@ class PipelineEditor final {
     std::uint32_t mNextId = 1;
     EditorPin* mNewNodeLinkPin = nullptr;
     EditorPin* mNewLinkPin = nullptr;
-    ImTextureID mHeaderBackground = nullptr;
     std::vector<std::unique_ptr<EditorNode>> mNodes;
     std::vector<EditorLink> mLinks;
     std::vector<std::pair<std::string, std::string>> mMetadata;

@@ -7,7 +7,6 @@
     "fmt",
     "glew",
     "cpp-httplib",
-    "nativefiledialog",
     "ms-gsl",
     "magic-enum",
     "cpp-base64",

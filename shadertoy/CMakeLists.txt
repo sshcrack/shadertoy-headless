@@ -11,18 +11,16 @@ find_path(CPP_BASE64_INCLUDE_DIRS "cpp-base64/base64.cpp")
 
 add_subdirectory(thirdparty)
 
-#hello_imgui_add_app(shadertoy
-#	${SHADERTOY_SRC}
-#	${CMAKE_CURRENT_LIST_DIR}/thirdparty/ImGuiColorTextEdit/TextEditor.cpp
-#	${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
-#	${IMGUI_NODE_EDITOR_SRC}
-#)
-add_library(shadertoyLib
-		${SHADERTOY_SRC}
-		${CMAKE_CURRENT_LIST_DIR}/thirdparty/ImGuiColorTextEdit/TextEditor.cpp
-		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
-		${IMGUI_NODE_EDITOR_SRC}
+hello_imgui_add_app(shadertoy
+	${SHADERTOY_SRC}
+	${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
+	${IMGUI_NODE_EDITOR_SRC}
 )
+#add_library(shadertoyLib
+#		${SHADERTOY_SRC}
+#		${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
+#		${IMGUI_NODE_EDITOR_SRC}
+#)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 	set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "/Wall /WX /wd4514 /wd4820 /wd4623 /wd4625 /wd4626 /wd5026 /wd5027 /wd4061 /wd5045 /wd4365 /wd4868 /wd4710 /wd5262 /wd4711 /wd4738 /D_CRT_SECURE_NO_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS")
@@ -47,12 +45,6 @@ if(APPLE)
 #	)
 endif(APPLE)
 
-set(SHADERTOY_BACKGROUND_IMG ${CMAKE_CURRENT_LIST_DIR}/thirdparty/imgui-node-editor/examples/blueprints-example/data/BlueprintBackground.png )
-add_custom_command(TARGET shadertoy PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
-	${SHADERTOY_BACKGROUND_IMG}
-	${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/assets/BlueprintBackground.png)
-
-install(FILES ${SHADERTOY_BACKGROUND_IMG} DESTINATION assets)
 install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/licenses DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/examples DESTINATION .)
