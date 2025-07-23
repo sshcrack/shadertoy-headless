@@ -25,10 +25,7 @@
 #include <hello_imgui/hello_imgui_screenshot.h>
 #include <httplib.h>
 #include <magic_enum.hpp>
-#include <misc/cpp/imgui_stdlib.h>
-#include <nfd.h>
 #include <nlohmann/json.hpp>
-#include <openssl/crypto.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 

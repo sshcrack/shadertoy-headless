@@ -14,19 +14,15 @@
 
 #pragma once
 #include "PipelineEditor.hpp"
+#include "shadertoy/dummies.h"
 #include "shadertoy/Config.hpp"
 #include "shadertoy/STTF.hpp"
 #include "shadertoy/ShaderToyContext.hpp"
-#include <imgui-node-editor/imgui_node_editor.h>
-
 #include "shadertoy/SuppressWarningPush.hpp"
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
-
-namespace ed = ax::NodeEditor;
-using namespace ax;
 
 enum class PinKind { Output, Input };
 
@@ -91,7 +87,6 @@ struct EditorLastFrame final : EditorNode {
     bool editing = false;
 
     EditorLastFrame(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
-    void renderPopup();
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
     [[nodiscard]] NodeClass getClass() const noexcept override {
@@ -152,7 +147,6 @@ struct EditorLink final {
 };
 
 class PipelineEditor final {
-    ed::EditorContext* mCtx;
     bool mOnNodeCreate = false;
     std::uint32_t mNextId = 1;
     EditorPin* mNewNodeLinkPin = nullptr;

@@ -80,7 +80,6 @@ void PipelineEditor::resetPipeline() {
 }
 
 PipelineEditor::~PipelineEditor() {
-    ed::DestroyEditor(mCtx);
 }
 
 bool PipelineEditor::isUniqueName(const std::string_view& name, const EditorNode* exclude) const {
@@ -427,35 +426,6 @@ void EditorVolume::fromSTTF(Node& node) {
     textureId = loadVolume(texture.size, texture.channels, pixel.data());
 }
 
-void EditorLastFrame::renderPopup() {
-    const auto& editor = PipelineEditor::get();
-    const auto& names = editor.mShaderNodeNames;
-    const auto& nodes = editor.mShaderNodes;
-
-    ed::Suspend();
-    if(openPopup) {
-        ImGui::OpenPopup("##popup_button");
-        openPopup = false;
-        editing = true;
-    }
-
-    if(editing && ImGui::BeginPopup("##popup_button")) {
-        lastFrame = nullptr;
-        ImGui::BeginChild("##popup_scroller", EmToVec2(4, 4), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        for(uint32_t idx = 0; idx < names.size(); ++idx) {
-            if(ImGui::Button(names[idx])) {
-                lastFrame = nodes[idx];
-                editing = false;
-                ImGui::CloseCurrentPopup();
-            }
-        }
-
-        ImGui::EndChild();
-        ImGui::EndPopup();
-    } else
-        editing = false;
-    ed::Resume();
-}
 std::unique_ptr<Node> EditorLastFrame::toSTTF() const {
     return std::make_unique<LastFrame>(lastFrame->name, type);
 }
