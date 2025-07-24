@@ -541,6 +541,11 @@ void EditorLastFrame::fromSTTF(Node&) {
     // should be fixed by post processing
 }
 
+std::unique_ptr<Node> EditorKeyboard::toSTTF() const {
+    return std::make_unique<Keyboard>();
+}
+void EditorKeyboard::fromSTTF(Node&) {}
+
 void PipelineEditor::loadFromShaderToy(const std::string& path) {
     std::vector<std::unique_ptr<EditorNode>> oldNodes;
     oldNodes.swap(mNodes);
