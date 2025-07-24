@@ -128,7 +128,7 @@ static void checkShaderCompileError(const GLuint shader, const std::string_view 
             buffer.resize(static_cast<size_t>(size));
             glGetShaderInfoLog(shader, static_cast<GLsizei>(buffer.size()), nullptr, buffer.data());
             Log(HelloImGui::LogLevel::Error, "%s", buffer.data());
-            throw Error{};
+            throw std::runtime_error(buffer.data());
         }
     } else {
         glGetProgramiv(shader, GL_LINK_STATUS, &success);
@@ -137,7 +137,7 @@ static void checkShaderCompileError(const GLuint shader, const std::string_view 
             buffer.resize(static_cast<size_t>(size));
             glGetProgramInfoLog(shader, static_cast<GLsizei>(buffer.size()), nullptr, buffer.data());
             Log(HelloImGui::LogLevel::Error, "%s", buffer.data());
-            throw Error{};
+            throw std::runtime_error(buffer.data());
         }
     }
 }
