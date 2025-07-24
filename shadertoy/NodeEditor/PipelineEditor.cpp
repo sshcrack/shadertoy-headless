@@ -373,27 +373,6 @@ void EditorShader::fromSTTF(Node& node) {
     currShaderText = shader.source;
 }
 
-struct ImageStorage final {
-    uint32_t width;
-    uint32_t height;
-    std::vector<uint32_t> data;
-};
-
-static ImageStorage loadImageFromFile(const char* path) {
-    HelloImGui::Log(HelloImGui::LogLevel::Info, "Loading image %s", path);
-    stbi_set_flip_vertically_on_load(true);
-    int width, height, channels;
-    const auto ptr = stbi_load(path, &width, &height, &channels, 4);
-    if(!ptr) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to load image %s: %s", path, stbi_failure_reason());
-        return { 0, 0, {} };
-    }
-    auto guard = scopeExit([ptr] { stbi_image_free(ptr); });
-    const auto begin = reinterpret_cast<const uint32_t*>(ptr);
-    const auto end = begin + static_cast<ptrdiff_t>(width) * height;
-    return { static_cast<uint32_t>(width), static_cast<uint32_t>(height), std::vector<uint32_t>{ begin, end } };
-}
-
 std::unique_ptr<Node> EditorTexture::toSTTF() const {
     return std::make_unique<Texture>(static_cast<uint32_t>(textureId->size().x), static_cast<uint32_t>(textureId->size().y),
                                      pixel);
