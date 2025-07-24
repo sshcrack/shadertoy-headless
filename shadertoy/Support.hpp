@@ -54,6 +54,12 @@ struct Error final : std::exception {};
 #else
 #define SHADERTOY_UNREACHABLE() reportFatalError("unreachable")
 #endif
-[[noreturn]] void reportFatalError(std::string_view error);
-[[noreturn]] void reportNotImplemented();
+[[noreturn]] void reportFatalError(std::string_view error) {
+    // TODO: pop up a message box
+    fmt::print(stderr, "{}\n", error);
+    std::abort();
+}
+[[noreturn]] void reportNotImplemented()  {
+    reportFatalError("Not implemented feature");
+}
 SHADERTOY_NAMESPACE_END
