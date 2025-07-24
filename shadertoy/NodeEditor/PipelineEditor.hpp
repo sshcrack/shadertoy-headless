@@ -13,6 +13,7 @@
 */
 
 #pragma once
+#include <expected>
 #include "PipelineEditor.hpp"
 #include "shadertoy/dummies.hpp"
 #include "shadertoy/Config.hpp"
@@ -189,8 +190,10 @@ class PipelineEditor final {
 public:
     PipelineEditor();
     ~PipelineEditor();
-    void build(ShaderToyContext& context);
-    void update(ShaderToyContext& context);
+
+    std::expected<void, std::runtime_error> build(ShaderToyContext &context);
+
+    std::expected<void, std::runtime_error> update(ShaderToyContext &context);
     void resetPipeline();
     void loadSTTF(const std::string& path);
     void saveSTTF(const std::string& path);

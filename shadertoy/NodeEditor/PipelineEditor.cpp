@@ -179,8 +179,9 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
     }
 
     if(!sinkNode) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Exactly one shader should be connected to the final render output");
-        throw Error{};
+        std::string msg = "Exactly one shader should be connected to the final render output";
+        HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+        throw std::runtime_error(msg);
     }
 
     std::unordered_set<EditorNode*> visited;
@@ -214,8 +215,9 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
     }
 
     if(visited.size() != order.size()) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Loop detected");
-        throw Error{};
+        std::string msg = "Loop detected";
+        HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+        throw std::runtime_error(msg);
     }
 
     std::reverse(order.begin(), order.end());
@@ -229,8 +231,9 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
         if(node->getClass() == NodeClass::LastFrame) {
             auto ref = dynamic_cast<EditorLastFrame&>(*node).lastFrame;
             if(!ref || ref == directRenderNode) {
-                HelloImGui::Log(HelloImGui::LogLevel::Error, "Invalid reference");
-                throw Error{};
+                std::string msg = "Invalid reference";
+                HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+                throw std::runtime_error(msg);
             }
             requireDoubleBuffer.insert(ref);
         }
@@ -265,8 +268,9 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 }
                 frameBufferMap.emplace(node, std::move(buffers));
             } else {
-                HelloImGui::Log(HelloImGui::LogLevel::Error, "Unsupported shader type");
-                throw Error{};
+                std::string msg = "Unsupported shader type" ;
+                HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+                throw std::runtime_error(msg);
             }
         }
     }
@@ -325,31 +329,40 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 textureMap.emplace(node, DoubleBufferedTex{ textureId->getTexture(), TexType::Tex3D });
                 break;
             }
-            default:
-                reportNotImplemented();
+            default: {
+                std::string msg = "Not implemented node class in buildPipeline";
+                //reportNotImplemented();
+                throw std::runtime_error(msg);
+            }
         }
     }
 
     return pipeline;
 }
 
-void PipelineEditor::build(ShaderToyContext& context) {
+std::expected<void, std::runtime_error> PipelineEditor::build(ShaderToyContext &context) {
     try {
         const auto start = Clock::now();
         context.reset(buildPipeline());
         const auto duration =
             static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count()) * 1e-9;
         Log(HelloImGui::LogLevel::Info, "Compiled in %.1f secs", duration);
-    } catch(const Error&) {
-        Log(HelloImGui::LogLevel::Error, "Build failed");
+
+        return {};
+    } catch(const std::runtime_error& e) {
+        return std::unexpected(e);
     }
 }
 
-void PipelineEditor::update(ShaderToyContext& context) {
+std::expected<void, std::runtime_error> PipelineEditor::update(ShaderToyContext &context) {
     if(mShouldBuildPipeline) {
-        build(context);
+        auto res = build(context);
         mShouldBuildPipeline = false;
+
+        return res;
     }
+
+    return {};
 }
 
 PipelineEditor& PipelineEditor::get() {
@@ -434,13 +447,15 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
                            "application/x-www-form-urlencoded");
     int status = res.value().status;
     if(status != 200) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Invalid response from shadertoy.com (Status code = %d).", status);
-        throw Error{};
+        std::string msg = fmt::format("Invalid response from shadertoy.com (Status code = %d).", status);
+        HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+        throw std::runtime_error(msg);
     }
     auto json = nlohmann::json::parse(res->body);
     if(!json.is_array()) {
-        HelloImGui::Log(HelloImGui::LogLevel::Error, "Invalid response from shadertoy.com");
-        throw Error{};
+        std::string msg = "Invalid response from shadertoy.com";
+        HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
+        throw std::runtime_error(msg);
     }
     auto metadata = json[0].at("info");
 
@@ -498,8 +513,9 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
         const auto ptr = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(img->body.data()),
                                                static_cast<int>(img->body.size()), &width, &height, &channels, 4);
         if(!ptr) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Failed to load texture %s: %s", texPath.c_str(), stbi_failure_reason());
-            throw Error{};
+            std::string msg = fmt::format("Failed to load texture %s: %s", texPath.c_str(), stbi_failure_reason());
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
         const auto imgGuard = scopeExit([ptr] { stbi_image_free(ptr); });
         const auto begin = reinterpret_cast<const uint32_t*>(ptr);
@@ -522,8 +538,9 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
             base = texPath.substr(0, pos);
             ext = texPath.substr(pos);
         } else {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Failed to parse cube map %s", texPath.c_str());
-            throw Error{};
+            std::string msg = fmt::format("Failed to parse cube map %s", texPath.c_str());
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
 
         constexpr const char* suffixes[] = { "", "_1", "_2", "_3", "_4", "_5" };
@@ -540,21 +557,23 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
             const auto ptr = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(img->body.data()),
                                                    static_cast<int>(img->body.size()), &width, &height, &channels, 4);
             if(!ptr) {
-                HelloImGui::Log(HelloImGui::LogLevel::Info, "Failed to load texture %s: %s", facePath.c_str(),
-                                stbi_failure_reason());
-                throw Error{};
+                std::string msg = fmt::format("Failed to load texture %s: %s", facePath.c_str(), stbi_failure_reason());
+                HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+                throw std::runtime_error(msg);
             }
             const auto imgGuard = scopeExit([ptr] { stbi_image_free(ptr); });
             const auto begin = reinterpret_cast<const uint32_t*>(ptr);
             const auto end = begin + static_cast<ptrdiff_t>(width) * height;
             texture.pixel.insert(texture.pixel.end(), begin, end);
             if(width != height) {
-                throw Error{};
+                std::string msg = "Cube map face width != height";
+                throw std::runtime_error(msg);
             }
             if(size == 0)
                 size = width;
             else if(size != width) {
-                throw Error{};
+                std::string msg = "Cube map face size mismatch";
+                throw std::runtime_error(msg);
             }
         }
 
@@ -572,20 +591,23 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
         HelloImGui::Log(HelloImGui::LogLevel::Info, "Downloading volume %s", texPath.c_str());
         auto img = client.Get(texPath, headers);
         if(img->body.empty()) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Failed to load texture %s: %s", texPath.c_str(), stbi_failure_reason());
-            throw Error{};
+            std::string msg = fmt::format("Failed to load texture %s: %s", texPath.c_str(), stbi_failure_reason());
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
         if(img->body.size() < 20ULL) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Invalid volume format %s: %zu", texPath.c_str(), img->body.size());
-            throw Error{};
+            std::string msg = fmt::format("Invalid volume format %s: %zu", texPath.c_str(), img->body.size());
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
         auto begin = reinterpret_cast<const uint32_t*>(img->body.data());
         uint32_t x = *++begin;
         uint32_t y = *++begin;
         uint32_t z = *++begin;
         if(x != y || y != z) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Unsupported volume size %s: (%u, %u, %u)", texPath.c_str(), x, y, z);
-            throw Error{};
+            std::string msg = fmt::format("Unsupported volume size %s: (%u, %u, %u)", texPath.c_str(), x, y, z);
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
         uint32_t channels_layout_format = *++begin;
         struct Metadata final {
@@ -597,26 +619,30 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
         memcpy(&metadata, &channels_layout_format, sizeof(Metadata));
 
         if(metadata.channels != 1 && metadata.channels != 4) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Unsupported volume channels %s: %u", texPath.c_str(), metadata.channels);
-            throw Error{};
+            std::string msg = fmt::format("Unsupported volume channels %s: %u", texPath.c_str(), metadata.channels);
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
 
         if(metadata.layout != 0) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Unsupported volume layout %s: %u", texPath.c_str(), metadata.layout);
-            throw Error{};
+            std::string msg = fmt::format("Unsupported volume layout %s: %u", texPath.c_str(), metadata.layout);
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
 
         if(metadata.format != 0) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Unsupported volume format %s: %u", texPath.c_str(), metadata.format);
-            throw Error{};
+            std::string msg = fmt::format("Unsupported volume format %s: %u", texPath.c_str(), metadata.format);
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
 
         const uint32_t size = x;
         const uint32_t channels = metadata.channels;
         const size_t points = static_cast<size_t>(size) * size * size * channels;
         if(img->body.size() != 20 + points) {
-            HelloImGui::Log(HelloImGui::LogLevel::Info, "Invalid volume format %s: %zu", texPath.c_str(), img->body.size());
-            throw Error{};
+            std::string msg = fmt::format("Invalid volume format %s: %zu", texPath.c_str(), img->body.size());
+            HelloImGui::Log(HelloImGui::LogLevel::Info, msg.c_str());
+            throw std::runtime_error(msg);
         }
         const auto start = img->body.data() + 20;
         const auto end = start + points;
