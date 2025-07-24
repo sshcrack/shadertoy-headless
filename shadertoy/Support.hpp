@@ -20,6 +20,7 @@
 #include "shadertoy/SuppressWarningPush.hpp"
 
 #include <gsl/gsl>
+#include <fmt/format.h>
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
