@@ -124,6 +124,11 @@ EditorVolume& PipelineEditor::spawnVolume() {
     ret->outputs.emplace_back(nextId(), "Output", NodeType::Volume);
     return buildNode(mNodes, std::move(ret));
 }
+EditorKeyboard& PipelineEditor::spawnKeyboard() {
+    auto ret = std::make_unique<EditorKeyboard>(nextId(), generateUniqueName("Keyboard"));
+    ret->outputs.emplace_back(nextId(), "Output", NodeType::Image);
+    return buildNode(mNodes, std::move(ret));
+}
 EditorRenderOutput& PipelineEditor::spawnRenderOutput() {
     auto ret = std::make_unique<EditorRenderOutput>(nextId(), generateUniqueName("RenderOutput"));
     ret->inputs.emplace_back(nextId(), "Input", NodeType::Image);
@@ -497,6 +502,12 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
             }
         }
         mLinks.emplace_back(nextId(), src->outputs.front().id, dst->inputs[channel].id, filter, wrapMode);
+    };
+    EditorNode* keyboard = nullptr;
+    auto getKeyboard = [&] {
+        if(!keyboard)
+            keyboard = &spawnKeyboard();
+        return keyboard;
     };
     std::unordered_map<std::string, EditorTexture*> textureCache;
     auto getTexture = [&](nlohmann::json& tex) -> EditorTexture* {

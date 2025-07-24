@@ -134,6 +134,16 @@ struct EditorVolume final : EditorNode {
     }
 };
 
+struct EditorKeyboard final : EditorNode {
+    EditorKeyboard(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
+    void fromSTTF(Node& node) override;
+
+    [[nodiscard]] NodeClass getClass() const noexcept override {
+        return NodeClass::Keyboard;
+    }
+};
+
 struct EditorLink final {
     ed::LinkId id;
 
@@ -166,23 +176,18 @@ class PipelineEditor final {
     bool mMetadataEditorRequestFocus = false;
 
     uint32_t nextId();
-    [[nodiscard]] bool isPinLinked(ed::PinId id) const;
-    [[nodiscard]] EditorNode* findNode(ed::NodeId id) const;
     [[nodiscard]] EditorPin* findPin(ed::PinId id) const;
     [[nodiscard]] bool isUniqueName(const std::string_view& name, const EditorNode* exclude) const;
     [[nodiscard]] std::string generateUniqueName(const std::string_view& base) const;
-    [[nodiscard]] bool canCreateLink(const EditorPin* startPin, const EditorPin* endPin) const;
 
     void setupInitialPipeline();
-    void renderEditor();
-    void resetLayout();
     EditorCubeMap& spawnCubeMap();
     EditorVolume& spawnVolume();
     EditorTexture& spawnTexture();
     EditorRenderOutput& spawnRenderOutput();
     EditorLastFrame& spawnLastFrame();
     EditorShader& spawnShader(NodeType type);
-    void updateNodeType();
+    EditorKeyboard& spawnKeyboard();
     std::unique_ptr<Pipeline> buildPipeline();
 
     friend struct EditorLastFrame;
@@ -195,8 +200,6 @@ public:
 
     std::expected<void, std::runtime_error> update(ShaderToyContext &context);
     void resetPipeline();
-    void loadSTTF(const std::string& path);
-    void saveSTTF(const std::string& path);
     void loadFromShaderToy(const std::string& path);
     [[nodiscard]] std::string getShaderName() const;
 

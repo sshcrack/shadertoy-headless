@@ -15,6 +15,7 @@
 #include "shadertoy/Config.hpp"
 #include "shadertoy/NodeEditor/PipelineEditor.hpp"
 #include "shadertoy/ShaderToyContext.hpp"
+#include "shadertoy/Support.hpp"
 #include <cstdlib>
 
 #include "shadertoy/SuppressWarningPush.hpp"
@@ -24,10 +25,11 @@
 #include <hello_imgui/hello_imgui.h>
 #include <hello_imgui/hello_imgui_screenshot.h>
 #include <httplib.h>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 #include <nlohmann/json.hpp>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
+#include <iostream>
 
 #define GL_SILENCE_DEPRECATION  // NOLINT(clang-diagnostic-unused-macros)
 #include <GL/glew.h>
@@ -40,19 +42,12 @@
 
 using HelloImGui::EmToVec2;
 
-#include "shadertoy/SuppressWarningPop.hpp"
+#include <string_view>
+#include <optional>
 
+#include "shadertoy/SuppressWarningPop.hpp"
 SHADERTOY_NAMESPACE_BEGIN
 
-[[noreturn]] void reportFatalError(std::string_view error) {
-    // TODO: pop up a message box
-    fmt::print(stderr, "{}\n", error);
-    std::abort();
-}
-
-[[noreturn]] void reportNotImplemented() {
-    reportFatalError("Not implemented feature");
-}
 
 static bool endsWith(const std::string_view& str, const std::string_view& pattern) {
     return str.size() >= pattern.size() && str.substr(str.size() - pattern.size()) == pattern;
@@ -114,9 +109,15 @@ int shaderToyMain(int argc, char** argv) {
             initialPipeline.clear();
         }
 
-        PipelineEditor::get().render(ctx);
+        if(auto res = PipelineEditor::get().update(ctx); !res) {
+            std::cerr << res.error().what() << std::endl;
+        }
         ctx.tick();
         showCanvas(ctx);
+
+        ImGui::Begin("Console");
+        HelloImGui::LogGui();
+        ImGui::End();
     };
 
     // 8x MSAA
