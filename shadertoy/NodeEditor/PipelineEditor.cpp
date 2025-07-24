@@ -698,7 +698,7 @@ void PipelineEditor::loadFromShaderToy(const std::string& path) {
                 }
                 auto channel = input.at("channel").get<uint32_t>();
                 if(inputType == "keyboard") {
-                    //addLink(getKeyboard(), &node, channel, &input);
+                    addLink(getKeyboard(), &node, channel, &input);
                 } else if(inputType == "texture") {
                     addLink(getTexture(input), &node, channel, &input);
                 } else if(inputType == "cubemap") {
