@@ -13,6 +13,7 @@ find_package(OpenSSL REQUIRED)
 find_path(CPP_BASE64_INCLUDE_DIRS "cpp-base64/base64.cpp")
 
 if(ENABLE_DEBUG_WINDOW)
+    message(STATUS "Enabling debug window for Shadertoy headless")
     add_subdirectory(thirdparty)
 
     hello_imgui_add_app(shadertoy-headless
@@ -20,10 +21,20 @@ if(ENABLE_DEBUG_WINDOW)
         ${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
     )
 else()
-    #Idk how it will be called, I think it'll be the top one
-	list(REMOVE_ITEM SHADERTOY_SRC "shadertoy.cpp")
-	list(REMOVE_ITEM SHADERTOY_SRC "shadertoy/shadertoy.cpp")
+    # Remove any entry in SHADERTOY_SRC ending with /shadertoy.cpp
+    set(SHADERTOY_SRC_TO_REMOVE "")
+    foreach(src_file ${SHADERTOY_SRC})
+        string(REGEX MATCH "/shadertoy\\.cpp$" match ${src_file})
+        if(match)
+            set(SHADERTOY_SRC_TO_REMOVE ${src_file})
+            break()
+        endif()
+    endforeach()
+    if(SHADERTOY_SRC_TO_REMOVE)
+        list(REMOVE_ITEM SHADERTOY_SRC "${SHADERTOY_SRC_TO_REMOVE}")
+    endif()
 
+    message(STATUS "Disabling debug window for Shadertoy headless Using sources from ${SHADERTOY_SRC}")
     add_library(shadertoy-headless
         ${SHADERTOY_SRC}
         ${SHADERTOY_HEADERS}
