@@ -166,6 +166,114 @@ EditorPin* PipelineEditor::findPin(const ed::PinId id) const {
     return nullptr;
 }
 
+static void setupKeyboardData(uint32_t* data) {
+    // See also
+    // https://shadertoyunofficial.wordpress.com/2016/07/20/special-shadertoy-features/
+    // FIXME: remapping keys
+    constexpr std::pair<int32_t, ImGuiKey> mapping[] = {
+        { 8, ImGuiKey_Backspace },
+        { 9, ImGuiKey_Tab },
+        { 13, ImGuiKey_Enter },
+        { 16, ImGuiKey_LeftShift },
+        { 16, ImGuiKey_RightShift },
+        { 17, ImGuiKey_LeftCtrl },
+        { 17, ImGuiKey_RightCtrl },
+        { 19, ImGuiKey_Pause },
+        { 20, ImGuiKey_CapsLock },
+        { 27, ImGuiKey_Escape },
+        { 32, ImGuiKey_Space },
+        { 33, ImGuiKey_PageUp },
+        { 36, ImGuiKey_Home },
+        { 37, ImGuiKey_LeftArrow },
+        { 38, ImGuiKey_UpArrow },
+        { 39, ImGuiKey_RightArrow },
+        { 40, ImGuiKey_DownArrow },
+        { 44, ImGuiKey_PrintScreen },
+        { 45, ImGuiKey_Insert },
+        { 46, ImGuiKey_Delete },
+        { 48, ImGuiKey_0 },
+        { 49, ImGuiKey_1 },
+        { 50, ImGuiKey_2 },
+        { 51, ImGuiKey_3 },
+        { 52, ImGuiKey_4 },
+        { 53, ImGuiKey_5 },
+        { 54, ImGuiKey_6 },
+        { 55, ImGuiKey_7 },
+        { 56, ImGuiKey_8 },
+        { 57, ImGuiKey_9 },
+        { 65, ImGuiKey_A },
+        { 66, ImGuiKey_B },
+        { 67, ImGuiKey_C },
+        { 68, ImGuiKey_D },
+        { 69, ImGuiKey_E },
+        { 70, ImGuiKey_F },
+        { 71, ImGuiKey_G },
+        { 72, ImGuiKey_H },
+        { 73, ImGuiKey_I },
+        { 74, ImGuiKey_J },
+        { 75, ImGuiKey_K },
+        { 76, ImGuiKey_L },
+        { 77, ImGuiKey_M },
+        { 78, ImGuiKey_N },
+        { 79, ImGuiKey_O },
+        { 80, ImGuiKey_P },
+        { 81, ImGuiKey_Q },
+        { 82, ImGuiKey_R },
+        { 83, ImGuiKey_S },
+        { 84, ImGuiKey_T },
+        { 85, ImGuiKey_U },
+        { 86, ImGuiKey_V },
+        { 87, ImGuiKey_W },
+        { 88, ImGuiKey_X },
+        { 89, ImGuiKey_Y },
+        { 90, ImGuiKey_Z },
+        { 96, ImGuiKey_Keypad0 },
+        { 97, ImGuiKey_Keypad1 },
+        { 98, ImGuiKey_Keypad2 },
+        { 99, ImGuiKey_Keypad3 },
+        { 100, ImGuiKey_Keypad4 },
+        { 101, ImGuiKey_Keypad5 },
+        { 102, ImGuiKey_Keypad6 },
+        { 103, ImGuiKey_Keypad7 },
+        { 104, ImGuiKey_Keypad8 },
+        { 105, ImGuiKey_Keypad9 },
+        { 106, ImGuiKey_KeypadMultiply },
+        { 109, ImGuiKey_KeypadSubtract },
+        { 110, ImGuiKey_KeypadDecimal },
+        { 111, ImGuiKey_KeypadDivide },
+        { 112, ImGuiKey_F1 },
+        { 113, ImGuiKey_F2 },
+        { 114, ImGuiKey_F3 },
+        { 115, ImGuiKey_F4 },
+        { 116, ImGuiKey_F5 },
+        { 117, ImGuiKey_F6 },
+        { 118, ImGuiKey_F7 },
+        { 119, ImGuiKey_F8 },
+        { 120, ImGuiKey_F9 },
+        { 121, ImGuiKey_F10 },
+        { 122, ImGuiKey_F11 },
+        { 123, ImGuiKey_F12 },
+        { 145, ImGuiKey_ScrollLock },
+        { 144, ImGuiKey_NumLock },
+        { 187, ImGuiKey_Equal },
+        { 189, ImGuiKey_Minus },
+        { 192, ImGuiKey_GraveAccent },
+        { 219, ImGuiKey_LeftBracket },
+        { 220, ImGuiKey_Backslash },
+        { 221, ImGuiKey_RightBracket },
+    };
+    auto getKey = [&](int32_t x, int32_t y) -> uint32_t& { return data[x + y * 256]; };
+    for(auto [idx, key] : mapping) {
+        const auto down = ImGui::IsKeyDown(key);
+        const auto pressed = ImGui::IsKeyPressed(key, false);
+        constexpr uint32_t mask = 0xffffffff;
+        getKey(idx, 0) = down ? mask : 0;
+        getKey(idx, 1) = pressed ? mask : 0;
+        if(pressed)
+            getKey(idx, 2) ^= mask;
+    }
+}
+
 std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
     std::unordered_map<EditorNode*, std::vector<std::tuple<EditorNode*, uint32_t, EditorLink*>>> graph;
     EditorNode* directRenderNode = nullptr;
@@ -332,6 +440,12 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 auto& textureId = dynamic_cast<EditorVolume*>(node)->textureId;
                 textureSizeMap.emplace(node, textureId->size());
                 textureMap.emplace(node, DoubleBufferedTex{ textureId->getTexture(), TexType::Tex3D });
+                break;
+            }
+            case NodeClass::Keyboard: {
+                textureSizeMap.emplace(node, ImVec2{ 256, 3 });
+                textureMap.emplace(
+                    node, DoubleBufferedTex{ pipeline->createDynamicTexture(256, 3, setupKeyboardData), TexType::Tex2D });
                 break;
             }
             default: {
