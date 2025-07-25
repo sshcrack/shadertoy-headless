@@ -47,6 +47,11 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 elseif(CMAKE_COMPILER_IS_GNUCXX)
     set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Werror -Wconversion -Wshadow -Wno-psabi -Wno-array-bounds -Wno-unused-parameter")
 endif()
+
+find_package(nlohmann_json 3.2.0 REQUIRED)
+find_package(hello-imgui CONFIG REQUIRED)
+target_link_libraries(shadertoy-headless PRIVATE hello-imgui::hello_imgui nlohmann_json::nlohmann_json)
+
 #target_include_directories(shadertoy-headless PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
 target_link_libraries(shadertoy-headless PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(shadertoy-headless PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
