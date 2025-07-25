@@ -2,6 +2,31 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
+
+struct TextEditor {
+private:
+    std::string mText;
+public:
+
+    struct LanguageDefinition {
+        static LanguageDefinition GLSL() {
+            return LanguageDefinition();
+        }
+    };
+
+    void SetLanguageDefinition(const LanguageDefinition&) {}
+    void SetTabSize(int) {}
+    void SetShowWhitespaces(bool) {}
+    void SetText(const std::string& txt) {
+        mText = txt;
+    }
+
+    std::string GetText() const {
+        return mText;
+    }
+};
+
 
 // Copied from Imgui
 namespace Details {
@@ -64,18 +89,18 @@ namespace Details {
 
 }  // namespace Details
 
-namespace ed {
+namespace ax {
+    namespace NodeEditor {
+        struct NodeId final : Details::SafePointerType<NodeId> {
+            using SafePointerType::SafePointerType;
+        };
 
-    struct NodeId final : Details::SafePointerType<NodeId> {
-        using SafePointerType::SafePointerType;
-    };
+        struct LinkId final : Details::SafePointerType<LinkId> {
+            using SafePointerType::SafePointerType;
+        };
 
-    struct LinkId final : Details::SafePointerType<LinkId> {
-        using SafePointerType::SafePointerType;
-    };
-
-    struct PinId final : Details::SafePointerType<PinId> {
-        using SafePointerType::SafePointerType;
-    };
-
+        struct PinId final : Details::SafePointerType<PinId> {
+            using SafePointerType::SafePointerType;
+        };
+    }
 }  // namespace ed

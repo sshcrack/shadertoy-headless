@@ -37,6 +37,29 @@ using HelloImGui::EmToVec2;
 
 SHADERTOY_NAMESPACE_BEGIN
 
+
+
+ShaderToyEditor::ShaderToyEditor() {
+    const auto lang = TextEditor::LanguageDefinition::GLSL();
+    // TODO: more keywords/built-ins
+    mEditor.SetLanguageDefinition(lang);
+    mEditor.SetTabSize(4);
+    mEditor.SetShowWhitespaces(false);
+    mEditor.SetText(R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    fragColor = vec4(0.0,0.0,1.0,1.0);
+})");
+}
+
+[[nodiscard]] std::string ShaderToyEditor::getText() const {
+    return mEditor.GetText();
+}
+
+void ShaderToyEditor::setText(const std::string& str) {
+    mEditor.SetText(str);
+}
+
+
 static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     // Normalized pixel coordinates (from 0 to 1)
@@ -72,7 +95,7 @@ uint32_t PipelineEditor::nextId() {
 
 void PipelineEditor::setupInitialPipeline() {
     auto& shader = spawnShader(NodeType::Image);
-    shader.currShaderText = initialShader;
+    shader.editor.setText(initialShader);
     auto& sink = spawnRenderOutput();
 
     mLinks.emplace_back(nextId(), shader.outputs.front().id, sink.inputs.front().id);
@@ -420,7 +443,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 // TODO: error markers
                 auto guard = scopeFail(
                     [&] { HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to compile shader %s", node->name.c_str()); });
-                pipeline->addPass(dynamic_cast<EditorShader*>(node)->currShaderText, node->type, target, std::move(channels),
+                pipeline->addPass(dynamic_cast<EditorShader*>(node)->editor.getText(), node->type, target, std::move(channels),
                                   node == sinkNode);
                 if(target.front().t1)
                     textureMap.emplace(node,
@@ -515,12 +538,12 @@ void EditorRenderOutput::fromSTTF(Node& node) {
 }
 
 std::unique_ptr<Node> EditorShader::toSTTF() const {
-    return std::make_unique<GLSLShader>(currShaderText, type);
+    return std::make_unique<GLSLShader>(editor.getText(), type);
 }
 void EditorShader::fromSTTF(Node& node) {
     const auto& shader = dynamic_cast<GLSLShader&>(node);
     type = shader.nodeType;
-    currShaderText = shader.source;
+    editor.setText(shader.source);
 }
 
 std::unique_ptr<Node> EditorTexture::toSTTF() const {
@@ -835,7 +858,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         } else if(type == "image" || type == "buffer" || type == "cubemap") {
             const auto output = pass.at("outputs")[0].at("id").get<std::string>();
             auto& node = spawnShader(type != "cubemap" ? NodeType::Image : NodeType::CubeMap);
-            node.currShaderText = code;
+            node.editor.getText() = code;
             node.name = name;
             newShaderNodes.emplace(output, &node);
 
@@ -869,7 +892,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
 
     if(!common.empty()) {
         for(auto& [name, shader] : newShaderNodes) {
-            shader->currShaderText = common + shader->currShaderText;
+            shader->editor.setText(common + shader->editor.getText());
         }
     }
 
@@ -904,7 +927,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
                 if(!newShaderNodes.contains(inputId)) {
                     // Shadertoy doesn't fail when an input is missing, so we create a default dummy node
                     auto& inputNode = spawnShader(inputType != "cubemap" ? NodeType::Image : NodeType::CubeMap);
-                    inputNode.currShaderText = common + (inputType == "cubemap" ? initialCubeMap : initialBuffer);
+                    inputNode.editor.setText(common + (inputType == "cubemap" ? initialCubeMap : initialBuffer));
                     inputNode.name = inputId;
                     newShaderNodes.emplace(inputId, &inputNode);
                 }

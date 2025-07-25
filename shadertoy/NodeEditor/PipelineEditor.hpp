@@ -25,6 +25,21 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
+class ShaderToyEditor final {
+    TextEditor mEditor;
+
+public:
+    ShaderToyEditor();
+    ShaderToyEditor(const ShaderToyEditor&) = delete;
+    ShaderToyEditor& operator=(const ShaderToyEditor&) = delete;
+
+    [[nodiscard]] std::string getText() const;
+    void setText(const std::string& str);
+};
+
+namespace ed = ax::NodeEditor;
+using namespace ax;
+
 enum class PinKind { Output, Input };
 
 struct EditorNode;
@@ -70,7 +85,7 @@ struct EditorRenderOutput final : EditorNode {
 };
 
 struct EditorShader final : EditorNode {
-    std::string currShaderText;
+    ShaderToyEditor editor;
     bool isOpen = false;
     bool requestFocus = false;
 
