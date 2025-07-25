@@ -552,7 +552,7 @@ void EditorKeyboard::fromSTTF(Node&) {}
 std::expected<void, std::exception> PipelineEditor::loadFromShaderToy(const std::string& path) {
     try {
         _innerLoadFromShaderToy(path);
-        mShouldResetLayout = true;
+        return {};
     } catch(const std::exception& e) {
         HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to load from ShaderToy: %s", e.what());
         return std::unexpected(e);
