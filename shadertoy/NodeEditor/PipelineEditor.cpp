@@ -470,6 +470,8 @@ std::expected<void, std::runtime_error> PipelineEditor::build(ShaderToyContext &
         return {};
     } catch(const std::runtime_error& e) {
         return std::unexpected(e);
+    } catch (const std::exception& ex) {
+        return std::unexpected(std::runtime_error(ex.what()));
     }
 }
 
@@ -546,7 +548,18 @@ std::unique_ptr<Node> EditorKeyboard::toSTTF() const {
 }
 void EditorKeyboard::fromSTTF(Node&) {}
 
-void PipelineEditor::loadFromShaderToy(const std::string& path) {
+
+std::expected<void, std::exception> PipelineEditor::loadFromShaderToy(const std::string& path) {
+    try {
+        _innerLoadFromShaderToy(path);
+        mShouldResetLayout = true;
+    } catch(const std::exception& e) {
+        HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to load from ShaderToy: %s", e.what());
+        return std::unexpected(e);
+    }
+}
+
+void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
     std::vector<std::unique_ptr<EditorNode>> oldNodes;
     oldNodes.swap(mNodes);
     std::vector<EditorLink> oldLinks;

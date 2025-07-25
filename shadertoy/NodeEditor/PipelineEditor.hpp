@@ -191,6 +191,7 @@ class PipelineEditor final {
     std::unique_ptr<Pipeline> buildPipeline();
 
     friend struct EditorLastFrame;
+    void _innerLoadFromShaderToy(const std::string& path);
 
 public:
     PipelineEditor();
@@ -199,8 +200,8 @@ public:
     std::expected<void, std::runtime_error> build(ShaderToyContext &context);
 
     std::expected<void, std::runtime_error> update(ShaderToyContext &context);
+    std::expected<void, std::exception> loadFromShaderToy(const std::string& path);
     void resetPipeline();
-    void loadFromShaderToy(const std::string& path);
     [[nodiscard]] std::string getShaderName() const;
 
     static PipelineEditor& get();
