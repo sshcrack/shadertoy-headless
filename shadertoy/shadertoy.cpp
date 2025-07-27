@@ -48,10 +48,6 @@ using HelloImGui::EmToVec2;
 #include "shadertoy/SuppressWarningPop.hpp"
 SHADERTOY_NAMESPACE_BEGIN
 
-
-static bool endsWith(const std::string_view& str, const std::string_view& pattern) {
-    return str.size() >= pattern.size() && str.substr(str.size() - pattern.size()) == pattern;
-}
 static bool startsWith(const std::string_view& str, const std::string_view& pattern) {
     return str.size() >= pattern.size() && str.substr(0, pattern.size()) == pattern;
 }
@@ -78,7 +74,8 @@ static void showCanvas(ShaderToyContext& ctx) {
 }
 
 int shaderToyMain(int argc, char** argv) {
-    std::string initialPipeline;
+    std::string initialPipeline = "https://www.shadertoy.com/view/Xlcczj";//"https://www.shadertoy.com/view/WsSBzh";
+
     if(argc == 2) {
         initialPipeline = argv[1];
     }
@@ -101,7 +98,12 @@ int shaderToyMain(int argc, char** argv) {
     runnerParams.callbacks.ShowGui = [&] {
         if(!initialPipeline.empty()) {
             if(startsWith(initialPipeline, "https://")) {
-                PipelineEditor::get().loadFromShaderToy(initialPipeline);
+                auto res = PipelineEditor::get().loadFromShaderToy(initialPipeline);
+                if(!res) {
+                    HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to load pipeline from ShaderToy: %s", res.error().what());
+                } else {
+                    HelloImGui::Log(HelloImGui::LogLevel::Info, "Loaded pipeline from ShaderToy: %s", initialPipeline.c_str());
+                }
             } else {
                 HelloImGui::Log(HelloImGui::LogLevel::Error, "Unrecognized filepath %s", initialPipeline.c_str());
             }
@@ -110,6 +112,7 @@ int shaderToyMain(int argc, char** argv) {
         }
 
         if(auto res = PipelineEditor::get().update(ctx); !res) {
+            HelloImGui::Log(HelloImGui::LogLevel::Error, "Could not update Pipeline: %s", res.error().what());
             std::cerr << res.error().what() << std::endl;
         }
         ctx.tick();
