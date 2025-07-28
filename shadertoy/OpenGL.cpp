@@ -289,11 +289,20 @@ public:
         const auto vertexSrcData = vertexSrc.c_str();
         const auto pixelSrcData = pixelSrc.c_str();
 
+        std::cout << "---- Vertex Shader ----" << std::endl;
+        std::cout << vertexSrc << std::endl;
+        std::cout << "------------------------" << std::endl;
+
         const auto shaderVertex = glCreateShader(GL_VERTEX_SHADER);
         auto vertGuard = scopeExit([&] { glDeleteShader(shaderVertex); });
         glShaderSource(shaderVertex, 1, &vertexSrcData, nullptr);
         glCompileShader(shaderVertex);
         checkShaderCompileError(shaderVertex, "VERTEX");
+
+        std::cout << "---- Pixel Shader ----" << std::endl;
+        std::cout << pixelSrc << std::endl;
+        std::cout << "-----------------------" << std::endl;
+
 
         const auto shaderPixel = glCreateShader(GL_FRAGMENT_SHADER);
         auto pixelGuard = scopeExit([&] { glDeleteShader(shaderPixel); });

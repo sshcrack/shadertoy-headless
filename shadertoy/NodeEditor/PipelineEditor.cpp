@@ -847,7 +847,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         }
 
         // Maybe pass.at("inputs").empty() is not needed?
-        if(pass.at("inputs").empty() && !pass.at("outputs").empty()) {
+        if( !pass.at("outputs").empty() && pass.at("type").get<std::string>() == "cubemap") {
             // The output contains no input, so this is a dynamic cube map
             dynamicCubeMapChannels.insert(pass.at("outputs")[0].at("channel").get<int>());
         }
@@ -868,7 +868,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         } else if(type == "image" || type == "buffer" || type == "cubemap") {
             const auto output = pass.at("outputs")[0].at("id").get<std::string>();
             auto& node = spawnShader(type != "cubemap" ? NodeType::Image : NodeType::CubeMap);
-            node.editor.getText() = code;
+            node.editor.setText(code);
             node.name = name;
             newShaderNodes.emplace(output, &node);
 

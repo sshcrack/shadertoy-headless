@@ -74,7 +74,7 @@ static void showCanvas(ShaderToyContext& ctx) {
 }
 
 int shaderToyMain(int argc, char** argv) {
-    std::string initialPipeline = "https://www.shadertoy.com/view/Xlcczj";//"https://www.shadertoy.com/view/WsSBzh";
+    std::string initialPipeline = "https://www.shadertoy.com/view/wlG3RW";//"https://www.shadertoy.com/view/Xlcczj";//"https://www.shadertoy.com/view/WsSBzh";
 
     if(argc == 2) {
         initialPipeline = argv[1];
