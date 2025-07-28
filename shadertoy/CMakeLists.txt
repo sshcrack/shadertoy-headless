@@ -20,6 +20,8 @@ if(ENABLE_DEBUG_WINDOW)
         ${SHADERTOY_SRC}
         ${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
     )
+
+    target_include_directories(shadertoy-headless PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
 else()
     # Remove any entry in SHADERTOY_SRC ending with /shadertoy.cpp
     set(SHADERTOY_SRC_TO_REMOVE "")
@@ -40,6 +42,11 @@ else()
         ${SHADERTOY_HEADERS}
         ${CPP_BASE64_INCLUDE_DIRS}/cpp-base64/base64.cpp
     )
+
+    find_package(nlohmann_json 3.2.0 REQUIRED)
+    find_package(hello-imgui CONFIG REQUIRED)
+
+    target_link_libraries(shadertoy-headless PRIVATE hello-imgui::hello_imgui nlohmann_json::nlohmann_json)
 endif()
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
@@ -48,13 +55,6 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
 	set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "-Wall -Wextra -Werror -Wconversion -Wshadow=compatible-local -Wno-psabi -Wno-array-bounds -Wno-unused-parameter")
 endif()
 
-if(NOT ENABLE_DEBUG_WINDOW)
-    find_package(nlohmann_json 3.2.0 REQUIRED)
-    find_package(hello-imgui CONFIG REQUIRED)
-    target_link_libraries(shadertoy-headless PRIVATE hello-imgui::hello_imgui nlohmann_json::nlohmann_json)
-endif()
-
-#target_include_directories(shadertoy-headless PRIVATE ${CMAKE_CURRENT_LIST_DIR}/thirdparty/hello_imgui/src ${IMGUI_SRC_DIR} ${CMAKE_CURRENT_LIST_DIR}/thirdparty/)
 target_link_libraries(shadertoy-headless PRIVATE fmt::fmt GLEW::GLEW Microsoft.GSL::GSL magic_enum::magic_enum httplib::httplib OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(shadertoy-headless PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_compile_features(shadertoy-headless PRIVATE cxx_std_23)

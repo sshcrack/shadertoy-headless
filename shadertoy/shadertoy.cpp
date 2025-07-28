@@ -53,11 +53,6 @@ static bool startsWith(const std::string_view& str, const std::string_view& patt
 }
 
 static void showCanvas(ShaderToyContext& ctx) {
-    if(!ImGui::Begin("Canvas", nullptr)) {
-        ImGui::End();
-        return;
-    }
-
     const auto reservedHeight = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
     ImVec2 size(0, 0);
     if(ImGui::BeginChild("CanvasRegion", ImVec2(0, -reservedHeight), false)) {
@@ -69,8 +64,6 @@ static void showCanvas(ShaderToyContext& ctx) {
         ctx.render(base, size, mouse);
         ImGui::EndChild();
     }
-
-    ImGui::End();
 }
 
 int shaderToyMain(int argc, char** argv) {
@@ -118,9 +111,7 @@ int shaderToyMain(int argc, char** argv) {
         ctx.tick();
         showCanvas(ctx);
 
-        ImGui::Begin("Console");
-        HelloImGui::LogGui();
-        ImGui::End();
+        HelloImGui::LogGui(ImVec2(300, 500));
     };
 
     // 8x MSAA
