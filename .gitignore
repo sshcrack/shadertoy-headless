@@ -2,6 +2,8 @@
 CMakeSettings.json
 .vs
 .vscode
+!.vscode/tasks.json
+!.vscode/launch.json
 .cache
 build
 out

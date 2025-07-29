@@ -1,0 +1,27 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "default",
+            "binaryDir": "${sourceDir}/build-lib",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+            }
+        },
+        {
+            "name": "debug-window",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "ENABLE_DEBUG_WINDOW": "ON",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug-window",
+            "configurePreset": "debug-window"
+        }
+    ]
+}
