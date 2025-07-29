@@ -10,7 +10,7 @@
             "name": "Launch Debug Window",
             "preLaunchTask": "CMake: Build Debug Window",
             "program": "${workspaceFolder}/build/bin/shadertoy-headless",
-            "args": ["https://www.shadertoy.com/view/WX3Xzs"], // this doesn't work properly https://www.shadertoy.com/view/4t3yzj
+            "args": [],//["https://www.shadertoy.com/view/WX3Xzs"], // this doesn't work properly https://www.shadertoy.com/view/4t3yzj
             "cwd": "${workspaceFolder}"
         }
 

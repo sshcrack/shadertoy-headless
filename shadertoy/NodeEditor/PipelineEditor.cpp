@@ -402,7 +402,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                     frameBuffer = DoubleBufferedFB{ t };
                 }
                 frameBufferMap.emplace(node, std::vector<DoubleBufferedFB>{ frameBuffer });
-            } else if(node->type == NodeType::CubeMap) {
+            } else if(node->type == NodeType::CubeMap || node->type == NodeType::CubeMapFlippedY) {
                 std::vector<DoubleBufferedFB> buffers;
                 buffers.reserve(6);
                 if(requireDoubleBuffer.count(node)) {
@@ -443,19 +443,30 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                     [&] { HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to compile shader %s", node->name.c_str()); });
                 pipeline->addPass(dynamic_cast<EditorShader*>(node)->editor.getText(), node->type, target, std::move(channels),
                                   node == sinkNode);
-                if(target.front().t1)
-                    textureMap.emplace(node,
-                                       DoubleBufferedTex{ target.front().t1->getTexture(), target.front().t2->getTexture(),
-                                                          node->type == NodeType::CubeMap ? TexType::CubeMap : TexType::Tex2D });
+
+                if(target.front().t1) {
+                    auto texType = (node->type == NodeType::CubeMap || node->type == NodeType::CubeMapFlippedY) ?
+                                               TexType::CubeMap :
+                                               TexType::Tex2D;
+
+                    textureMap.emplace(
+                        node,
+                        DoubleBufferedTex{ target.front().t1->getTexture(), target.front().t2->getTexture(),
+                                           texType });
+                }
+
                 break;
             }
             case NodeClass::LastFrame: {
                 const auto ref = dynamic_cast<EditorLastFrame*>(node)->lastFrame;
                 auto target = frameBufferMap.at(ref).front();
                 assert(target.t1 && target.t2);
-                textureMap.emplace(node,
-                                   DoubleBufferedTex{ target.t2->getTexture(), target.t1->getTexture(),
-                                                      ref->type == NodeType::CubeMap ? TexType::CubeMap : TexType::Tex2D });
+                textureMap.emplace(
+                    node,
+                    DoubleBufferedTex{ target.t2->getTexture(), target.t1->getTexture(),
+                                       (ref->type == NodeType::CubeMap || ref->type == NodeType::CubeMapFlippedY) ?
+                                           TexType::CubeMap :
+                                           TexType::Tex2D });
                 break;
             }
             case NodeClass::RenderOutput: {
@@ -864,7 +875,37 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
             common = code + '\n';
         } else if(type == "image" || type == "buffer" || type == "cubemap") {
             const auto output = pass.at("outputs")[0].at("id").get<std::string>();
-            auto& node = spawnShader(type != "cubemap" ? NodeType::Image : NodeType::CubeMap);
+            auto nodeType = NodeType::Image;
+
+            if(type == "cubemap") {
+                nodeType = NodeType::CubeMap;
+                // Check if the main image output using this CubeMap has flipped Y (see example
+                // https://www.shadertoy.com/view/WX3Xzs)
+                bool shouldBreak = false;
+                for(auto& r : renderPasses) {
+                    if(shouldBreak)
+                        break;
+
+                    auto i = r.at("inputs");
+                    if(r.at("type").get<std::string>() != "image")
+                        continue;
+                    if(i.empty())
+                        continue;
+
+                    for(auto& input : i) {
+                        if(input.at("type").get<std::string>() != "cubemap" || !isDynamicCubeMap(input))
+                            continue;
+                        if(input["sampler"].at("vflip").get<std::string>() == "true") {
+                            nodeType = NodeType::CubeMapFlippedY;
+                            shouldBreak = true;
+
+                            break;
+                        }
+                    }
+                }
+            }
+
+            auto& node = spawnShader(nodeType);
             node.editor.setText(code);
             node.name = name;
             newShaderNodes.emplace(output, &node);
@@ -925,7 +966,6 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
 
             for(auto& input : pass.at("inputs")) {
                 auto inputType = input.at("type").get<std::string>();
-                std::cout << "Input type: " << input.dump(2) << std::endl;
                 bool dynamicCubeMap = inputType == "cubemap" && isDynamicCubeMap(input);
                 if(inputType != "buffer" && !dynamicCubeMap) {
                     continue;

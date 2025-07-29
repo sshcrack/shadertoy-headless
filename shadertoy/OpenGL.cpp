@@ -30,30 +30,39 @@ SHADERTOY_NAMESPACE_BEGIN
 
 inline GLint toGLMinFilter(Filter filter) {
     switch(filter) {
-        case Filter::Nearest: return GL_NEAREST_MIPMAP_NEAREST;
-        case Filter::Linear: return GL_LINEAR_MIPMAP_LINEAR;
-        case Filter::Mipmap: return GL_LINEAR_MIPMAP_LINEAR;
+        case Filter::Nearest:
+            return GL_NEAREST_MIPMAP_NEAREST;
+        case Filter::Linear:
+            return GL_LINEAR_MIPMAP_LINEAR;
+        case Filter::Mipmap:
+            return GL_LINEAR_MIPMAP_LINEAR;
     }
     return GL_LINEAR_MIPMAP_LINEAR;
 }
 inline GLint toGLMagFilter(Filter filter) {
     switch(filter) {
-        case Filter::Nearest: return GL_NEAREST;
-        case Filter::Linear: return GL_LINEAR;
-        case Filter::Mipmap: return GL_LINEAR;
+        case Filter::Nearest:
+            return GL_NEAREST;
+        case Filter::Linear:
+            return GL_LINEAR;
+        case Filter::Mipmap:
+            return GL_LINEAR;
     }
     return GL_LINEAR;
 }
 inline GLint toGLWrap(Wrap wrap) {
     switch(wrap) {
-        case Wrap::Clamp: return GL_CLAMP_TO_EDGE;
-        case Wrap::Repeat: return GL_REPEAT;
+        case Wrap::Clamp:
+            return GL_CLAMP_TO_EDGE;
+        case Wrap::Repeat:
+            return GL_REPEAT;
     }
     return GL_REPEAT;
 }
 
 static const char* const shaderVersionDirective = "#version 410 core\n";
 static const char* const shaderCubeMapDef = "#define INTERFACE_SHADERTOY_CUBE_MAP\n";
+static const char* const shaderCubeMapFlippedYDef = "#define INTERFACE_SHADERTOY_CUBE_MAP_FLIPPED_Y\n";
 static const char* const shaderVertexSrc = R"(
 layout (location = 0) in vec2 pos;
 layout (location = 1) in vec2 texCoord;
@@ -105,7 +114,12 @@ void main() {
 #ifndef INTERFACE_SHADERTOY_CUBE_MAP
     mainImage(output_color, f_fragCoord);
 #else
-    mainCubemap(output_color, f_fragCoord, vec3(0.0), normalize(f_point));
+    #ifdef INTERFACE_SHADERTOY_CUBE_MAP_FLIPPED_Y
+        vec3 flippedDir = vec3(f_point.x, -f_point.y, f_point.z);
+        mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(flippedDir));
+    #else
+        mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(f_point));
+    #endif
 #endif
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(clamp(output_color.xyz, vec3(0.0f), vec3(1.0f)), 1.0f);
@@ -291,10 +305,16 @@ public:
         : mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) } {
         std::string vertexSrc = shaderVersionDirective;
         std::string pixelSrc = shaderVersionDirective;
-        if(type == NodeType::CubeMap) {
+        if(type == NodeType::CubeMap || type == NodeType::CubeMapFlippedY) {
             vertexSrc += shaderCubeMapDef;
             pixelSrc += shaderCubeMapDef;
         }
+
+        if(type == NodeType::CubeMapFlippedY) {
+            vertexSrc += shaderCubeMapFlippedYDef;
+            pixelSrc += shaderCubeMapFlippedYDef;
+        }
+
         vertexSrc += shaderVertexSrc;
         pixelSrc += shaderPixelHeader;
         for(auto& channel : mChannels) {
@@ -313,9 +333,9 @@ public:
         const auto vertexSrcData = vertexSrc.c_str();
         const auto pixelSrcData = pixelSrc.c_str();
 
-//        std::cout << "---- Vertex Shader ----" << std::endl;
-//        std::cout << vertexSrc << std::endl;
-//        std::cout << "------------------------" << std::endl;
+        //std::cout << "---- Vertex Shader ----" << std::endl;
+        //std::cout << vertexSrc << std::endl;
+        //std::cout << "------------------------" << std::endl;
 
         const auto shaderVertex = glCreateShader(GL_VERTEX_SHADER);
         auto vertGuard = scopeExit([&] { glDeleteShader(shaderVertex); });
@@ -323,10 +343,9 @@ public:
         glCompileShader(shaderVertex);
         checkShaderCompileError(shaderVertex, "VERTEX");
 
-//        std::cout << "---- Pixel Shader ----" << std::endl;
-//        std::cout << pixelSrc << std::endl;
-//        std::cout << "-----------------------" << std::endl;
-
+        //std::cout << "---- Pixel Shader ----" << std::endl;
+        //std::cout << pixelSrc << std::endl;
+        //std::cout << "-----------------------" << std::endl;
 
         const auto shaderPixel = glCreateShader(GL_FRAGMENT_SHADER);
         auto pixelGuard = scopeExit([&] { glDeleteShader(shaderPixel); });
@@ -387,9 +406,9 @@ public:
             ImVec2 size, base, fbSize, uniformSize;
             if(buffer) {
                 base = { 0, 0 };
-                size = mType == NodeType::CubeMap ? cubeMapSize : screenSize;
+                size = (mType == NodeType::CubeMap || mType == NodeType::CubeMapFlippedY) ? cubeMapSize : screenSize;
                 fbSize = size;
-                uniformSize = mType == NodeType::CubeMap ? cubeMapSize : canvasSize;
+                uniformSize = (mType == NodeType::CubeMap  || mType == NodeType::CubeMapFlippedY) ? cubeMapSize : canvasSize;
                 glViewport(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y));
                 glDisable(GL_SCISSOR_TEST);
                 buffer->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
@@ -752,16 +771,16 @@ public:
                          GL_RGBA, GL_UNSIGNED_BYTE, data.data());  // R8G8B8A8
             glBindTexture(GL_TEXTURE_2D, GL_NONE);
         }
-        
+
         auto fb = std::make_unique<GLFrameBuffer>();
         fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
-        
+
         // Render all passes, not just the first one
         for(const auto& pass : mRenderPasses) {
-            pass->render(size, ImVec2{0,0}, size, size, uniform,
-                         pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+            pass->render(size, ImVec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
+                         mVBO);
         }
-        
+
         std::vector<uint8_t> buffer(static_cast<size_t>(size.x) * static_cast<size_t>(size.y) * 3);
         glReadPixels(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
         fb->unbind();
