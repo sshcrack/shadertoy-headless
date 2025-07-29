@@ -37,8 +37,6 @@ using HelloImGui::EmToVec2;
 
 SHADERTOY_NAMESPACE_BEGIN
 
-
-
 ShaderToyEditor::ShaderToyEditor() {
     const auto lang = TextEditor::LanguageDefinition::GLSL();
     // TODO: more keywords/built-ins
@@ -59,7 +57,6 @@ void ShaderToyEditor::setText(const std::string& str) {
     mEditor.SetText(str);
 }
 
-
 static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     // Normalized pixel coordinates (from 0 to 1)
@@ -73,7 +70,8 @@ static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in 
 }
 )";
 
-static constexpr auto initialCubeMap = R"(void mainCubemap( out vec4 fragColor, in vec2 fragCoord, in vec3 rayOri, in vec3 rayDir )
+static constexpr auto initialCubeMap =
+    R"(void mainCubemap( out vec4 fragColor, in vec2 fragCoord, in vec3 rayOri, in vec3 rayDir )
 {
     // Ray direction as color
     vec3 col = 0.5 + 0.5*rayDir;
@@ -420,7 +418,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                 }
                 frameBufferMap.emplace(node, std::move(buffers));
             } else {
-                std::string msg = "Unsupported shader type" ;
+                std::string msg = "Unsupported shader type";
                 HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
                 throw std::runtime_error(msg);
             }
@@ -489,7 +487,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
             }
             default: {
                 std::string msg = "Not implemented node class in buildPipeline";
-                //reportNotImplemented();
+                // reportNotImplemented();
                 throw std::runtime_error(msg);
             }
         }
@@ -498,7 +496,7 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
     return pipeline;
 }
 
-std::expected<void, std::runtime_error> PipelineEditor::build(ShaderToyContext &context) {
+std::expected<void, std::runtime_error> PipelineEditor::build(ShaderToyContext& context) {
     try {
         const auto start = Clock::now();
         context.reset(buildPipeline());
@@ -509,12 +507,12 @@ std::expected<void, std::runtime_error> PipelineEditor::build(ShaderToyContext &
         return {};
     } catch(const std::runtime_error& e) {
         return std::unexpected(e);
-    } catch (const std::exception& ex) {
+    } catch(const std::exception& ex) {
         return std::unexpected(std::runtime_error(ex.what()));
     }
 }
 
-std::expected<void, std::runtime_error> PipelineEditor::update(ShaderToyContext &context) {
+std::expected<void, std::runtime_error> PipelineEditor::update(ShaderToyContext& context) {
     if(mShouldBuildPipeline) {
         auto res = build(context);
         mShouldBuildPipeline = false;
@@ -591,7 +589,6 @@ std::unique_ptr<Node> EditorKeyboard::toSTTF() const {
     return std::make_unique<Keyboard>();
 }
 void EditorKeyboard::fromSTTF(Node&) {}
-
 
 std::expected<void, std::exception> PipelineEditor::loadFromShaderToy(const std::string& path) {
     try {
@@ -840,27 +837,22 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         return &texture;
     };
     std::unordered_set<std::string> passIds;
-    std::unordered_set<int> dynamicCubeMapChannels;
+
+    // Look at any index.html at EffectPass.prototype.NewTexture if(assetID_to_cubemapBuferId)
     const auto isDynamicCubeMap = [&](nlohmann::json& tex) {
         const auto id = tex.at("id").get<std::string>();
-        return passIds.count(id) != 0 || dynamicCubeMapChannels.count(tex.value("channel", -1)) != 0;
+        return id == "4dX3Rr";
     };
+
     std::string common;
     for(auto& pass : renderPasses) {
         if(pass.at("name").get<std::string>().empty()) {
             pass.at("name") = generateUniqueName(pass.at("type").get<std::string>());
         }
 
-        // Maybe pass.at("inputs").empty() is not needed?
-        if( !pass.at("outputs").empty() && pass.at("type").get<std::string>() == "cubemap") {
-            // The output contains no input, so this is a dynamic cube map
-            dynamicCubeMapChannels.insert(pass.at("outputs")[0].at("channel").get<int>());
-        }
-
         if(pass.at("outputs").empty()) {
             pass.at("outputs").push_back(nlohmann::json::object({ { "id", "tmp" + std::to_string(nextId()) } }));
         }
-
 
         passIds.insert(pass.at("outputs")[0].at("id").get<std::string>());
     }
@@ -933,14 +925,35 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
 
             for(auto& input : pass.at("inputs")) {
                 auto inputType = input.at("type").get<std::string>();
-                if(!(inputType == "buffer" || (inputType == "cubemap" && isDynamicCubeMap(input)))) {
+                std::cout << "Input type: " << input.dump(2) << std::endl;
+                bool dynamicCubeMap = inputType == "cubemap" && isDynamicCubeMap(input);
+                if(inputType != "buffer" && !dynamicCubeMap) {
                     continue;
                 }
 
                 auto channel = input.at("channel").get<uint32_t>();
                 auto inputId = input.at("id").get<std::string>();
+
+                // There is only one dynamic cube map in Shadertoy, so we can safely use the first one
+                if(dynamicCubeMap) {
+                    for(auto& innerPass : renderPasses) {
+                        if(innerPass.at("type").get<std::string>() != "cubemap") {
+                            continue;
+                        }
+
+                        if(innerPass.at("outputs").empty())
+                            continue;
+
+                        inputId = innerPass.at("outputs")[0].at("id").get<std::string>();
+                        channel = innerPass.at("outputs")[0].at("channel").get<uint32_t>();
+                        break;
+                    }
+                }
+
                 if(!newShaderNodes.contains(inputId)) {
                     // Shadertoy doesn't fail when an input is missing, so we create a default dummy node
+                    Log(HelloImGui::LogLevel::Warning, "Input %s is missing, creating a dummy node", inputId.c_str());
+
                     auto& inputNode = spawnShader(inputType != "cubemap" ? NodeType::Image : NodeType::CubeMap);
                     inputNode.editor.setText(common + (inputType == "cubemap" ? initialCubeMap : initialBuffer));
                     inputNode.name = inputId;
@@ -971,6 +984,5 @@ std::string PipelineEditor::getShaderName() const {
             return v;
     return "untitled";
 }
-
 
 SHADERTOY_NAMESPACE_END

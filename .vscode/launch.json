@@ -5,29 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) Launch",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/shadertoy-headless",
-            "args": ["https://www.shadertoy.com/view/Xlcczj"],
-            "stopAtEntry": false,
-            "cwd": "${fileDirname}",
+            "name": "Launch Debug Window",
             "preLaunchTask": "CMake: Build Debug Window",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                },
-                {
-                    "description": "Set Disassembly Flavor to Intel",
-                    "text": "-gdb-set disassembly-flavor intel",
-                    "ignoreFailures": true
-                }
-            ]
+            "program": "${workspaceFolder}/build/bin/shadertoy-headless",
+            "args": ["https://www.shadertoy.com/view/WX3Xzs"], // this doesn't work properly https://www.shadertoy.com/view/4t3yzj
+            "cwd": "${workspaceFolder}"
         }
 
     ]
