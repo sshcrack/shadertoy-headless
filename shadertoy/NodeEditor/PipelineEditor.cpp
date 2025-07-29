@@ -405,14 +405,15 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
             } else if(node->type == NodeType::CubeMap || node->type == NodeType::CubeMapFlippedY) {
                 std::vector<DoubleBufferedFB> buffers;
                 buffers.reserve(6);
+                bool flipY = (node->type == NodeType::CubeMapFlippedY);
                 if(requireDoubleBuffer.count(node)) {
-                    auto t1 = pipeline->createCubeMapFrameBuffer();
-                    auto t2 = pipeline->createCubeMapFrameBuffer();
+                    auto t1 = pipeline->createCubeMapFrameBuffer(flipY);
+                    auto t2 = pipeline->createCubeMapFrameBuffer(flipY);
                     for(uint32_t idx = 0; idx < 6; ++idx)
                         buffers.emplace_back(t1[idx], t2[idx]);
                 } else {
                     assert(node != directRenderNode);
-                    auto t = pipeline->createCubeMapFrameBuffer();
+                    auto t = pipeline->createCubeMapFrameBuffer(flipY);
                     for(uint32_t idx = 0; idx < 6; ++idx)
                         buffers.emplace_back(t[idx]);
                 }
@@ -896,7 +897,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
                         if(input.at("type").get<std::string>() != "cubemap" || !isDynamicCubeMap(input))
                             continue;
                         if(input["sampler"].at("vflip").get<std::string>() == "true") {
-                            nodeType = NodeType::CubeMapFlippedY;
+                            //nodeType = NodeType::CubeMapFlippedY;
                             shouldBreak = true;
 
                             break;

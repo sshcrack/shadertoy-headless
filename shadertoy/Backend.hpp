@@ -106,7 +106,7 @@ public:
     virtual ~Pipeline() = default;
 
     virtual FrameBuffer* createFrameBuffer() = 0;
-    virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
+    virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer(bool flipY = false) = 0;
     virtual void addPass(const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
                          std::vector<Channel> channels, bool clampOutput) = 0;
     virtual void render(ImVec2 frameBufferSize, ImVec2 clipMin, ImVec2 clipMax, ImVec2 size, const ShaderToyUniform& uniform) = 0;

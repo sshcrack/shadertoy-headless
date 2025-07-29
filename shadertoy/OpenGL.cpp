@@ -114,12 +114,7 @@ void main() {
 #ifndef INTERFACE_SHADERTOY_CUBE_MAP
     mainImage(output_color, f_fragCoord);
 #else
-    #ifdef INTERFACE_SHADERTOY_CUBE_MAP_FLIPPED_Y
-        vec3 flippedDir = vec3(f_point.x, -f_point.y, f_point.z);
-        mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(flippedDir));
-    #else
-        mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(f_point));
-    #endif
+    mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(f_point));
 #endif
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(clamp(output_color.xyz, vec3(0.0f), vec3(1.0f)), 1.0f);
@@ -140,14 +135,17 @@ constexpr Vec3 cubeMapVertexPos[8] = { { -1.0f, -1.0f, -1.0f }, { -1.0f, -1.0f, 
                                        { -1.0f, 1.0f, -1.0f },  { -1.0f, 1.0f, 1.0f },   //
                                        { 1.0f, -1.0f, -1.0f },  { 1.0f, -1.0f, 1.0f },   //
                                        { 1.0f, 1.0f, -1.0f },   { 1.0f, 1.0f, 1.0f } };
-// left-bottom left-top right-top right-bottom
+// OpenGL cubemap face order: +X, -X, +Y, -Y, +Z, -Z (0,1,2,3,4,5)
+// Vertices are ordered: left-bottom, left-top, right-top, right-bottom
+// NOTE: The render code swaps +Y (idx=2) and -Y (idx=3) for CubeMapFlippedY
+// So we need to design indices accounting for this swap
 constexpr uint32_t cubeMapVertexIndex[6][4] = {
-    { 4, 6, 7, 5 },  // right
-    { 1, 3, 2, 0 },  // left
-    { 2, 3, 7, 6 },  // top
-    { 1, 0, 4, 5 },  // bottom
-    { 5, 7, 3, 1 },  // back
-    { 0, 2, 6, 4 }   // front
+    { 5, 7, 6, 4 },  // +X (right face)
+    { 0, 2, 3, 1 },  // -X (left face)  
+    { 1, 5, 4, 0 },  // +Y (top face): corrected orientation
+    { 2, 6, 7, 3 },  // -Y (bottom face): corrected orientation  
+    { 1, 3, 7, 5 },  // +Z (back face)
+    { 4, 6, 2, 0 }   // -Z (front face)
 };
 
 struct VertexCubeMap final {  // NOLINT(cppcoreguidelines-pro-type-member-init)
@@ -310,11 +308,6 @@ public:
             pixelSrc += shaderCubeMapDef;
         }
 
-        if(type == NodeType::CubeMapFlippedY) {
-            vertexSrc += shaderCubeMapFlippedYDef;
-            pixelSrc += shaderCubeMapFlippedYDef;
-        }
-
         vertexSrc += shaderVertexSrc;
         pixelSrc += shaderPixelHeader;
         for(auto& channel : mChannels) {
@@ -333,9 +326,9 @@ public:
         const auto vertexSrcData = vertexSrc.c_str();
         const auto pixelSrcData = pixelSrc.c_str();
 
-        //std::cout << "---- Vertex Shader ----" << std::endl;
-        //std::cout << vertexSrc << std::endl;
-        //std::cout << "------------------------" << std::endl;
+        // std::cout << "---- Vertex Shader ----" << std::endl;
+        // std::cout << vertexSrc << std::endl;
+        // std::cout << "------------------------" << std::endl;
 
         const auto shaderVertex = glCreateShader(GL_VERTEX_SHADER);
         auto vertGuard = scopeExit([&] { glDeleteShader(shaderVertex); });
@@ -343,9 +336,9 @@ public:
         glCompileShader(shaderVertex);
         checkShaderCompileError(shaderVertex, "VERTEX");
 
-        //std::cout << "---- Pixel Shader ----" << std::endl;
-        //std::cout << pixelSrc << std::endl;
-        //std::cout << "-----------------------" << std::endl;
+        // std::cout << "---- Pixel Shader ----" << std::endl;
+        // std::cout << pixelSrc << std::endl;
+        // std::cout << "-----------------------" << std::endl;
 
         const auto shaderPixel = glCreateShader(GL_FRAGMENT_SHADER);
         auto pixelGuard = scopeExit([&] { glDeleteShader(shaderPixel); });
@@ -408,7 +401,7 @@ public:
                 base = { 0, 0 };
                 size = (mType == NodeType::CubeMap || mType == NodeType::CubeMapFlippedY) ? cubeMapSize : screenSize;
                 fbSize = size;
-                uniformSize = (mType == NodeType::CubeMap  || mType == NodeType::CubeMapFlippedY) ? cubeMapSize : canvasSize;
+                uniformSize = (mType == NodeType::CubeMap || mType == NodeType::CubeMapFlippedY) ? cubeMapSize : canvasSize;
                 glViewport(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y));
                 glDisable(GL_SCISSOR_TEST);
                 buffer->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
@@ -439,16 +432,30 @@ public:
                 }
                 glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(Vertex), vertices.data(), GL_STREAM_DRAW);
             } else {
+                // For flipped Y cubemaps, swap +Y (idx=2) and -Y (idx=3) face geometry
+                // AND flip Y coordinates to match ShaderToy's vflip behavior
+                uint32_t geometryIdx = idx;
+
                 std::array vertices{
                     VertexCubeMap{ ImVec2{ base.x, base.y + size.y }, ImVec2{ 0.0, 0.0 },
-                                   cubeMapVertexPos[cubeMapVertexIndex[idx][0]] },  // left-bottom
+                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][0]] },  // left-bottom
                     VertexCubeMap{ ImVec2{ base.x, base.y }, ImVec2{ 0.0, uniformSize.y },
-                                   cubeMapVertexPos[cubeMapVertexIndex[idx][1]] },  // left-top
+                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][1]] },  // left-top
                     VertexCubeMap{ ImVec2{ base.x + size.x, base.y }, ImVec2{ uniformSize.x, uniformSize.y },
-                                   cubeMapVertexPos[cubeMapVertexIndex[idx][2]] },  // right-top
+                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][2]] },  // right-top
                     VertexCubeMap{ ImVec2{ base.x + size.x, base.y + size.y }, ImVec2{ uniformSize.x, 0.0 },
-                                   cubeMapVertexPos[cubeMapVertexIndex[idx][3]] },  // right-bottom
+                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][3]] },  // right-bottom
                 };
+
+                // For Y-flipped cubemaps, also flip Y coordinates of all faces
+                // to match ShaderToy's UNPACK_FLIP_Y_WEBGL behavior
+                if(mType == NodeType::CubeMapFlippedY) {
+                    for(auto& [pos, coord, point] : vertices) {
+                        // Flip the 3D point's Y coordinate
+                        point[1] = -point[1];
+                    }
+                }
+
                 for(auto& [pos, coord, point] : vertices) {
                     pos.x = pos.x / fbSize.x * 2.0f - 1.0f;
                     pos.y = 1.0f - pos.y / fbSize.y * 2.0f;
@@ -725,9 +732,12 @@ public:
         mCubeMapRenderTargets.push_back(std::make_unique<GLCubeMapRenderTarget>());
         return mCubeMapRenderTargets.back().get();
     }
-    std::vector<FrameBuffer*> createCubeMapFrameBuffer() override {
+    std::vector<FrameBuffer*> createCubeMapFrameBuffer(bool flipY = false) override {
         std::vector<FrameBuffer*> buffers;
         const auto target = createCubeMapRenderTarget();
+
+        // Face order: +X, -X, +Y, -Y, +Z, -Z (0,1,2,3,4,5)
+        // Note: flipY handling is done in vertex/rendering stage, not framebuffer attachment
         for(uint32_t idx = 0; idx < 6; ++idx) {
             mFrameBuffers.push_back(std::make_unique<GLCubeMapFrameBuffer>(target->getTexture(), idx));
             buffers.emplace_back(mFrameBuffers.back().get());
