@@ -897,7 +897,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
                         if(input.at("type").get<std::string>() != "cubemap" || !isDynamicCubeMap(input))
                             continue;
                         if(input["sampler"].at("vflip").get<std::string>() == "true") {
-                            //nodeType = NodeType::CubeMapFlippedY;
+                            nodeType = NodeType::CubeMapFlippedY;
                             shouldBreak = true;
 
                             break;
