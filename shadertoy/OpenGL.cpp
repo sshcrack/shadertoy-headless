@@ -72,16 +72,16 @@ uniform vec3 iChannelResolution[4];
 #define char char_
 )";
 
-static const char* const shaderPixelFooter = R"(
+static const char* const shaderPixelFooter =  R"(
 void main() {
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 #endif
     vec4 output_color = vec4(1e20f);
 #ifndef INTERFACE_SHADERTOY_CUBE_MAP
-    mainImage(output_color, f_fragCoord);
+    mainImage(output_color, gl_FragCoord.xy);
 #else
-    mainCubemap(output_color, f_fragCoord, vec3(0.0), normalize(f_point));
+    mainCubemap(output_color, gl_FragCoord.xy, vec3(0.0), normalize(f_point));
 #endif
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(clamp(output_color.xyz, vec3(0.0f), vec3(1.0f)), 1.0f);

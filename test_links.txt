@@ -13,3 +13,5 @@ Volumes:
 
 Not working:
     https://www.shadertoy.com/view/WscyWB
+        https://www.shadertoy.com/view/wXdSDB
+        Debug Sample: https://www.shadertoy.com/view/W3dSRl
