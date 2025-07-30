@@ -642,8 +642,9 @@ public:
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, toGLWrap(wrapMode));
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, toGLWrap(wrapMode));
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, toGLWrap(wrapMode));
-        GLenum format = channels == 1 ? GL_R8 : GL_RGBA;
-        glTexImage3D(GL_TEXTURE_3D, 0, format, static_cast<GLsizei>(size), static_cast<GLsizei>(size), static_cast<GLsizei>(size),
+        GLenum internalFormat = channels == 1 ? GL_R8 : GL_RGBA;
+        GLenum format = channels == 1 ? GL_RED : GL_RGBA;
+        glTexImage3D(GL_TEXTURE_3D, 0, internalFormat, static_cast<GLsizei>(size), static_cast<GLsizei>(size), static_cast<GLsizei>(size),
                      0, format, GL_UNSIGNED_BYTE, data);  // R8G8B8A8
         glGenerateMipmap(GL_TEXTURE_3D);
         glBindTexture(GL_TEXTURE_3D, GL_NONE);
