@@ -142,8 +142,8 @@ constexpr Vec3 cubeMapVertexPos[8] = { { -1.0f, -1.0f, -1.0f }, { -1.0f, -1.0f, 
 constexpr uint32_t cubeMapVertexIndex[6][4] = {
     { 5, 7, 6, 4 },  // +X (right face)
     { 0, 2, 3, 1 },  // -X (left face)
-    { 0, 1, 5, 4 },  // +Y (top face): corrected orientation
-    { 3, 2, 6, 7 },  // -Y (bottom face): rotated 90°
+    { 0, 1, 5, 4 },  // +Y (top face)
+    { 3, 2, 6, 7 },  // -Y (bottom face)
     { 1, 3, 7, 5 },  // +Z (back face)
     { 4, 6, 2, 0 }   // -Z (front face)
 };
