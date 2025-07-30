@@ -139,8 +139,6 @@ struct EditorCubeMap final : EditorNode {
 struct EditorVolume final : EditorNode {
     std::vector<uint8_t> pixel;
     std::unique_ptr<TextureObject> textureId;
-    Filter filter = Filter::Mipmap;
-    Wrap wrapMode = Wrap::Repeat;
 
     EditorVolume(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;

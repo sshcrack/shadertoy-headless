@@ -116,7 +116,7 @@ public:
 
 std::unique_ptr<TextureObject> loadTexture(uint32_t width, uint32_t height, const uint32_t* data);
 std::unique_ptr<TextureObject> loadCubeMap(uint32_t size, const uint32_t* data);
-std::unique_ptr<TextureObject> loadVolume(uint32_t size, uint32_t channels, const uint8_t* data, Filter filter, Wrap wrapMode);
+std::unique_ptr<TextureObject> loadVolume(uint32_t size, uint32_t channels, const uint8_t* data);
 std::unique_ptr<Pipeline> createPipeline();
 
 SHADERTOY_NAMESPACE_END

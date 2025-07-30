@@ -581,12 +581,7 @@ std::unique_ptr<Node> EditorVolume::toSTTF() const {
 void EditorVolume::fromSTTF(Node& node) {
     const auto& texture = dynamic_cast<Volume&>(node);
     pixel = texture.pixel;
-    // Use default filter and wrap mode, since Volume has no sampler member
-    Filter filter = Filter::Linear;
-    Wrap wrapMode = Wrap::Repeat;
-    this->filter = filter;
-    this->wrapMode = wrapMode;
-    textureId = loadVolume(texture.size, texture.channels, pixel.data(), filter, wrapMode);
+    textureId = loadVolume(texture.size, texture.channels, pixel.data());
 }
 
 std::unique_ptr<Node> EditorLastFrame::toSTTF() const {
@@ -842,7 +837,7 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         const auto start = img->body.data() + 20;
         const auto end = start + points;
         texture.pixel = std::vector<uint8_t>{ start, end };
-        texture.textureId = loadVolume(size, channels, texture.pixel.data(), texture.filter, texture.wrapMode);
+        texture.textureId = loadVolume(size, channels, texture.pixel.data());
 
         volumeCache.emplace(id, &texture);
         return &texture;

@@ -28,41 +28,8 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
-inline GLint toGLMinFilter(Filter filter) {
-    switch(filter) {
-        case Filter::Nearest:
-            return GL_NEAREST_MIPMAP_NEAREST;
-        case Filter::Linear:
-            return GL_LINEAR_MIPMAP_LINEAR;
-        case Filter::Mipmap:
-            return GL_LINEAR_MIPMAP_LINEAR;
-    }
-    return GL_LINEAR_MIPMAP_LINEAR;
-}
-inline GLint toGLMagFilter(Filter filter) {
-    switch(filter) {
-        case Filter::Nearest:
-            return GL_NEAREST;
-        case Filter::Linear:
-            return GL_LINEAR;
-        case Filter::Mipmap:
-            return GL_LINEAR;
-    }
-    return GL_LINEAR;
-}
-inline GLint toGLWrap(Wrap wrap) {
-    switch(wrap) {
-        case Wrap::Clamp:
-            return GL_CLAMP_TO_EDGE;
-        case Wrap::Repeat:
-            return GL_REPEAT;
-    }
-    return GL_REPEAT;
-}
-
 static const char* const shaderVersionDirective = "#version 410 core\n";
 static const char* const shaderCubeMapDef = "#define INTERFACE_SHADERTOY_CUBE_MAP\n";
-static const char* const shaderCubeMapFlippedYDef = "#define INTERFACE_SHADERTOY_CUBE_MAP_FLIPPED_Y\n";
 static const char* const shaderVertexSrc = R"(
 layout (location = 0) in vec2 pos;
 layout (location = 1) in vec2 texCoord;
@@ -630,18 +597,13 @@ class GLVolumeObject final : public TextureObject {
     ImVec2 mSize;
 
 public:
-    GLVolumeObject(uint32_t size, uint32_t channels, const uint8_t* data, Filter filter, Wrap wrapMode)
+    GLVolumeObject(uint32_t size, uint32_t channels, const uint8_t* data)
         : mSize{ static_cast<float>(size), static_cast<float>(size) } {
         glGenTextures(1, &mTex);
         glBindTexture(GL_TEXTURE_3D, mTex);
         assert(data);
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(std::log2(size)));
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, toGLMinFilter(filter));
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, toGLMagFilter(filter));
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, toGLWrap(wrapMode));
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, toGLWrap(wrapMode));
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, toGLWrap(wrapMode));
         GLenum internalFormat = channels == 1 ? GL_R8 : GL_RGBA;
         GLenum format = channels == 1 ? GL_RED : GL_RGBA;
         glTexImage3D(GL_TEXTURE_3D, 0, internalFormat, static_cast<GLsizei>(size), static_cast<GLsizei>(size), static_cast<GLsizei>(size),
@@ -664,8 +626,8 @@ public:
     }
 };
 
-std::unique_ptr<TextureObject> loadVolume(uint32_t size, uint32_t channels, const uint8_t* data, Filter filter, Wrap wrapMode) {
-    return std::make_unique<GLVolumeObject>(size, channels, data, filter, wrapMode);
+std::unique_ptr<TextureObject> loadVolume(uint32_t size, uint32_t channels, const uint8_t* data) {
+    return std::make_unique<GLVolumeObject>(size, channels, data);
 }
 
 struct DynamicTexture final {
