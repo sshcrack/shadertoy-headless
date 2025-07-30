@@ -405,15 +405,14 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
             } else if(node->type == NodeType::CubeMap || node->type == NodeType::CubeMapFlippedY) {
                 std::vector<DoubleBufferedFB> buffers;
                 buffers.reserve(6);
-                bool flipY = (node->type == NodeType::CubeMapFlippedY);
                 if(requireDoubleBuffer.count(node)) {
-                    auto t1 = pipeline->createCubeMapFrameBuffer(flipY);
-                    auto t2 = pipeline->createCubeMapFrameBuffer(flipY);
+                    auto t1 = pipeline->createCubeMapFrameBuffer();
+                    auto t2 = pipeline->createCubeMapFrameBuffer();
                     for(uint32_t idx = 0; idx < 6; ++idx)
                         buffers.emplace_back(t1[idx], t2[idx]);
                 } else {
                     assert(node != directRenderNode);
-                    auto t = pipeline->createCubeMapFrameBuffer(flipY);
+                    auto t = pipeline->createCubeMapFrameBuffer();
                     for(uint32_t idx = 0; idx < 6; ++idx)
                         buffers.emplace_back(t[idx]);
                 }

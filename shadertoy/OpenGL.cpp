@@ -732,12 +732,10 @@ public:
         mCubeMapRenderTargets.push_back(std::make_unique<GLCubeMapRenderTarget>());
         return mCubeMapRenderTargets.back().get();
     }
-    std::vector<FrameBuffer*> createCubeMapFrameBuffer(bool flipY = false) override {
+    std::vector<FrameBuffer*> createCubeMapFrameBuffer() override {
         std::vector<FrameBuffer*> buffers;
         const auto target = createCubeMapRenderTarget();
 
-        // Face order: +X, -X, +Y, -Y, +Z, -Z (0,1,2,3,4,5)
-        // Note: flipY handling is done in vertex/rendering stage, not framebuffer attachment
         for(uint32_t idx = 0; idx < 6; ++idx) {
             mFrameBuffers.push_back(std::make_unique<GLCubeMapFrameBuffer>(target->getTexture(), idx));
             buffers.emplace_back(mFrameBuffers.back().get());
