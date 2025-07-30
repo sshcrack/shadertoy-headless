@@ -81,7 +81,7 @@ void main() {
 #ifndef INTERFACE_SHADERTOY_CUBE_MAP
     mainImage(output_color, f_fragCoord);
 #else
-    mainCubemap(output_color, f_fragCoord, vec3(0.0f), normalize(f_point));
+    mainCubemap(output_color, f_fragCoord, vec3(0.0), normalize(f_point));
 #endif
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(clamp(output_color.xyz, vec3(0.0f), vec3(1.0f)), 1.0f);
@@ -401,17 +401,15 @@ public:
             } else {
                 // For flipped Y cubemaps, swap +Y (idx=2) and -Y (idx=3) face geometry
                 // AND flip Y coordinates to match ShaderToy's vflip behavior
-                uint32_t geometryIdx = idx;
-
                 std::array vertices{
                     VertexCubeMap{ ImVec2{ base.x, base.y + size.y }, ImVec2{ 0.0, 0.0 },
-                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][0]] },  // left-bottom
+                                   cubeMapVertexPos[cubeMapVertexIndex[idx][0]] },  // left-bottom
                     VertexCubeMap{ ImVec2{ base.x, base.y }, ImVec2{ 0.0, uniformSize.y },
-                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][1]] },  // left-top
+                                   cubeMapVertexPos[cubeMapVertexIndex[idx][1]] },  // left-top
                     VertexCubeMap{ ImVec2{ base.x + size.x, base.y }, ImVec2{ uniformSize.x, uniformSize.y },
-                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][2]] },  // right-top
+                                   cubeMapVertexPos[cubeMapVertexIndex[idx][2]] },  // right-top
                     VertexCubeMap{ ImVec2{ base.x + size.x, base.y + size.y }, ImVec2{ uniformSize.x, 0.0 },
-                                   cubeMapVertexPos[cubeMapVertexIndex[geometryIdx][3]] },  // right-bottom
+                                   cubeMapVertexPos[cubeMapVertexIndex[idx][3]] },  // right-bottom
                 };
 
                 // For Y-flipped cubemaps, also flip Y coordinates of all faces
