@@ -1,0 +1,15 @@
+CubeMap:
+    CubeRoom: https://www.shadertoy.com/view/Xlcczj
+    Spheres for mapping:     https://www.shadertoy.com/view/t3cSRl
+                             https://www.shadertoy.com/view/WXcSzs
+
+    Fluid Simulation: https://www.shadertoy.com/view/wlG3RW
+    Precomputed: https://www.shadertoy.com/view/4ttyzn
+    Mapping: https://www.shadertoy.com/view/4t3yzj
+
+Volumes:
+    https://www.shadertoy.com/view/st2XD1
+    https://www.shadertoy.com/view/WsSBzh
+
+Not working:
+    https://www.shadertoy.com/view/WscyWB

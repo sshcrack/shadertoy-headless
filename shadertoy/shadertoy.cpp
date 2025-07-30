@@ -60,10 +60,16 @@ static void showCanvas(ShaderToyContext& ctx) {
         const auto base = ImGui::GetCursorScreenPos();
         std::optional<ImVec4> mouse = std::nullopt;
         ImGui::InvisibleButton("CanvasArea", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        if(ImGui::IsItemHovered() && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            const auto pos = ImGui::GetMousePos();
+            mouse = ImVec4(pos.x - base.x, size.y - (pos.y - base.y), 1.0f,
+                           ImGui::IsMouseClicked(ImGuiMouseButton_Left) ? 1.0f : -1.0f);
+        }
 
         ctx.render(base, size, mouse);
-        ImGui::EndChild();
     }
+
+    ImGui::EndChild();
 }
 
 int shaderToyMain(int argc, char** argv) {
