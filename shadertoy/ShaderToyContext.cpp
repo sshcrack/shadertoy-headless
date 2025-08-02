@@ -118,9 +118,12 @@ void ShaderToyContext::reset(std::unique_ptr<Pipeline> pipeline) {
     mPipeline = std::move(pipeline);
     reset();
 }
-std::vector<uint8_t> ShaderToyContext::renderToBuffer(ImVec2 size) {
+std::vector<uint8_t> ShaderToyContext::renderToBuffer(ImVec2 size, ImGuiContext *ctx) {
     if (!mPipeline) return {};
     ShaderToyUniform uniform{ mTime, mTimeDelta, mFrameRate, mFrameCount, mMouse, mDate };
+
+    if (ctx != nullptr)
+        ImGui::SetCurrentContext(ctx);
     return mPipeline->renderToBuffer(size, uniform);
 }
 

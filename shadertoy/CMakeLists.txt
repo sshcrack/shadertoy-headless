@@ -44,7 +44,10 @@ else()
     )
 
     find_package(nlohmann_json 3.2.0 REQUIRED)
-    find_package(hello-imgui CONFIG REQUIRED)
+
+    if(NOT TARGET hello-imgui::hello_imgui)
+        find_package(hello_imgui CONFIG REQUIRED)
+    endif()
 
     target_link_libraries(shadertoy-headless PRIVATE hello-imgui::hello_imgui nlohmann_json::nlohmann_json)
 endif()

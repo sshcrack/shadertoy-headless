@@ -58,7 +58,7 @@ public:
     void reset(std::unique_ptr<Pipeline> pipeline);
 
     // Renders the scene to a buffer and returns the pixel data (RGB, row-major)
-    std::vector<uint8_t> renderToBuffer(ImVec2 size);
+    std::vector<uint8_t> renderToBuffer(ImVec2 size, ImGuiContext *ctx = nullptr);
 
     [[nodiscard]] ImVec4 getMouseStatus() const noexcept {
         return mMouse;
