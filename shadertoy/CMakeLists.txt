@@ -47,7 +47,6 @@ add_library(shadertoy-headless ${SHADERTOY_SRC} ${SHADERTOY_HEADERS} ${CPP_BASE6
 
 # Compile features and options
  target_compile_features(shadertoy-headless PRIVATE cxx_std_23)
- set_target_properties(shadertoy-headless PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     set_source_files_properties(${SHADERTOY_SRC} PROPERTIES COMPILE_FLAGS "/Wall /WX /wd4514 /wd4820 /wd4623 /wd4625 /wd4626 /wd5026 /wd5027 /wd4061 /wd5045 /wd4365 /wd4868 /wd4710 /wd5262 /wd4711 /wd4738 /D_CRT_SECURE_NO_WARNINGS /D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS")
