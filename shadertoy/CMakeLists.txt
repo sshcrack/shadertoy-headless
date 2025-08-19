@@ -81,7 +81,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/shadertoy-headless-config.cmake"
 "find_dependency(OpenSSL REQUIRED)\n"
 "find_dependency(nlohmann_json 3.2.0 REQUIRED)\n"
 "find_dependency(hello-imgui CONFIG REQUIRED)\n"
-"include(\"${CMAKE_CURRENT_LIST_DIR}/shadertoy-headless-targets.cmake\")\n"
+"include(\"\${CMAKE_CURRENT_LIST_DIR}/shadertoy-headless-targets.cmake\")\n"
 )
 
 # Install the generated config file
