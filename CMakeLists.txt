@@ -1,26 +1,7 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.10)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+project(shadertoy-headless)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+include(GNUInstallDirs)
 
-SET(CMAKE_FIND_PACKAGE_SORT_ORDER NATURAL)
-SET(CMAKE_FIND_PACKAGE_SORT_DIRECTION DEC)
-
-project(shadertoy VERSION 0.1.2 HOMEPAGE_URL "https://github.com/dtcxzyw/shadertoy")
-if(NOT WIN32)
-  add_compile_options(-Wno-error=shadow)
-  add_compile_options(-Wno-error=unused-function)
-endif()
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Supported build types: Debug Release" FORCE)
-endif()
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib/)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib/)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/)
-
-include_directories(${CMAKE_CURRENT_LIST_DIR})
 add_subdirectory(shadertoy)
