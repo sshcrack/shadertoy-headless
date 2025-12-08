@@ -599,19 +599,17 @@ std::expected<void, std::exception> PipelineEditor::loadFromShaderToy(const std:
     }
 }
 
-void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
-    std::vector<std::unique_ptr<EditorNode>> oldNodes;
-    oldNodes.swap(mNodes);
-    std::vector<EditorLink> oldLinks;
-    oldLinks.swap(mLinks);
-    std::vector<std::pair<std::string, std::string>> oldMetadata;
-    oldMetadata.swap(mMetadata);
-    auto guard = scopeFail([&] {
-        oldNodes.swap(mNodes);
-        oldLinks.swap(mLinks);
-        oldMetadata.swap(mMetadata);
-    });
+std::expected<void, std::exception> PipelineEditor::loadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody) {
+    try {
+        _innerLoadFromShaderToyResponse(shaderId, responseBody);
+        return {};
+    } catch(const std::exception& e) {
+        HelloImGui::Log(HelloImGui::LogLevel::Error, "Failed to load from ShaderToy response: %s", e.what());
+        return std::unexpected(e);
+    }
+}
 
+void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
     std::string_view shaderId = path;
     if(const auto pos = shaderId.find_last_of('/'); pos != std::string_view::npos)
         shaderId = shaderId.substr(pos + 1);
@@ -628,7 +626,26 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
         HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
         throw std::runtime_error(msg);
     }
-    auto json = nlohmann::json::parse(res->body);
+    _innerLoadFromShaderToyResponse(std::string(shaderId), res->body);
+}
+
+void PipelineEditor::_innerLoadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody) {
+    std::vector<std::unique_ptr<EditorNode>> oldNodes;
+    oldNodes.swap(mNodes);
+    std::vector<EditorLink> oldLinks;
+    oldLinks.swap(mLinks);
+    std::vector<std::pair<std::string, std::string>> oldMetadata;
+    oldMetadata.swap(mMetadata);
+    auto guard = scopeFail([&] {
+        oldNodes.swap(mNodes);
+        oldLinks.swap(mLinks);
+        oldMetadata.swap(mMetadata);
+    });
+
+    const auto url = fmt::format("https://www.shadertoy.com/view/{}", shaderId);
+    HelloImGui::Log(HelloImGui::LogLevel::Info, "Loading from response for shader ID: %s", shaderId.c_str());
+    
+    auto json = nlohmann::json::parse(responseBody);
     if(!json.is_array()) {
         std::string msg = "Invalid response from shadertoy.com";
         HelloImGui::Log(HelloImGui::LogLevel::Error, msg.c_str());
@@ -681,6 +698,12 @@ void PipelineEditor::_innerLoadFromShaderToy(const std::string& path) {
             keyboard = &spawnKeyboard();
         return keyboard;
     };
+    
+    // Setup HTTP client for downloading textures
+    httplib::SSLClient client{ "www.shadertoy.com" };
+    httplib::Headers headers;
+    headers.emplace("referer", url);
+    
     std::unordered_map<std::string, EditorTexture*> textureCache;
     auto getTexture = [&](nlohmann::json& tex) -> EditorTexture* {
         const auto id = tex.at("id").get<std::string>();

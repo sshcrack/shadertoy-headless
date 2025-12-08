@@ -207,6 +207,7 @@ class PipelineEditor final {
 
     friend struct EditorLastFrame;
     void _innerLoadFromShaderToy(const std::string& path);
+    void _innerLoadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody);
 
 public:
     PipelineEditor();
@@ -216,6 +217,7 @@ public:
 
     std::expected<void, std::runtime_error> update(ShaderToyContext &context);
     std::expected<void, std::exception> loadFromShaderToy(const std::string& path);
+    std::expected<void, std::exception> loadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody);
     void resetPipeline();
     [[nodiscard]] std::string getShaderName() const;
 
