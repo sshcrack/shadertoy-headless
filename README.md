@@ -32,6 +32,50 @@ See [examples](examples) for more shaders.
 
 ## Features
 
+### Host audio / music visualization
+
+Embedders can feed live music analysis through `ShaderToyContext::setAudioInput()`.
+Shaders that declare a ShaderToy `music`, `musicstream`, `mic`, or `audio` input receive
+the conventional 512x2 audio texture in their assigned `iChannelN`:
+
+- row 0: normalized spectrum, low frequencies on the left;
+- row 1: waveform, encoded as 0..1 (use `sampleAudioWaveform()` to get -1..1).
+
+The renderer also exposes semantic aliases to every shader, including
+`iAudioLoudness`, `iAudioBass`, `iAudioMid`, `iAudioTreble`, `iAudioKick`,
+`iAudioSnare`, `iAudioHihat`, `iAudioOnset`, `iAudioBpm`, `iAudioBeatPhase`,
+`iAudioBeatConfidence`, `iAudioBeatStrength`, `iAudioDrop`, and
+`iAudioSectionChange`. `iAudioAvailable` is 1 when the host supplied a current
+frame. The aliases are backed by a small set of packed uniforms.
+
+For deterministic visual verification, configure with
+`-DSHADERTOY_BUILD_PREVIEW_TOOL=ON` and run, for example:
+
+```bash
+xvfb-run -a ./build-lib/shadertoy-preview examples/music_neon_orbit.frag preview.png 256 128 121
+```
+
+The preview CLI advances fixed frame time, injects repeatable synthetic music
+analysis, renders through the same OpenGL pipeline, writes a PNG, and prints
+basic pixel statistics. This makes generated shader work inspectable without
+launching the interactive editor.
+
+For local or AI-authored one-pass shaders, `PipelineEditor::loadImageShader()`
+creates the image pipeline directly and, by default, binds the live music texture
+to `iChannel0`. A minimal audio-reactive shader is therefore just:
+
+```glsl
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
+    float spectrum = sampleAudioSpectrum(iChannel0, clamp(abs(uv.x), 0.0, 1.0));
+    float glow = exp(-10.0 * abs(length(uv) - (0.25 + 0.12 * iAudioBass)));
+    vec3 color = (0.35 + 0.65 * cos(iTime + vec3(0.0, 2.0, 4.0)))
+               * (glow + spectrum * 0.6);
+    color *= 0.7 + 0.45 * iAudioBeatStrength;
+    fragColor = vec4(color, 1.0);
+}
+```
+
 Render passes:
 
 + [x] Image
@@ -42,14 +86,14 @@ Render passes:
 
 Channels:
 + [x] Textures
-+ [ ] Music
++ [x] Music (host-provided spectrum/waveform)
 + [ ] Video
 + [ ] Volumes
 + [x] Cubemaps
 + [x] Buffer
 + [x] Keyboard
 + [ ] Webcam
-+ [ ] Microphone
++ [x] Microphone (host-provided audio input)
 
 Utilities:
 

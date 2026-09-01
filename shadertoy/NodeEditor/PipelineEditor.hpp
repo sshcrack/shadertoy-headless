@@ -159,6 +159,16 @@ struct EditorKeyboard final : EditorNode {
     }
 };
 
+struct EditorMusic final : EditorNode {
+    EditorMusic(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
+    void fromSTTF(Node& node) override;
+
+    [[nodiscard]] NodeClass getClass() const noexcept override {
+        return NodeClass::Music;
+    }
+};
+
 struct EditorLink final {
     ed::LinkId id;
 
@@ -203,6 +213,7 @@ class PipelineEditor final {
     EditorLastFrame& spawnLastFrame();
     EditorShader& spawnShader(NodeType type);
     EditorKeyboard& spawnKeyboard();
+    EditorMusic& spawnMusic();
     std::unique_ptr<Pipeline> buildPipeline();
 
     friend struct EditorLastFrame;
@@ -218,6 +229,8 @@ public:
     std::expected<void, std::runtime_error> update(ShaderToyContext &context);
     std::expected<void, std::exception> loadFromShaderToy(const std::string& path);
     std::expected<void, std::exception> loadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody);
+    std::expected<void, std::runtime_error> loadImageShader(const std::string& name, const std::string& source,
+                                                           std::optional<uint32_t> audioChannel = 0);
     void resetPipeline();
     [[nodiscard]] std::string getShaderName() const;
 

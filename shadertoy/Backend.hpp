@@ -13,6 +13,7 @@
 */
 
 #pragma once
+#include "shadertoy/AudioInput.hpp"
 #include "STTF.hpp"
 #include "shadertoy/Config.hpp"
 #include <memory>
@@ -51,6 +52,12 @@ struct ShaderToyUniform final {
     int32_t frame{};
     ImVec4 mouse;
     ImVec4 date;
+    ImVec4 audioBands;
+    ImVec4 audioHits;
+    ImVec4 audioBeat;
+    ImVec4 audioStereo;
+    ImVec4 audioStructure;
+    ImVec4 audioMeta;
 };
 
 class TextureObject {
@@ -111,6 +118,8 @@ public:
                          std::vector<Channel> channels, bool clampOutput) = 0;
     virtual void render(ImVec2 frameBufferSize, ImVec2 clipMin, ImVec2 clipMax, ImVec2 size, const ShaderToyUniform& uniform) = 0;
     virtual TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) = 0;
+    virtual TextureId createAudioTexture() = 0;
+    virtual void setAudioInput(const AudioInput& input) = 0;
     virtual std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) = 0;
 };
 

@@ -166,6 +166,11 @@ EditorKeyboard& PipelineEditor::spawnKeyboard() {
     ret->outputs.emplace_back(nextId(), "Output", NodeType::Image);
     return buildNode(mNodes, std::move(ret));
 }
+EditorMusic& PipelineEditor::spawnMusic() {
+    auto ret = std::make_unique<EditorMusic>(nextId(), generateUniqueName("Music"));
+    ret->outputs.emplace_back(nextId(), "Output", NodeType::Image);
+    return buildNode(mNodes, std::move(ret));
+}
 EditorRenderOutput& PipelineEditor::spawnRenderOutput() {
     auto ret = std::make_unique<EditorRenderOutput>(nextId(), generateUniqueName("RenderOutput"));
     ret->inputs.emplace_back(nextId(), "Input", NodeType::Image);
@@ -489,6 +494,12 @@ std::unique_ptr<Pipeline> PipelineEditor::buildPipeline() {
                     node, DoubleBufferedTex{ pipeline->createDynamicTexture(256, 3, setupKeyboardData), TexType::Tex2D });
                 break;
             }
+            case NodeClass::Music: {
+                textureSizeMap.emplace(node, ImVec2{ static_cast<float>(AudioInput::TextureWidth),
+                                                     static_cast<float>(AudioInput::TextureHeight) });
+                textureMap.emplace(node, DoubleBufferedTex{ pipeline->createAudioTexture(), TexType::Tex2D });
+                break;
+            }
             default: {
                 std::string msg = "Not implemented node class in buildPipeline";
                 // reportNotImplemented();
@@ -588,6 +599,41 @@ std::unique_ptr<Node> EditorKeyboard::toSTTF() const {
     return std::make_unique<Keyboard>();
 }
 void EditorKeyboard::fromSTTF(Node&) {}
+
+std::unique_ptr<Node> EditorMusic::toSTTF() const {
+    return std::make_unique<Music>();
+}
+void EditorMusic::fromSTTF(Node&) {}
+
+std::expected<void, std::runtime_error> PipelineEditor::loadImageShader(const std::string& name, const std::string& source,
+                                                                        const std::optional<uint32_t> audioChannel) {
+    try {
+        if(audioChannel && *audioChannel >= 4)
+            throw std::runtime_error("Audio channel must be in the range 0..3");
+
+        mNodes.clear();
+        mLinks.clear();
+        mMetadata.clear();
+        mMetadata.emplace_back("Name", name);
+
+        auto& shader = spawnShader(NodeType::Image);
+        shader.name = name.empty() ? "Image" : name;
+        shader.editor.setText(source);
+        auto& sink = spawnRenderOutput();
+        mLinks.emplace_back(nextId(), shader.outputs.front().id, sink.inputs.front().id);
+
+        if(audioChannel) {
+            auto& music = spawnMusic();
+            mLinks.emplace_back(nextId(), music.outputs.front().id, shader.inputs[*audioChannel].id, Filter::Linear, Wrap::Clamp);
+        }
+
+        mShouldBuildPipeline = true;
+        mShouldResetLayout = true;
+        return {};
+    } catch(const std::runtime_error& e) {
+        return std::unexpected(e);
+    }
+}
 
 std::expected<void, std::exception> PipelineEditor::loadFromShaderToy(const std::string& path) {
     try {
@@ -697,6 +743,12 @@ void PipelineEditor::_innerLoadFromShaderToyResponse(const std::string& shaderId
         if(!keyboard)
             keyboard = &spawnKeyboard();
         return keyboard;
+    };
+    EditorNode* music = nullptr;
+    auto getMusic = [&] {
+        if(!music)
+            music = &spawnMusic();
+        return music;
     };
     
     // Setup HTTP client for downloading textures
@@ -901,6 +953,8 @@ void PipelineEditor::_innerLoadFromShaderToyResponse(const std::string& shaderId
                 auto channel = input.at("channel").get<uint32_t>();
                 if(inputType == "keyboard") {
                     addLink(getKeyboard(), &node, channel, &input);
+                } else if(inputType == "music" || inputType == "musicstream" || inputType == "mic" || inputType == "audio") {
+                    addLink(getMusic(), &node, channel, &input);
                 } else if(inputType == "texture") {
                     addLink(getTexture(input), &node, channel, &input);
                 } else if(inputType == "cubemap") {

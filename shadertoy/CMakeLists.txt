@@ -42,8 +42,9 @@ add_library(shadertoy-headless ${SHADERTOY_SRC} ${SHADERTOY_HEADERS} ${CPP_BASE6
 # Include directories
  target_include_directories(shadertoy-headless PUBLIC 
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> 
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-    PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    PRIVATE ${Stb_INCLUDE_DIR} ${CPP_BASE64_INCLUDE_DIRS})
 
 # Compile features and options
  target_compile_features(shadertoy-headless PRIVATE cxx_std_23)

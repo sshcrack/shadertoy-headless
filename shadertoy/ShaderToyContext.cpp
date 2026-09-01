@@ -14,6 +14,7 @@
 
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "shadertoy/ShaderToyContext.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <ctime>
@@ -25,6 +26,26 @@
 #include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
+
+namespace {
+ShaderToyUniform makeUniform(const float time, const float timeDelta, const float frameRate, const int32_t frame,
+                             const ImVec4 mouse, const ImVec4 date, const AudioInput& audio) {
+    return {
+        time,
+        timeDelta,
+        frameRate,
+        frame,
+        mouse,
+        date,
+        { audio.loudness, audio.bass, audio.mid, audio.treble },
+        { audio.onset, audio.kick, audio.snare, audio.hihat },
+        { audio.bpm, audio.beatPhase, audio.beatConfidence, audio.beatStrength },
+        { audio.stereoWidth, audio.stereoBalance, audio.stereoCorrelation, audio.energyTrend },
+        { audio.drop, audio.sectionChange, audio.spectralCentroid, audio.spectralFlux },
+        { audio.available ? 1.0f : 0.0f, audio.silence ? 1.0f : 0.0f, audio.sampleRate, 0.0f },
+    };
+}
+}
 
 ShaderToyContext::ShaderToyContext() : mRunning{ true } {
     reset();
@@ -50,6 +71,23 @@ void ShaderToyContext::tick(const float frameRate) {
               static_cast<float>(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec) +
                   static_cast<float>(offsetNow.time_since_epoch().count() % SystemClock::period::den) /
                       static_cast<float>(SystemClock::period::den) };
+}
+void ShaderToyContext::tickFixed(const float deltaSeconds, const float frameRate) {
+    if(!mRunning)
+        return;
+    const float timeScale = std::exp2(mTimeScale);
+    mTimeDelta = std::max(0.0f, deltaSeconds) * timeScale;
+    mTime += mTimeDelta;
+    ++mFrameCount;
+    mFrameRate = frameRate;
+
+    const auto offsetNow = mStartTime +
+        std::chrono::duration_cast<SystemClock::duration>(
+            std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
+    const auto current = SystemClock::to_time_t(offsetNow);
+    const auto tm = std::localtime(&current);  // NOLINT(concurrency-mt-unsafe)
+    mDate = { static_cast<float>(tm->tm_year + 1900 - 1), static_cast<float>(tm->tm_mon), static_cast<float>(tm->tm_mday),
+              static_cast<float>(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec) };
 }
 void ShaderToyContext::pause() {
     assert(mRunning);
@@ -107,7 +145,8 @@ void ShaderToyContext::render(const ImVec2 base, const ImVec2 size, const std::o
                 ctx->mBound = { clipMin.x, clipMin.y, clipMax.x, clipMax.y };
                 ctx->mPipeline->render(
                     fbSize, clipMin, clipMax, ctx->mSize,
-                    { ctx->mTime, ctx->mTimeDelta, ctx->mFrameRate, ctx->mFrameCount, ctx->mMouse, ctx->mDate });
+                    makeUniform(ctx->mTime, ctx->mTimeDelta, ctx->mFrameRate, ctx->mFrameCount, ctx->mMouse, ctx->mDate,
+                                ctx->mAudioInput));
             },
             this);
         drawList->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
@@ -116,11 +155,18 @@ void ShaderToyContext::render(const ImVec2 base, const ImVec2 size, const std::o
 }
 void ShaderToyContext::reset(std::unique_ptr<Pipeline> pipeline) {
     mPipeline = std::move(pipeline);
+    if(mPipeline)
+        mPipeline->setAudioInput(mAudioInput);
     reset();
+}
+void ShaderToyContext::setAudioInput(const AudioInput& input) {
+    mAudioInput = input;
+    if(mPipeline)
+        mPipeline->setAudioInput(mAudioInput);
 }
 std::vector<uint8_t> ShaderToyContext::renderToBuffer(ImVec2 size, ImGuiContext *ctx) {
     if (!mPipeline) return {};
-    ShaderToyUniform uniform{ mTime, mTimeDelta, mFrameRate, mFrameCount, mMouse, mDate };
+    ShaderToyUniform uniform = makeUniform(mTime, mTimeDelta, mFrameRate, mFrameCount, mMouse, mDate, mAudioInput);
 
     if (ctx != nullptr)
         ImGui::SetCurrentContext(ctx);

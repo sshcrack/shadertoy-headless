@@ -22,7 +22,7 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
-enum class NodeClass { RenderOutput, SoundOutput, GLSLShader, Texture, CubeMap, LastFrame, Keyboard, Volume, Unknown };
+enum class NodeClass { RenderOutput, SoundOutput, GLSLShader, Texture, CubeMap, LastFrame, Keyboard, Music, Volume, Unknown };
 enum class NodeType { Image, CubeMap, Volume, Sound };
 enum class Filter { Mipmap, Linear, Nearest };
 enum class Wrap { Clamp, Repeat };
@@ -134,6 +134,15 @@ struct Volume final : Node {
 struct Keyboard final : Node {
     [[nodiscard]] NodeClass getNodeClass() const noexcept override {
         return NodeClass::Keyboard;
+    }
+    [[nodiscard]] NodeType getNodeType() const noexcept override {
+        return NodeType::Image;
+    }
+};
+
+struct Music final : Node {
+    [[nodiscard]] NodeClass getNodeClass() const noexcept override {
+        return NodeClass::Music;
     }
     [[nodiscard]] NodeType getNodeType() const noexcept override {
         return NodeType::Image;

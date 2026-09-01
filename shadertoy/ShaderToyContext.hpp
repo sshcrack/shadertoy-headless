@@ -34,6 +34,7 @@ class ShaderToyContext final {
     ImVec4 mMouse{ 0.0f, 0.0f, -1.0f, -1.0f };
     ImVec4 mDate;
     ImVec4 mBound;
+    AudioInput mAudioInput;
 
     std::unique_ptr<Pipeline> mPipeline;
 
@@ -45,6 +46,7 @@ public:
     ShaderToyContext& operator=(ShaderToyContext&&) = delete;
     ~ShaderToyContext() = default;
     void tick(float frameRate = ImGui::GetIO().Framerate);
+    void tickFixed(float deltaSeconds, float frameRate = 60.0f);
     [[nodiscard]] bool isRunning() const noexcept {
         return mRunning;
     }
@@ -56,6 +58,7 @@ public:
     void reset();
     void render(ImVec2 base, ImVec2 size, const std::optional<ImVec4>& mouse);
     void reset(std::unique_ptr<Pipeline> pipeline);
+    void setAudioInput(const AudioInput& input);
 
     // Renders the scene to a buffer and returns the pixel data (RGB, row-major)
     std::vector<uint8_t> renderToBuffer(ImVec2 size, ImGuiContext *ctx = nullptr);

@@ -14,6 +14,7 @@
 
 #include "shadertoy/Backend.hpp"
 #include "shadertoy/Support.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -68,6 +69,46 @@ uniform int       iFrame;                // shader playback frame
 uniform vec4      iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
 uniform vec4      iDate;                 // Year, month, day, time in seconds in .xyzw
 uniform vec3 iChannelResolution[4];
+
+// Host-provided semantic music analysis. The packed vec4 uniforms keep the
+// renderer interface small; the aliases below are the shader-facing contract.
+uniform vec4 iMusicBands;                // loudness, bass, mid, treble
+uniform vec4 iMusicHits;                 // onset, kick, snare, hihat
+uniform vec4 iMusicBeat;                 // bpm, phase, confidence, strength
+uniform vec4 iMusicStereo;               // width, balance, correlation, energy trend
+uniform vec4 iMusicStructure;            // drop, section change, spectral centroid, spectral flux
+uniform vec4 iMusicMeta;                 // available, silence, sample rate, reserved
+
+#define iAudioLoudness          (iMusicBands.x)
+#define iAudioBass              (iMusicBands.y)
+#define iAudioMid               (iMusicBands.z)
+#define iAudioTreble            (iMusicBands.w)
+#define iAudioOnset             (iMusicHits.x)
+#define iAudioKick              (iMusicHits.y)
+#define iAudioSnare             (iMusicHits.z)
+#define iAudioHihat             (iMusicHits.w)
+#define iAudioBpm               (iMusicBeat.x)
+#define iAudioBeatPhase         (iMusicBeat.y)
+#define iAudioBeatConfidence    (iMusicBeat.z)
+#define iAudioBeatStrength      (iMusicBeat.w)
+#define iAudioStereoWidth       (iMusicStereo.x)
+#define iAudioStereoBalance     (iMusicStereo.y)
+#define iAudioStereoCorrelation (iMusicStereo.z)
+#define iAudioEnergyTrend       (iMusicStereo.w)
+#define iAudioDrop              (iMusicStructure.x)
+#define iAudioSectionChange     (iMusicStructure.y)
+#define iAudioSpectralCentroid  (iMusicStructure.z)
+#define iAudioSpectralFlux      (iMusicStructure.w)
+#define iAudioAvailable         (iMusicMeta.x)
+#define iAudioSilence           (iMusicMeta.y)
+#define iAudioSampleRate        (iMusicMeta.z)
+
+float sampleAudioSpectrum(sampler2D channel, float x) {
+    return texture(channel, vec2(clamp(x, 0.0, 1.0), 0.25)).r;
+}
+float sampleAudioWaveform(sampler2D channel, float x) {
+    return texture(channel, vec2(clamp(x, 0.0, 1.0), 0.75)).r * 2.0 - 1.0;
+}
 
 #define char char_
 )";
@@ -260,6 +301,12 @@ class RenderPass final {
     GLint mLocationFrame;
     GLint mLocationMouse;
     GLint mLocationDate;
+    GLint mLocationMusicBands;
+    GLint mLocationMusicHits;
+    GLint mLocationMusicBeat;
+    GLint mLocationMusicStereo;
+    GLint mLocationMusicStructure;
+    GLint mLocationMusicMeta;
     GLint mLocationChannel[4]{};
     GLint mLocationChannelResolution[4]{};
     std::vector<Channel> mChannels;
@@ -334,6 +381,12 @@ public:
         SHADERTOY_GET_UNIFORM_LOCATION(Frame);
         SHADERTOY_GET_UNIFORM_LOCATION(Mouse);
         SHADERTOY_GET_UNIFORM_LOCATION(Date);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicBands);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicHits);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicBeat);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicStereo);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicStructure);
+        SHADERTOY_GET_UNIFORM_LOCATION(MusicMeta);
         SHADERTOY_GET_UNIFORM_LOCATION(Channel0);
         SHADERTOY_GET_UNIFORM_LOCATION(Channel1);
         SHADERTOY_GET_UNIFORM_LOCATION(Channel2);
@@ -508,6 +561,19 @@ public:
                 glUniform4f(mLocationMouse, uniform.mouse.x, uniform.mouse.y, uniform.mouse.z, uniform.mouse.w);
             if(mLocationDate != -1)
                 glUniform4f(mLocationDate, uniform.date.x, uniform.date.y, uniform.date.z, uniform.date.w);
+            if(mLocationMusicBands != -1)
+                glUniform4f(mLocationMusicBands, uniform.audioBands.x, uniform.audioBands.y, uniform.audioBands.z, uniform.audioBands.w);
+            if(mLocationMusicHits != -1)
+                glUniform4f(mLocationMusicHits, uniform.audioHits.x, uniform.audioHits.y, uniform.audioHits.z, uniform.audioHits.w);
+            if(mLocationMusicBeat != -1)
+                glUniform4f(mLocationMusicBeat, uniform.audioBeat.x, uniform.audioBeat.y, uniform.audioBeat.z, uniform.audioBeat.w);
+            if(mLocationMusicStereo != -1)
+                glUniform4f(mLocationMusicStereo, uniform.audioStereo.x, uniform.audioStereo.y, uniform.audioStereo.z, uniform.audioStereo.w);
+            if(mLocationMusicStructure != -1)
+                glUniform4f(mLocationMusicStructure, uniform.audioStructure.x, uniform.audioStructure.y, uniform.audioStructure.z,
+                            uniform.audioStructure.w);
+            if(mLocationMusicMeta != -1)
+                glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z, uniform.audioMeta.w);
 
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
             if(buffer)
@@ -641,6 +707,38 @@ class OpenGLPipeline final : public Pipeline {
     std::vector<std::unique_ptr<GLCubeMapRenderTarget>> mCubeMapRenderTargets;
     std::vector<std::unique_ptr<RenderPass>> mRenderPasses;
     std::vector<DynamicTexture> mDynamicTextures;
+    AudioInput mAudioInput;
+
+    static uint8_t toByte(const float value) {
+        return static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    }
+
+    static float resample(const std::vector<float>& values, const float position) {
+        if(values.empty())
+            return 0.0f;
+        if(values.size() == 1)
+            return values.front();
+        const float scaled = std::clamp(position, 0.0f, 1.0f) * static_cast<float>(values.size() - 1);
+        const auto lo = static_cast<size_t>(scaled);
+        const auto hi = std::min(lo + 1, values.size() - 1);
+        const float fraction = scaled - static_cast<float>(lo);
+        return values[lo] + (values[hi] - values[lo]) * fraction;
+    }
+
+    void updateAudioTexture(uint32_t* data) const {
+        for(uint32_t x = 0; x < AudioInput::TextureWidth; ++x) {
+            const float position = static_cast<float>(x) / static_cast<float>(AudioInput::TextureWidth - 1);
+            const float spectrum = mAudioInput.available ? resample(mAudioInput.spectrum, position) : 0.0f;
+            const float waveform = mAudioInput.available ? resample(mAudioInput.waveform, position) * 0.5f + 0.5f : 0.5f;
+            const uint8_t spectrumByte = toByte(spectrum);
+            const uint8_t waveformByte = toByte(waveform);
+            data[x] = static_cast<uint32_t>(spectrumByte) | (static_cast<uint32_t>(spectrumByte) << 8U) |
+                      (static_cast<uint32_t>(spectrumByte) << 16U) | 0xff000000U;
+            data[AudioInput::TextureWidth + x] = static_cast<uint32_t>(waveformByte) |
+                                                 (static_cast<uint32_t>(waveformByte) << 8U) |
+                                                 (static_cast<uint32_t>(waveformByte) << 16U) | 0xff000000U;
+        }
+    }
 
 public:
     explicit OpenGLPipeline() {
@@ -728,6 +826,13 @@ public:
                                                    std::vector<uint32_t>(static_cast<size_t>(width) * height),
                                                    std::move(update) });
         return mDynamicTextures.back().tex->getTexture();
+    }
+    TextureId createAudioTexture() override {
+        return createDynamicTexture(AudioInput::TextureWidth, AudioInput::TextureHeight,
+                                    [this](uint32_t* data) { updateAudioTexture(data); });
+    }
+    void setAudioInput(const AudioInput& input) override {
+        mAudioInput = input;
     }
     std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) override {
         // Update dynamic textures first, like in the regular render function
