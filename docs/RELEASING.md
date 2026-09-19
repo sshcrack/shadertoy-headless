@@ -107,10 +107,12 @@ shadertoy.exe
 The release workflow currently builds:
 
 - `x86_64-unknown-linux-gnu`;
-- `aarch64-unknown-linux-gnu`;
 - `x86_64-apple-darwin`;
 - `aarch64-apple-darwin`;
 - `x86_64-pc-windows-msvc`.
+
+(Linux ARM64 was dropped: the `ubuntu-24.04-arm` partner image ships no
+usable vcpkg installation.)
 
 The native ShaderToy core and vcpkg dependencies are statically linked into the CLI. Normal operating-system graphics/runtime libraries remain dynamic where appropriate.
 

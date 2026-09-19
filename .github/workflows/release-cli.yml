@@ -25,9 +25,6 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             binary: target/release/shadertoy
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            binary: target/release/shadertoy
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             binary: target/release/shadertoy
