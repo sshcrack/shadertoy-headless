@@ -16,12 +16,12 @@
 #include "shadertoy/Support.hpp"
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cmath>
 
 #include "shadertoy/SuppressWarningPush.hpp"
 
 #include <GL/glew.h>
-#include <hello_imgui/hello_imgui.h>
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
@@ -133,8 +133,8 @@ void main() {
 )";
 
 struct Vertex final {
-    ImVec2 pos;
-    ImVec2 coord;
+    Vec2 pos;
+    Vec2 coord;
 };
 
 using Vec3 = std::array<float, 3>;
@@ -157,8 +157,8 @@ constexpr uint32_t cubeMapVertexIndex[6][4] = {
 };
 
 struct VertexCubeMap final {  // NOLINT(cppcoreguidelines-pro-type-member-init)
-    ImVec2 pos;
-    ImVec2 coord;
+    Vec2 pos;
+    Vec2 coord;
     Vec3 point;
 };
 
@@ -172,7 +172,6 @@ static void checkShaderCompileError(const GLuint shader, const std::string_view 
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &size);
             buffer.resize(static_cast<size_t>(size));
             glGetShaderInfoLog(shader, static_cast<GLsizei>(buffer.size()), nullptr, buffer.data());
-            Log(HelloImGui::LogLevel::Error, "%s", buffer.data());
             throw std::runtime_error(buffer.data());
         }
     } else {
@@ -181,7 +180,6 @@ static void checkShaderCompileError(const GLuint shader, const std::string_view 
             glGetProgramiv(shader, GL_INFO_LOG_LENGTH, &size);
             buffer.resize(static_cast<size_t>(size));
             glGetProgramInfoLog(shader, static_cast<GLsizei>(buffer.size()), nullptr, buffer.data());
-            Log(HelloImGui::LogLevel::Error, "%s", buffer.data());
             throw std::runtime_error(buffer.data());
         }
     }
@@ -407,16 +405,16 @@ public:
     [[nodiscard]] NodeType getType() const noexcept {
         return mType;
     }
-    void render(const ImVec2 frameBufferSize, const ImVec2 clipMin, const ImVec2 clipMax, const ImVec2 canvasSize,
+    void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, const Vec2 canvasSize,
                 const ShaderToyUniform& uniform, const GLuint vao, const GLuint vbo) {
         glDisable(GL_BLEND);
-        constexpr ImVec2 cubeMapSize{ static_cast<float>(cubeMapRenderTargetSize), static_cast<float>(cubeMapRenderTargetSize) };
+        constexpr Vec2 cubeMapSize{ static_cast<float>(cubeMapRenderTargetSize), static_cast<float>(cubeMapRenderTargetSize) };
         const auto screenBase = clipMin;
-        const auto screenSize = ImVec2{ clipMax.x - clipMin.x, clipMax.y - clipMin.y };
+        const auto screenSize = Vec2{ clipMax.x - clipMin.x, clipMax.y - clipMin.y };
 
         for(uint32_t idx = 0; idx < mBuffers.size(); ++idx) {
             const auto buffer = mBuffers[idx].get();
-            ImVec2 size, base, fbSize, uniformSize;
+            Vec2 size, base, fbSize, uniformSize;
             if(buffer) {
                 base = { 0, 0 };
                 size = mType == NodeType::CubeMap ? cubeMapSize : screenSize;
@@ -441,10 +439,10 @@ public:
             glBindVertexArray(vao);
             if(mType == NodeType::Image) {
                 std::array vertices{
-                    Vertex{ ImVec2{ base.x, base.y + size.y }, ImVec2{ 0.0, 0.0 } },                      // left-bottom
-                    Vertex{ ImVec2{ base.x, base.y }, ImVec2{ 0.0, uniformSize.y } },                     // left-top
-                    Vertex{ ImVec2{ base.x + size.x, base.y }, ImVec2{ uniformSize.x, uniformSize.y } },  // right-top
-                    Vertex{ ImVec2{ base.x + size.x, base.y + size.y }, ImVec2{ uniformSize.x, 0.0 } },   // right-bottom
+                    Vertex{ Vec2{ base.x, base.y + size.y }, Vec2{ 0.0, 0.0 } },                      // left-bottom
+                    Vertex{ Vec2{ base.x, base.y }, Vec2{ 0.0, uniformSize.y } },                     // left-top
+                    Vertex{ Vec2{ base.x + size.x, base.y }, Vec2{ uniformSize.x, uniformSize.y } },  // right-top
+                    Vertex{ Vec2{ base.x + size.x, base.y + size.y }, Vec2{ uniformSize.x, 0.0 } },   // right-bottom
                 };
                 for(auto& [pos, coord] : vertices) {
                     pos.x = pos.x / fbSize.x * 2.0f - 1.0f;
@@ -455,13 +453,13 @@ public:
                 // For flipped Y cubemaps, swap +Y (idx=2) and -Y (idx=3) face geometry
                 // AND flip Y coordinates to match ShaderToy's vflip behavior
                 std::array vertices{
-                    VertexCubeMap{ ImVec2{ base.x, base.y + size.y }, ImVec2{ 0.0, 0.0 },
+                    VertexCubeMap{ Vec2{ base.x, base.y + size.y }, Vec2{ 0.0, 0.0 },
                                    cubeMapVertexPos[cubeMapVertexIndex[idx][0]] },  // left-bottom
-                    VertexCubeMap{ ImVec2{ base.x, base.y }, ImVec2{ 0.0, uniformSize.y },
+                    VertexCubeMap{ Vec2{ base.x, base.y }, Vec2{ 0.0, uniformSize.y },
                                    cubeMapVertexPos[cubeMapVertexIndex[idx][1]] },  // left-top
-                    VertexCubeMap{ ImVec2{ base.x + size.x, base.y }, ImVec2{ uniformSize.x, uniformSize.y },
+                    VertexCubeMap{ Vec2{ base.x + size.x, base.y }, Vec2{ uniformSize.x, uniformSize.y },
                                    cubeMapVertexPos[cubeMapVertexIndex[idx][2]] },  // right-top
-                    VertexCubeMap{ ImVec2{ base.x + size.x, base.y + size.y }, ImVec2{ uniformSize.x, 0.0 },
+                    VertexCubeMap{ Vec2{ base.x + size.x, base.y + size.y }, Vec2{ uniformSize.x, 0.0 },
                                    cubeMapVertexPos[cubeMapVertexIndex[idx][3]] },  // right-bottom
                 };
 
@@ -586,7 +584,7 @@ public:
 
 class GLTextureObject final : public TextureObject {
     GLuint mTex{};
-    ImVec2 mSize;
+    Vec2 mSize;
 
 public:
     GLTextureObject(const uint32_t width, const uint32_t height, const uint32_t* data)
@@ -610,7 +608,7 @@ public:
     [[nodiscard]] TextureId getTexture() const override {
         return mTex;
     }
-    [[nodiscard]] ImVec2 size() const override {
+    [[nodiscard]] Vec2 size() const override {
         return mSize;
     }
 };
@@ -621,7 +619,7 @@ std::unique_ptr<TextureObject> loadTexture(uint32_t width, uint32_t height, cons
 
 class GLCubeMapObject final : public TextureObject {
     GLuint mTex{};
-    ImVec2 mSize;
+    Vec2 mSize;
 
 public:
     GLCubeMapObject(const uint32_t size, const uint32_t* data) : mSize{ static_cast<float>(size), static_cast<float>(size) } {
@@ -646,7 +644,7 @@ public:
     [[nodiscard]] TextureId getTexture() const override {
         return mTex;
     }
-    [[nodiscard]] ImVec2 size() const override {
+    [[nodiscard]] Vec2 size() const override {
         return mSize;
     }
 };
@@ -657,7 +655,7 @@ std::unique_ptr<TextureObject> loadCubeMap(uint32_t size, const uint32_t* data) 
 
 class GLVolumeObject final : public TextureObject {
     GLuint mTex{};
-    ImVec2 mSize;
+    Vec2 mSize;
 
 public:
     GLVolumeObject(uint32_t size, uint32_t channels, const uint8_t* data)
@@ -684,7 +682,7 @@ public:
     [[nodiscard]] TextureId getTexture() const override {
         return mTex;
     }
-    [[nodiscard]] ImVec2 size() const override {
+    [[nodiscard]] Vec2 size() const override {
         return mSize;
     }
 };
@@ -707,7 +705,9 @@ class OpenGLPipeline final : public Pipeline {
     std::vector<std::unique_ptr<GLCubeMapRenderTarget>> mCubeMapRenderTargets;
     std::vector<std::unique_ptr<RenderPass>> mRenderPasses;
     std::vector<DynamicTexture> mDynamicTextures;
+    std::vector<std::unique_ptr<TextureObject>> mTextures;
     AudioInput mAudioInput;
+    KeyboardInput mKeyboardInput;
 
     static uint8_t toByte(const float value) {
         return static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
@@ -723,6 +723,11 @@ class OpenGLPipeline final : public Pipeline {
         const auto hi = std::min(lo + 1, values.size() - 1);
         const float fraction = scaled - static_cast<float>(lo);
         return values[lo] + (values[hi] - values[lo]) * fraction;
+    }
+
+    void updateKeyboardTexture(uint32_t* data) const {
+        const auto& pixels = mKeyboardInput.pixels();
+        std::copy(pixels.begin(), pixels.end(), data);
     }
 
     void updateAudioTexture(uint32_t* data) const {
@@ -806,7 +811,7 @@ public:
         mRenderPasses.push_back(std::make_unique<RenderPass>(src, type, std::move(target), std::move(channels), clampOutput));
     }
 
-    void render(const ImVec2 frameBufferSize, const ImVec2 clipMin, const ImVec2 clipMax, ImVec2 size,
+    void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,
                 const ShaderToyUniform& uniform) override {
         for(auto& [tex, data, update] : mDynamicTextures) {
             update(data.data());
@@ -821,20 +826,40 @@ public:
                          pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
     }
 
-    TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) override {
+    TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) {
         mDynamicTextures.push_back(DynamicTexture{ std::make_unique<GLTextureObject>(width, height, nullptr),
                                                    std::vector<uint32_t>(static_cast<size_t>(width) * height),
                                                    std::move(update) });
         return mDynamicTextures.back().tex->getTexture();
     }
+    TextureId createTexture(const uint32_t width, const uint32_t height, const uint32_t* data) override {
+        mTextures.push_back(std::make_unique<GLTextureObject>(width, height, data));
+        return mTextures.back()->getTexture();
+    }
+    TextureId createCubeMap(const uint32_t size, const uint32_t* data) override {
+        mTextures.push_back(std::make_unique<GLCubeMapObject>(size, data));
+        return mTextures.back()->getTexture();
+    }
+    TextureId createVolume(const uint32_t size, const uint32_t channels, const uint8_t* data) override {
+        mTextures.push_back(std::make_unique<GLVolumeObject>(size, channels, data));
+        return mTextures.back()->getTexture();
+    }
+    TextureId createKeyboardTexture() override {
+        return createDynamicTexture(static_cast<uint32_t>(KeyboardInput::KeyCount),
+                                    static_cast<uint32_t>(KeyboardInput::Rows),
+                                    [this](uint32_t* data) { updateKeyboardTexture(data); });
+    }
     TextureId createAudioTexture() override {
         return createDynamicTexture(AudioInput::TextureWidth, AudioInput::TextureHeight,
                                     [this](uint32_t* data) { updateAudioTexture(data); });
     }
+    void setKeyboardInput(const KeyboardInput& input) override {
+        mKeyboardInput = input;
+    }
     void setAudioInput(const AudioInput& input) override {
         mAudioInput = input;
     }
-    std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) override {
+    std::vector<uint8_t> renderToBuffer(Vec2 size, const ShaderToyUniform& uniform) override {
         // Update dynamic textures first, like in the regular render function
         for(auto& [tex, data, update] : mDynamicTextures) {
             update(data.data());
@@ -850,7 +875,7 @@ public:
 
         // Render all passes, not just the first one
         for(const auto& pass : mRenderPasses) {
-            pass->render(size, ImVec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
+            pass->render(size, Vec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
                          mVBO);
         }
 
@@ -862,11 +887,20 @@ public:
 };
 
 std::unique_ptr<Pipeline> createPipeline() {
-    try {
-        return std::make_unique<OpenGLPipeline>();
-    } catch(const Error&) {
-        return {};
+    // The embedding application owns the OpenGL context, while the renderer
+    // owns its loader implementation. A compatible context must be current
+    // before a document is compiled.
+    glewExperimental = GL_TRUE;
+    const auto glewResult = glewInit();
+    if(glewResult != GLEW_OK) {
+        const auto* message = reinterpret_cast<const char*>(glewGetErrorString(glewResult));
+        throw Error(std::string("Failed to initialize OpenGL loader: ") + (message ? message : "unknown GLEW error"));
     }
+
+    // GLEW may leave GL_INVALID_ENUM behind when initialized against a core
+    // profile. It is not a renderer error and should not leak to callers.
+    glGetError();
+    return std::make_unique<OpenGLPipeline>();
 }
 
 SHADERTOY_NAMESPACE_END

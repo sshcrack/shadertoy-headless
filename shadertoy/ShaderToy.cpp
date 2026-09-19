@@ -1,0 +1,153 @@
+/*
+    SPDX-License-Identifier: Apache-2.0
+    Copyright 2023-2026 Yingwei Zheng and contributors
+*/
+
+#include "shadertoy/ShaderToy.hpp"
+#include "shadertoy/Compiler.hpp"
+#include "shadertoy/ShaderToyContext.hpp"
+
+#include <memory>
+#include <utility>
+
+SHADERTOY_NAMESPACE_BEGIN
+
+class Runtime::Impl final {
+public:
+    ShaderToyContext context;
+    std::optional<ShaderDocument> document;
+};
+
+Runtime::Runtime() : mImpl(new Impl) {}
+Runtime::~Runtime() {
+    delete mImpl;
+}
+
+Result<void> Runtime::setDocument(ShaderDocument document) {
+    try {
+        auto pipeline = compilePipeline(document);
+        mImpl->context.setPipeline(std::move(pipeline));
+        mImpl->document.emplace(std::move(document));
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::loadSTTF(const std::string& path) {
+    try {
+        ShaderDocument document;
+        document.load(path);
+        return setDocument(std::move(document));
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::saveSTTF(const std::string& path) const {
+    try {
+        if(!mImpl->document)
+            throw Error("No shader document is loaded");
+        mImpl->document->save(path);
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::loadImageShader(std::string name, std::string source, const std::optional<uint32_t> audioChannel) {
+    auto document = makeImageShader(std::move(name), std::move(source), audioChannel);
+    if(!document)
+        return std::unexpected(document.error());
+    return setDocument(std::move(*document));
+}
+
+Result<void> Runtime::loadFromShaderToy(const std::string_view shaderUrlOrId) {
+    auto document = importFromShaderToy(shaderUrlOrId);
+    if(!document)
+        return std::unexpected(document.error());
+    return setDocument(std::move(*document));
+}
+
+Result<void> Runtime::loadFromShaderToyResponse(const std::string_view shaderId, const std::string_view responseBody) {
+    auto document = importFromShaderToyResponse(shaderId, responseBody);
+    if(!document)
+        return std::unexpected(document.error());
+    return setDocument(std::move(*document));
+}
+
+const ShaderDocument* Runtime::document() const noexcept {
+    return mImpl->document ? &*mImpl->document : nullptr;
+}
+
+void Runtime::tick(const float frameRate) {
+    mImpl->context.tick(frameRate);
+}
+
+void Runtime::tickFixed(const float deltaSeconds, const float frameRate) {
+    mImpl->context.tickFixed(deltaSeconds, frameRate);
+}
+
+void Runtime::pause() {
+    mImpl->context.pause();
+}
+
+void Runtime::resume() {
+    mImpl->context.resume();
+}
+
+void Runtime::resetTime() {
+    mImpl->context.resetTime();
+}
+
+bool Runtime::isRunning() const noexcept {
+    return mImpl->context.isRunning();
+}
+
+bool Runtime::isValid() const noexcept {
+    return mImpl->context.isValid();
+}
+
+float Runtime::time() const noexcept {
+    return mImpl->context.getTime();
+}
+
+float Runtime::timeScale() const noexcept {
+    return mImpl->context.getTimeScale();
+}
+
+void Runtime::setTimeScale(const float log2Scale) noexcept {
+    mImpl->context.setTimeScale(log2Scale);
+}
+
+void Runtime::setMouseInput(const std::optional<MouseInput>& input) {
+    mImpl->context.setMouseInput(input);
+}
+
+void Runtime::setKeyboardInput(const KeyboardInput& input) {
+    mImpl->context.setKeyboardInput(input);
+}
+
+void Runtime::setAudioInput(const AudioInput& input) {
+    mImpl->context.setAudioInput(input);
+}
+
+void Runtime::render(const RenderRegion& region) {
+    mImpl->context.render(region);
+}
+
+std::vector<uint8_t> Runtime::renderToBuffer(const Vec2 size) {
+    return mImpl->context.renderToBuffer(size);
+}
+
+Vec4 Runtime::mouseStatus() const noexcept {
+    return mImpl->context.getMouseStatus();
+}
+
+SHADERTOY_NAMESPACE_END

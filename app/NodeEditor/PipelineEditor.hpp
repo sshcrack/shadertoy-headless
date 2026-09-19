@@ -13,13 +13,15 @@
 */
 
 #pragma once
-#include <expected>
-#include "PipelineEditor.hpp"
-#include "shadertoy/dummies.hpp"
+#include "NodeEditor/Builders.hpp"
+#include "NodeEditor/Widgets.hpp"
 #include "shadertoy/Config.hpp"
 #include "shadertoy/STTF.hpp"
-#include "shadertoy/ShaderToyContext.hpp"
+#include "shadertoy/ShaderToy.hpp"
+
 #include "shadertoy/SuppressWarningPush.hpp"
+
+#include <ImGuiColorTextEdit/TextEditor.h>
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
@@ -35,10 +37,12 @@ public:
 
     [[nodiscard]] std::string getText() const;
     void setText(const std::string& str);
+    void render(ImVec2 size);
 };
 
 namespace ed = ax::NodeEditor;
 using namespace ax;
+using ax::Widgets::IconType;
 
 enum class PinKind { Output, Input };
 
@@ -70,6 +74,9 @@ struct EditorNode {
     virtual ~EditorNode() = default;
 
     [[nodiscard]] virtual NodeClass getClass() const noexcept = 0;
+    virtual bool renderContent() {
+        return false;
+    }
 
     [[nodiscard]] virtual std::unique_ptr<Node> toSTTF() const = 0;
     virtual void fromSTTF(Node& node) = 0;
@@ -90,6 +97,7 @@ struct EditorShader final : EditorNode {
     bool requestFocus = false;
 
     EditorShader(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
     [[nodiscard]] NodeClass getClass() const noexcept override {
@@ -103,6 +111,8 @@ struct EditorLastFrame final : EditorNode {
     bool editing = false;
 
     EditorLastFrame(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    bool renderContent() override;
+    void renderPopup();
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
     [[nodiscard]] NodeClass getClass() const noexcept override {
@@ -111,10 +121,14 @@ struct EditorLastFrame final : EditorNode {
 };
 
 struct EditorTexture final : EditorNode {
+    uint32_t width = 0;
+    uint32_t height = 0;
     std::vector<uint32_t> pixel;
-    std::unique_ptr<TextureObject> textureId;
+    uint32_t previewTexture = 0;
 
     EditorTexture(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    ~EditorTexture() override;
+    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 
@@ -124,10 +138,11 @@ struct EditorTexture final : EditorNode {
 };
 
 struct EditorCubeMap final : EditorNode {
+    uint32_t size = 0;
     std::vector<uint32_t> pixel;
-    std::unique_ptr<TextureObject> textureId;
 
     EditorCubeMap(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 
@@ -137,10 +152,12 @@ struct EditorCubeMap final : EditorNode {
 };
 
 struct EditorVolume final : EditorNode {
+    uint32_t size = 0;
+    uint32_t channels = 0;
     std::vector<uint8_t> pixel;
-    std::unique_ptr<TextureObject> textureId;
 
     EditorVolume(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
+    bool renderContent() override;
     [[nodiscard]] std::unique_ptr<Node> toSTTF() const override;
     void fromSTTF(Node& node) override;
 
@@ -183,10 +200,12 @@ struct EditorLink final {
 };
 
 class PipelineEditor final {
+    ed::EditorContext* mCtx;
     bool mOnNodeCreate = false;
     std::uint32_t mNextId = 1;
     EditorPin* mNewNodeLinkPin = nullptr;
     EditorPin* mNewLinkPin = nullptr;
+    ImTextureID mHeaderBackground = 0;
     std::vector<std::unique_ptr<EditorNode>> mNodes;
     std::vector<EditorLink> mLinks;
     std::vector<std::pair<std::string, std::string>> mMetadata;
@@ -201,11 +220,16 @@ class PipelineEditor final {
     bool mMetadataEditorRequestFocus = false;
 
     uint32_t nextId();
+    [[nodiscard]] bool isPinLinked(ed::PinId id) const;
+    [[nodiscard]] EditorNode* findNode(ed::NodeId id) const;
     [[nodiscard]] EditorPin* findPin(ed::PinId id) const;
     [[nodiscard]] bool isUniqueName(const std::string_view& name, const EditorNode* exclude) const;
     [[nodiscard]] std::string generateUniqueName(const std::string_view& base) const;
+    [[nodiscard]] bool canCreateLink(const EditorPin* startPin, const EditorPin* endPin) const;
 
     void setupInitialPipeline();
+    void renderEditor();
+    void resetLayout();
     EditorCubeMap& spawnCubeMap();
     EditorVolume& spawnVolume();
     EditorTexture& spawnTexture();
@@ -214,24 +238,21 @@ class PipelineEditor final {
     EditorShader& spawnShader(NodeType type);
     EditorKeyboard& spawnKeyboard();
     EditorMusic& spawnMusic();
-    std::unique_ptr<Pipeline> buildPipeline();
+    void updateNodeType();
+    [[nodiscard]] ShaderDocument makeDocument() const;
+    void loadDocument(ShaderDocument document);
 
     friend struct EditorLastFrame;
-    void _innerLoadFromShaderToy(const std::string& path);
-    void _innerLoadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody);
 
 public:
     PipelineEditor();
     ~PipelineEditor();
-
-    std::expected<void, std::runtime_error> build(ShaderToyContext &context);
-
-    std::expected<void, std::runtime_error> update(ShaderToyContext &context);
-    std::expected<void, std::exception> loadFromShaderToy(const std::string& path);
-    std::expected<void, std::exception> loadFromShaderToyResponse(const std::string& shaderId, const std::string& responseBody);
-    std::expected<void, std::runtime_error> loadImageShader(const std::string& name, const std::string& source,
-                                                           std::optional<uint32_t> audioChannel = 0);
+    void build(Runtime& runtime);
+    void render(Runtime& runtime);
     void resetPipeline();
+    void loadSTTF(const std::string& path);
+    void saveSTTF(const std::string& path);
+    void loadFromShaderToy(const std::string& path);
     [[nodiscard]] std::string getShaderName() const;
 
     static PipelineEditor& get();

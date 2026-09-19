@@ -1,7 +1,3 @@
-[submodule "shadertoy/thirdparty/hello_imgui"]
-	path = shadertoy/thirdparty/hello_imgui
-	url = https://github.com/pthom/hello_imgui
-[submodule "shadertoy/thirdparty/imgui"]
-	path = shadertoy/thirdparty/imgui
-	url = https://github.com/dtcxzyw/imgui.git
-	branch = docking
+[submodule "shadertoy/thirdparty/ImGuiColorTextEdit"]
+	path = shadertoy/thirdparty/ImGuiColorTextEdit
+	url = https://github.com/BalazsJako/ImGuiColorTextEdit

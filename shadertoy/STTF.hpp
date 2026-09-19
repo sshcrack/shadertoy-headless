@@ -119,7 +119,7 @@ struct CubeMap final : Node {
 struct Volume final : Node {
     uint32_t size;
     uint32_t channels;
-    std::vector<uint8_t> pixel;  // R8G8B8A8 * 6
+    std::vector<uint8_t> pixel;  // R8 or R8G8B8A8 voxels
 
     Volume(uint32_t x, uint32_t channels, std::vector<uint8_t> data)
         : size{ x }, channels{ channels }, pixel{ std::move(data) } {}
@@ -159,6 +159,13 @@ struct Link final {
 
 struct ShaderToyTransmissionFormat final {
     using Metadata = std::unordered_map<std::string, std::string>;
+
+    ShaderToyTransmissionFormat() = default;
+    ShaderToyTransmissionFormat(const ShaderToyTransmissionFormat&) = delete;
+    ShaderToyTransmissionFormat& operator=(const ShaderToyTransmissionFormat&) = delete;
+    ShaderToyTransmissionFormat(ShaderToyTransmissionFormat&&) noexcept = default;
+    ShaderToyTransmissionFormat& operator=(ShaderToyTransmissionFormat&&) noexcept = default;
+
     Metadata metadata;
     std::vector<std::unique_ptr<Node>> nodes;
     std::vector<Link> links;
@@ -166,5 +173,7 @@ struct ShaderToyTransmissionFormat final {
     void load(const std::string& filePath);
     void save(const std::string& filePath) const;
 };
+
+using ShaderDocument = ShaderToyTransmissionFormat;
 
 SHADERTOY_NAMESPACE_END

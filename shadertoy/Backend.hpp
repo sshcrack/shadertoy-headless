@@ -1,44 +1,40 @@
 /*
     SPDX-License-Identifier: Apache-2.0
-    Copyright 2023-2025 Yingwei Zheng
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-        http://www.apache.org/licenses/LICENSE-2.0
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+    Copyright 2023-2026 Yingwei Zheng and contributors
 */
-
 #pragma once
+
 #include "shadertoy/AudioInput.hpp"
-#include "STTF.hpp"
-#include "shadertoy/Config.hpp"
+#include "shadertoy/STTF.hpp"
+#include "shadertoy/Types.hpp"
+
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
-
-#include "shadertoy/SuppressWarningPush.hpp"
-
-#include <hello_imgui/hello_imgui.h>
-
-#include "shadertoy/SuppressWarningPop.hpp"
+#include <utility>
+#include <vector>
 
 SHADERTOY_NAMESPACE_BEGIN
 
 using TextureId = uintptr_t;
+
 enum class TexType {
     Tex2D,
     Tex3D,
     CubeMap,
 };
-struct DoubleBufferedTex final {
-    TextureId t1, t2;
-    TexType type;
 
-    explicit DoubleBufferedTex(TextureId t, TexType type) : t1{ t }, t2{ t }, type{ type } {}
-    explicit DoubleBufferedTex(TextureId t1Val, TextureId t2Val, TexType type) : t1{ t1Val }, t2{ t2Val }, type{ type } {}
+struct DoubleBufferedTex final {
+    TextureId t1{};
+    TextureId t2{};
+    TexType type{ TexType::Tex2D };
+
+    explicit DoubleBufferedTex(const TextureId t, const TexType texType) : t1{ t }, t2{ t }, type{ texType } {}
+    DoubleBufferedTex(const TextureId t1Val, const TextureId t2Val, const TexType texType)
+        : t1{ t1Val }, t2{ t2Val }, type{ texType } {}
+
     TextureId get() {
         std::swap(t1, t2);
         return t1;
@@ -50,14 +46,14 @@ struct ShaderToyUniform final {
     float timeDelta{};
     float frameRate{};
     int32_t frame{};
-    ImVec4 mouse;
-    ImVec4 date;
-    ImVec4 audioBands;
-    ImVec4 audioHits;
-    ImVec4 audioBeat;
-    ImVec4 audioStereo;
-    ImVec4 audioStructure;
-    ImVec4 audioMeta;
+    Vec4 mouse;
+    Vec4 date;
+    Vec4 audioBands;
+    Vec4 audioHits;
+    Vec4 audioBeat;
+    Vec4 audioStereo;
+    Vec4 audioStructure;
+    Vec4 audioMeta;
 };
 
 class TextureObject {
@@ -68,8 +64,9 @@ public:
     TextureObject& operator=(const TextureObject&) = delete;
     TextureObject& operator=(TextureObject&&) = delete;
     virtual ~TextureObject() = default;
+
     [[nodiscard]] virtual TextureId getTexture() const = 0;
-    [[nodiscard]] virtual ImVec2 size() const = 0;
+    [[nodiscard]] virtual Vec2 size() const = 0;
 };
 
 class FrameBuffer {
@@ -80,27 +77,31 @@ public:
     FrameBuffer& operator=(const FrameBuffer&) = delete;
     FrameBuffer& operator=(FrameBuffer&&) = delete;
     virtual ~FrameBuffer() = default;
+
     virtual void bind(uint32_t width, uint32_t height) = 0;
     virtual void unbind() = 0;
     [[nodiscard]] virtual TextureId getTexture() const = 0;
 };
+
 struct DoubleBufferedFB final {
-    FrameBuffer *t1, *t2;
+    FrameBuffer* t1{};
+    FrameBuffer* t2{};
 
     explicit DoubleBufferedFB(FrameBuffer* t) : t1{ t }, t2{ t } {}
-    explicit DoubleBufferedFB(FrameBuffer* t1Val, FrameBuffer* t2Val) : t1{ t1Val }, t2{ t2Val } {}
+    DoubleBufferedFB(FrameBuffer* t1Val, FrameBuffer* t2Val) : t1{ t1Val }, t2{ t2Val } {}
+
     FrameBuffer* get() {
         std::swap(t1, t2);
         return t1;
     }
 };
 
-struct Channel final {  // NOLINT(cppcoreguidelines-pro-type-member-init)
-    uint32_t slot;
+struct Channel final {
+    uint32_t slot{};
     DoubleBufferedTex tex;
-    Filter filter;
-    Wrap wrapMode;
-    std::optional<ImVec2> size;
+    Filter filter{ Filter::Linear };
+    Wrap wrapMode{ Wrap::Repeat };
+    std::optional<Vec2> size;
 };
 
 class Pipeline {
@@ -116,11 +117,19 @@ public:
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
     virtual void addPass(const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
                          std::vector<Channel> channels, bool clampOutput) = 0;
-    virtual void render(ImVec2 frameBufferSize, ImVec2 clipMin, ImVec2 clipMax, ImVec2 size, const ShaderToyUniform& uniform) = 0;
-    virtual TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) = 0;
+    virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size,
+                        const ShaderToyUniform& uniform) = 0;
+
+    virtual TextureId createTexture(uint32_t width, uint32_t height, const uint32_t* data) = 0;
+    virtual TextureId createCubeMap(uint32_t size, const uint32_t* data) = 0;
+    virtual TextureId createVolume(uint32_t size, uint32_t channels, const uint8_t* data) = 0;
+    virtual TextureId createKeyboardTexture() = 0;
     virtual TextureId createAudioTexture() = 0;
+
+    virtual void setKeyboardInput(const KeyboardInput& input) = 0;
     virtual void setAudioInput(const AudioInput& input) = 0;
-    virtual std::vector<uint8_t> renderToBuffer(ImVec2 size, const ShaderToyUniform& uniform) = 0;
+
+    virtual std::vector<uint8_t> renderToBuffer(Vec2 size, const ShaderToyUniform& uniform) = 0;
 };
 
 std::unique_ptr<TextureObject> loadTexture(uint32_t width, uint32_t height, const uint32_t* data);

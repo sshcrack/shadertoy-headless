@@ -1,28 +1,48 @@
 {
-    "version": 6,
-    "configurePresets": [
-        {
-            "name": "default",
-            "binaryDir": "${sourceDir}/build-lib",
-            "cacheVariables": {
-                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-            }
-        },
-        {
-            "name": "debug-window",
-            "binaryDir": "${sourceDir}/build",
-            "cacheVariables": {
-                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "ENABLE_DEBUG_WINDOW": "ON",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-            }
-        }
-    ],
-    "buildPresets": [
-        {
-            "name": "debug-window",
-            "configurePreset": "debug-window"
-        }
-    ]
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "GUI + library",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SHADERTOY_BUILD_GUI": "ON"
+      }
+    },
+    {
+      "name": "library",
+      "displayName": "Standalone library only",
+      "binaryDir": "${sourceDir}/build-lib",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SHADERTOY_BUILD_GUI": "OFF"
+      }
+    },
+    {
+      "name": "preview",
+      "displayName": "Library + deterministic preview tool",
+      "binaryDir": "${sourceDir}/build-preview",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SHADERTOY_BUILD_GUI": "OFF",
+        "SHADERTOY_BUILD_PREVIEW_TOOL": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "default", "configurePreset": "default" },
+    { "name": "library", "configurePreset": "library" },
+    { "name": "preview", "configurePreset": "preview" }
+  ],
+  "testPresets": [
+    {
+      "name": "library",
+      "configurePreset": "library",
+      "output": { "outputOnFailure": true }
+    }
+  ]
 }

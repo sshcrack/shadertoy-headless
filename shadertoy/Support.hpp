@@ -1,27 +1,22 @@
 /*
     SPDX-License-Identifier: Apache-2.0
-    Copyright 2023-2025 Yingwei Zheng
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-        http://www.apache.org/licenses/LICENSE-2.0
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+    Copyright 2023-2026 Yingwei Zheng and contributors
 */
-
 #pragma once
 
 #include "shadertoy/Config.hpp"
+#include "shadertoy/Error.hpp"
+
 #include <chrono>
+#include <cstdlib>
+#include <exception>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
 
 #include "shadertoy/SuppressWarningPush.hpp"
-
 #include <gsl/gsl>
-#include <fmt/format.h>
-
 #include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
@@ -41,7 +36,6 @@ auto scopeFail(F&& f) {
 
 using Clock = std::chrono::steady_clock;
 
-struct Error final : std::exception {};
 #ifdef NDEBUG
 #if defined(__cpp_lib_unreachable)
 #define SHADERTOY_UNREACHABLE() std::unreachable()
@@ -50,17 +44,18 @@ struct Error final : std::exception {};
 #elif defined(_MSC_VER)
 #define SHADERTOY_UNREACHABLE() __assume(false)
 #else
-#define SHADERTOY_UNREACHABLE() reportFatalError("unreachable")  // fallback
+#define SHADERTOY_UNREACHABLE() ::ShaderToy::reportFatalError("unreachable")
 #endif
 #else
-#define SHADERTOY_UNREACHABLE() reportFatalError("unreachable")
+#define SHADERTOY_UNREACHABLE() ::ShaderToy::reportFatalError("unreachable")
 #endif
-[[maybe_unused]] [[noreturn]] static void reportFatalError(std::string_view error) {
-    // TODO: pop up a message box
-    fmt::print(stderr, "{}\n", error);
-    std::abort();
+
+[[noreturn]] inline void reportFatalError(const std::string_view error) {
+    throw Error(std::string(error));
 }
-[[maybe_unused]] [[noreturn]] static void reportNotImplemented()  {
+
+[[noreturn]] inline void reportNotImplemented() {
     reportFatalError("Not implemented feature");
 }
+
 SHADERTOY_NAMESPACE_END

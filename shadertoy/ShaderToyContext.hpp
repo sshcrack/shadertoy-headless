@@ -1,42 +1,23 @@
 /*
     SPDX-License-Identifier: Apache-2.0
-    Copyright 2023-2025 Yingwei Zheng
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-        http://www.apache.org/licenses/LICENSE-2.0
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+    Copyright 2023-2026 Yingwei Zheng and contributors
 */
-
 #pragma once
+
 #include "shadertoy/Backend.hpp"
 #include "shadertoy/Config.hpp"
-#include "shadertoy/Support.hpp"
+#include "shadertoy/Types.hpp"
+
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <vector>
 
 SHADERTOY_NAMESPACE_BEGIN
 
 class ShaderToyContext final {
     using SystemClock = std::chrono::system_clock;
-    SystemClock::time_point mStartTime;
-    SystemClock::time_point mPauseTime;
-    float mTime{};
-    float mTimeScale{};
-    float mTimeDelta{};
-    int32_t mFrameCount{};
-    float mFrameRate{};
-    bool mRunning;
-    ImVec2 mBase;
-    ImVec2 mSize;
-    ImVec4 mMouse{ 0.0f, 0.0f, -1.0f, -1.0f };
-    ImVec4 mDate;
-    ImVec4 mBound;
-    AudioInput mAudioInput;
-
-    std::unique_ptr<Pipeline> mPipeline;
 
 public:
     ShaderToyContext();
@@ -45,36 +26,64 @@ public:
     ShaderToyContext& operator=(const ShaderToyContext&) = delete;
     ShaderToyContext& operator=(ShaderToyContext&&) = delete;
     ~ShaderToyContext() = default;
-    void tick(float frameRate = ImGui::GetIO().Framerate);
+
+    void tick(float frameRate = 60.0f);
     void tickFixed(float deltaSeconds, float frameRate = 60.0f);
+
     [[nodiscard]] bool isRunning() const noexcept {
         return mRunning;
     }
     [[nodiscard]] float getTime() const noexcept {
         return mTime;
     }
+    [[nodiscard]] float getFrameRate() const noexcept {
+        return mFrameRate;
+    }
+
     void pause();
     void resume();
-    void reset();
-    void render(ImVec2 base, ImVec2 size, const std::optional<ImVec4>& mouse);
-    void reset(std::unique_ptr<Pipeline> pipeline);
+    void resetTime();
+    void setPipeline(std::unique_ptr<Pipeline> pipeline);
+
+    void setMouseInput(const std::optional<MouseInput>& mouse);
+    void setKeyboardInput(const KeyboardInput& input);
     void setAudioInput(const AudioInput& input);
 
-    // Renders the scene to a buffer and returns the pixel data (RGB, row-major)
-    std::vector<uint8_t> renderToBuffer(ImVec2 size, ImGuiContext *ctx = nullptr);
+    void render(const RenderRegion& region);
+    [[nodiscard]] std::vector<uint8_t> renderToBuffer(Vec2 size);
 
-    [[nodiscard]] ImVec4 getMouseStatus() const noexcept {
+    [[nodiscard]] Vec4 getMouseStatus() const noexcept {
         return mMouse;
     }
-    [[nodiscard]] ImVec4 getBound() const noexcept {
-        return mBound;
-    }
-    float& getTimeScale() noexcept {
+
+    [[nodiscard]] float getTimeScale() const noexcept {
         return mTimeScale;
     }
+    void setTimeScale(const float log2Scale) noexcept {
+        mTimeScale = log2Scale;
+    }
+
     [[nodiscard]] bool isValid() const noexcept {
         return static_cast<bool>(mPipeline);
     }
+
+private:
+    [[nodiscard]] ShaderToyUniform makeUniform() const;
+    void updateDate();
+
+    SystemClock::time_point mStartTime;
+    SystemClock::time_point mPauseTime;
+    float mTime{};
+    float mTimeScale{};
+    float mTimeDelta{};
+    int32_t mFrameCount{};
+    float mFrameRate{};
+    bool mRunning{ true };
+    Vec4 mMouse{ 0.0f, 0.0f, -1.0f, -1.0f };
+    Vec4 mDate;
+    AudioInput mAudioInput;
+    KeyboardInput mKeyboardInput;
+    std::unique_ptr<Pipeline> mPipeline;
 };
 
 SHADERTOY_NAMESPACE_END

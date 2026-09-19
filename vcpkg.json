@@ -1,9 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "shadertoy",
-  "version": "1.0.0",
+  "version": "0.1.2",
   "dependencies": [
-    "glfw3",
     "fmt",
     "glew",
     "cpp-httplib",
@@ -12,8 +11,30 @@
     "cpp-base64",
     "nlohmann-json",
     "stb",
-    "openssl",
-    "hello-imgui"
+    "openssl"
   ],
-  "builtin-baseline": "89dc8be6dbcf18482a5a1bf86a2f4615c939b0fb"
+  "features": {
+    "gui": {
+      "description": "Dependencies for the interactive ShaderToy editor",
+      "dependencies": [
+        "glfw3",
+        {
+          "name": "hello-imgui",
+          "features": [
+            "glfw-binding",
+            "opengl3-binding"
+          ]
+        },
+        "nativefiledialog-extended",
+        "imgui-node-editor"
+      ]
+    },
+    "preview": {
+      "description": "Dependencies for the hidden-window preview tool",
+      "dependencies": [
+        "glfw3"
+      ]
+    }
+  },
+  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d"
 }

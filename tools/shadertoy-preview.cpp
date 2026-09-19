@@ -1,9 +1,8 @@
-#include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
-#include <NodeEditor/PipelineEditor.hpp>
-#include <ShaderToyContext.hpp>
+#include <shadertoy/ShaderToy.hpp>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
 #include <algorithm>
@@ -117,29 +116,19 @@ int main(int argc, char **argv) {
         return 3;
     }
     glfwMakeContextCurrent(window);
-    glewExperimental = GL_TRUE;
-    if (glewInit() != GLEW_OK) {
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 4;
-    }
-    glGetError(); // GLEW may leave GL_INVALID_ENUM on core contexts.
 
     try {
-        auto &editor = ShaderToy::PipelineEditor::get();
-        auto load = editor.loadImageShader(shaderPath.stem().string(), readFile(shaderPath), 0);
+        ShaderToy::Runtime runtime;
+        auto load = runtime.loadImageShader(shaderPath.stem().string(), readFile(shaderPath), 0);
         if (!load) throw load.error();
-
-        ShaderToy::ShaderToyContext context;
-        auto build = editor.build(context);
-        if (!build) throw build.error();
 
         constexpr float Fps = 60.0f;
         std::vector<std::uint8_t> rgb;
         for (int frame = 0; frame < frames; ++frame) {
-            context.setAudioInput(syntheticAudio(frame, Fps));
-            context.tickFixed(1.0f / Fps, Fps);
-            rgb = context.renderToBuffer(ImVec2(static_cast<float>(width), static_cast<float>(height)));
+            runtime.setAudioInput(syntheticAudio(frame, Fps));
+            runtime.tickFixed(1.0f / Fps, Fps);
+            rgb = runtime.renderToBuffer(
+                ShaderToy::Vec2{static_cast<float>(width), static_cast<float>(height)});
         }
         if (rgb.size() != static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3)
             throw std::runtime_error("Renderer returned an unexpected buffer size");

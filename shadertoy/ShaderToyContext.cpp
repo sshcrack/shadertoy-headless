@@ -1,176 +1,158 @@
 /*
     SPDX-License-Identifier: Apache-2.0
-    Copyright 2023-2025 Yingwei Zheng
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-        http://www.apache.org/licenses/LICENSE-2.0
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+    Copyright 2023-2026 Yingwei Zheng and contributors
 */
 
-#define IMGUI_DEFINE_MATH_OPERATORS
 #include "shadertoy/ShaderToyContext.hpp"
+
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <ctime>
 
-#include "shadertoy/SuppressWarningPush.hpp"
-
-#include <imgui.h>
-
-#include "shadertoy/SuppressWarningPop.hpp"
-
 SHADERTOY_NAMESPACE_BEGIN
 
-namespace {
-ShaderToyUniform makeUniform(const float time, const float timeDelta, const float frameRate, const int32_t frame,
-                             const ImVec4 mouse, const ImVec4 date, const AudioInput& audio) {
-    return {
-        time,
-        timeDelta,
-        frameRate,
-        frame,
-        mouse,
-        date,
-        { audio.loudness, audio.bass, audio.mid, audio.treble },
-        { audio.onset, audio.kick, audio.snare, audio.hihat },
-        { audio.bpm, audio.beatPhase, audio.beatConfidence, audio.beatStrength },
-        { audio.stereoWidth, audio.stereoBalance, audio.stereoCorrelation, audio.energyTrend },
-        { audio.drop, audio.sectionChange, audio.spectralCentroid, audio.spectralFlux },
-        { audio.available ? 1.0f : 0.0f, audio.silence ? 1.0f : 0.0f, audio.sampleRate, 0.0f },
-    };
-}
+ShaderToyContext::ShaderToyContext() {
+    resetTime();
 }
 
-ShaderToyContext::ShaderToyContext() : mRunning{ true } {
-    reset();
+ShaderToyUniform ShaderToyContext::makeUniform() const {
+    return {
+        mTime,
+        mTimeDelta,
+        mFrameRate,
+        mFrameCount,
+        mMouse,
+        mDate,
+        { mAudioInput.loudness, mAudioInput.bass, mAudioInput.mid, mAudioInput.treble },
+        { mAudioInput.onset, mAudioInput.kick, mAudioInput.snare, mAudioInput.hihat },
+        { mAudioInput.bpm, mAudioInput.beatPhase, mAudioInput.beatConfidence, mAudioInput.beatStrength },
+        { mAudioInput.stereoWidth, mAudioInput.stereoBalance, mAudioInput.stereoCorrelation, mAudioInput.energyTrend },
+        { mAudioInput.drop, mAudioInput.sectionChange, mAudioInput.spectralCentroid, mAudioInput.spectralFlux },
+        { mAudioInput.available ? 1.0f : 0.0f, mAudioInput.silence ? 1.0f : 0.0f, mAudioInput.sampleRate, 0.0f },
+    };
 }
+
+void ShaderToyContext::updateDate() {
+    const auto offsetNow =
+        mStartTime + std::chrono::duration_cast<SystemClock::duration>(
+                         std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
+    const auto current = SystemClock::to_time_t(offsetNow);
+    const auto tm = std::localtime(&current);  // NOLINT(concurrency-mt-unsafe)
+    if(!tm)
+        return;
+
+    mDate = {
+        static_cast<float>(tm->tm_year + 1900),
+        static_cast<float>(tm->tm_mon + 1),
+        static_cast<float>(tm->tm_mday),
+        static_cast<float>(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec),
+    };
+}
+
 void ShaderToyContext::tick(const float frameRate) {
     if(!mRunning)
         return;
+
     const auto now = SystemClock::now();
-    const auto time = static_cast<float>(
+    const auto elapsed = static_cast<float>(
         static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(now - mStartTime).count()) * 1e-9);
     const auto timeScale = std::exp2(mTimeScale);
-    mTimeDelta = (time - mTime) * timeScale;
-    mTime = time * timeScale;
+    const auto nextTime = elapsed * timeScale;
+    mTimeDelta = nextTime - mTime;
+    mTime = nextTime;
     ++mFrameCount;
     mFrameRate = frameRate;
-
-    const auto offsetNow = mStartTime +
-        std::chrono::duration_cast<SystemClock::duration>(
-                               std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
-    const auto current = SystemClock::to_time_t(offsetNow);
-    const auto tm = std::localtime(&current);  // NOLINT(concurrency-mt-unsafe)
-    mDate = { static_cast<float>(tm->tm_year + 1900 - 1), static_cast<float>(tm->tm_mon), static_cast<float>(tm->tm_mday),
-              static_cast<float>(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec) +
-                  static_cast<float>(offsetNow.time_since_epoch().count() % SystemClock::period::den) /
-                      static_cast<float>(SystemClock::period::den) };
+    updateDate();
 }
+
 void ShaderToyContext::tickFixed(const float deltaSeconds, const float frameRate) {
     if(!mRunning)
         return;
+
     const float timeScale = std::exp2(mTimeScale);
     mTimeDelta = std::max(0.0f, deltaSeconds) * timeScale;
     mTime += mTimeDelta;
     ++mFrameCount;
     mFrameRate = frameRate;
-
-    const auto offsetNow = mStartTime +
-        std::chrono::duration_cast<SystemClock::duration>(
-            std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
-    const auto current = SystemClock::to_time_t(offsetNow);
-    const auto tm = std::localtime(&current);  // NOLINT(concurrency-mt-unsafe)
-    mDate = { static_cast<float>(tm->tm_year + 1900 - 1), static_cast<float>(tm->tm_mon), static_cast<float>(tm->tm_mday),
-              static_cast<float>(tm->tm_hour * 3600 + tm->tm_min * 60 + tm->tm_sec) };
+    updateDate();
 }
+
 void ShaderToyContext::pause() {
-    assert(mRunning);
+    if(!mRunning)
+        return;
     mRunning = false;
     mTimeDelta = 0.0f;
     mPauseTime = SystemClock::now();
 }
+
 void ShaderToyContext::resume() {
-    assert(!mRunning);
+    if(mRunning)
+        return;
     mRunning = true;
     if(mTime == 0.0f)
         mStartTime = SystemClock::now();
     else
         mStartTime += SystemClock::now() - mPauseTime;
 }
-void ShaderToyContext::reset() {
+
+void ShaderToyContext::resetTime() {
     mStartTime = SystemClock::now();
-    mTime = mTimeDelta = mTimeScale = 0.0f;
+    mTime = 0.0f;
+    mTimeDelta = 0.0f;
+    mTimeScale = 0.0f;
     mFrameCount = 0;
+    mFrameRate = 0.0f;
+    updateDate();
 }
-void ShaderToyContext::render(const ImVec2 base, const ImVec2 size, const std::optional<ImVec4>& mouse) {
-    auto* drawList = ImGui::GetWindowDrawList();
-    mBase = base;
-    mSize = size;
-    // Please see also https://shadertoyunofficial.wordpress.com/2016/07/20/special-shadertoy-features/
+
+void ShaderToyContext::setPipeline(std::unique_ptr<Pipeline> pipeline) {
+    mPipeline = std::move(pipeline);
+    if(mPipeline) {
+        mPipeline->setAudioInput(mAudioInput);
+        mPipeline->setKeyboardInput(mKeyboardInput);
+    }
+    resetTime();
+}
+
+void ShaderToyContext::setMouseInput(const std::optional<MouseInput>& mouse) {
     if(mouse) {
-        const auto m = mouse.value();
-        mMouse.x = m.x;
-        mMouse.y = m.y;
-        if(m.w > 0.0f) {  // just clicked
-            mMouse.z = mMouse.x;
-            mMouse.w = mMouse.y;
-        } else {
+        mMouse.x = mouse->x;
+        mMouse.y = mouse->y;
+        if(mouse->clicked) {
+            mMouse.z = mouse->x;
+            mMouse.w = mouse->y;
+        } else if(!mouse->down) {
+            mMouse.z = -std::fabs(mMouse.z);
             mMouse.w = -std::fabs(mMouse.w);
         }
     } else {
         mMouse.z = -std::fabs(mMouse.z);
         mMouse.w = -std::fabs(mMouse.w);
     }
-
-    if(mPipeline) {
-        drawList->AddCallback(
-            [](const ImDrawList*, const ImDrawCmd* cmd) {
-                const auto drawData = ImGui::GetDrawData();
-                const ImVec2 fbSize = drawData->DisplaySize * drawData->FramebufferScale;
-                const ImVec2 clipOff = drawData->DisplayPos;
-
-                const ImVec2 clipScale = drawData->FramebufferScale;
-
-                const auto ctx = static_cast<ShaderToyContext*>(cmd->UserCallbackData);
-                const ImVec2 clipMin((cmd->ClipRect.x - clipOff.x) * clipScale.x, (cmd->ClipRect.y - clipOff.y) * clipScale.y);
-                const ImVec2 clipMax((cmd->ClipRect.z - clipOff.x) * clipScale.x, (cmd->ClipRect.w - clipOff.y) * clipScale.y);
-                if(clipMax.x <= clipMin.x || clipMax.y <= clipMin.y)
-                    return;
-                ctx->mBound = { clipMin.x, clipMin.y, clipMax.x, clipMax.y };
-                ctx->mPipeline->render(
-                    fbSize, clipMin, clipMax, ctx->mSize,
-                    makeUniform(ctx->mTime, ctx->mTimeDelta, ctx->mFrameRate, ctx->mFrameCount, ctx->mMouse, ctx->mDate,
-                                ctx->mAudioInput));
-            },
-            this);
-        drawList->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
-    } else
-        drawList->AddRect(mBase, ImVec2{ mBase.x + mSize.x, mBase.y + mSize.y }, IM_COL32(255, 255, 0, 255));
 }
-void ShaderToyContext::reset(std::unique_ptr<Pipeline> pipeline) {
-    mPipeline = std::move(pipeline);
+
+void ShaderToyContext::setKeyboardInput(const KeyboardInput& input) {
+    mKeyboardInput = input;
     if(mPipeline)
-        mPipeline->setAudioInput(mAudioInput);
-    reset();
+        mPipeline->setKeyboardInput(mKeyboardInput);
 }
+
 void ShaderToyContext::setAudioInput(const AudioInput& input) {
     mAudioInput = input;
     if(mPipeline)
         mPipeline->setAudioInput(mAudioInput);
 }
-std::vector<uint8_t> ShaderToyContext::renderToBuffer(ImVec2 size, ImGuiContext *ctx) {
-    if (!mPipeline) return {};
-    ShaderToyUniform uniform = makeUniform(mTime, mTimeDelta, mFrameRate, mFrameCount, mMouse, mDate, mAudioInput);
 
-    if (ctx != nullptr)
-        ImGui::SetCurrentContext(ctx);
-    return mPipeline->renderToBuffer(size, uniform);
+void ShaderToyContext::render(const RenderRegion& region) {
+    if(!mPipeline)
+        return;
+    mPipeline->render(region.framebufferSize, region.clipMin, region.clipMax, region.canvasSize, makeUniform());
+}
+
+std::vector<uint8_t> ShaderToyContext::renderToBuffer(const Vec2 size) {
+    if(!mPipeline)
+        return {};
+    return mPipeline->renderToBuffer(size, makeUniform());
 }
 
 SHADERTOY_NAMESPACE_END
