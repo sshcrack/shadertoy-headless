@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "shadertoy/SuppressWarningPop.hpp"
 #include "shadertoy/SuppressWarningPush.hpp"
 #include <imgui-node-editor/imgui_node_editor.h>
+#include "shadertoy/SuppressWarningPop.hpp"
 
 namespace ax::NodeEditor::Utilities {
 

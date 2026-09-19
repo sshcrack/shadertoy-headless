@@ -12,10 +12,10 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "NodeEditor/Builders.hpp"
 
-#include "shadertoy/SuppressWarningPop.hpp"
 #include "shadertoy/SuppressWarningPush.hpp"
 #include <imgui-node-editor/imgui_node_editor.h>
 #include <imgui.h>
+#include "shadertoy/SuppressWarningPop.hpp"
 
 namespace ed = ax::NodeEditor;
 namespace util = ax::NodeEditor::Utilities;
