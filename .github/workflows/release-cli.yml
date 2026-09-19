@@ -131,7 +131,6 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
-              --verify-tag \
               --generate-notes \
               --title "ShaderToy $GITHUB_REF_NAME"
           fi
