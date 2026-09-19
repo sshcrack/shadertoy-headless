@@ -78,7 +78,7 @@ static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in 
 }
 )";
 
-static constexpr auto initialCubeMap =
+static constexpr auto initialCubeMap [[maybe_unused]] =
     R"(void mainCubemap( out vec4 fragColor, in vec2 fragCoord, in vec3 rayOri, in vec3 rayDir )
 {
     // Ray direction as color
@@ -89,7 +89,7 @@ static constexpr auto initialCubeMap =
 }
 )";
 
-static constexpr auto initialBuffer = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
+static constexpr auto initialBuffer [[maybe_unused]] = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
     fragColor = vec4(0.0,0.0,1.0,1.0);
 }
