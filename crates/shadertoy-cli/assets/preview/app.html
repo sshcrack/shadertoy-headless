@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ShaderToy Preview</title>
+<link rel="icon" href="data:,">
 <style>
 :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #101114; color: #e8e8ea; height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
 aside { padding: 16px; border-right: 1px solid #2c2e35; overflow: auto; }
 main { min-width: 0; display: grid; place-items: center; overflow: hidden; background: #08090b; }
-#frame { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; outline: none; }
+#frame { max-width: 100%; max-height: 100%; user-select: none; outline: none; display: block; }
 h1 { font-size: 16px; margin: 0 0 16px; }
 label { display: block; font-size: 12px; color: #aaa; margin-top: 12px; }
 select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: #eee; border: 1px solid #343741; border-radius: 5px; padding: 7px; }
@@ -38,12 +39,14 @@ select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: 
   <div class="meta" id="meta"></div>
   <div id="error"></div>
 </aside>
-<main><img id="frame" tabindex="0" alt="Shader preview"></main>
+<main><canvas id="frame" tabindex="0" aria-label="Shader preview"></canvas></main>
 <script>
 const query = location.search;
 const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(wsProto + "//" + location.host + "/ws" + query);
+ws.binaryType = "arraybuffer";
 const frame = document.getElementById("frame");
+const frameContext = frame.getContext("2d", {alpha:false});
 const view = document.getElementById("view");
 const pause = document.getElementById("pause");
 const meta = document.getElementById("meta");
@@ -53,30 +56,67 @@ const height = document.getElementById("height");
 const scale = document.getElementById("scale");
 let status = null;
 let down = false;
+let decodingFrame = false;
+let pendingFrame = null;
 
 function send(value) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value));
+}
+function samePassOptions(passes) {
+  if (view.options.length !== passes.length) return false;
+  for (let i = 0; i < passes.length; i++) {
+    if (view.options[i].value !== passes[i]) return false;
+  }
+  return true;
 }
 function update(s) {
   status = s;
   meta.textContent = s.project + "\nframe " + s.frame + "  time " + s.time.toFixed(3) + "s\n" + s.width + "x" + s.height + " @ " + s.fps + " fps";
   error.textContent = s.error || "";
   pause.textContent = s.paused ? "Resume" : "Pause";
-  width.value = s.width;
-  height.value = s.height;
-  scale.value = s.time_scale;
-  const old = view.value;
-  view.innerHTML = "";
-  for (const name of s.passes) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    view.appendChild(option);
+  if (document.activeElement !== width) width.value = s.width;
+  if (document.activeElement !== height) height.value = s.height;
+  if (document.activeElement !== scale) scale.value = s.time_scale;
+  if (!samePassOptions(s.passes)) {
+    const selected = view.value;
+    view.replaceChildren(...s.passes.map(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      return option;
+    }));
+    view.value = s.view || selected || s.final_pass;
+  } else if (document.activeElement !== view && view.value !== s.view) {
+    view.value = s.view;
   }
-  view.value = s.view || old || s.final_pass;
-  if (s.sequence) frame.src = "/frame.png" + query + (query ? "&" : "?") + "seq=" + s.sequence;
 }
-ws.onmessage = event => update(JSON.parse(event.data));
+async function queueFrame(payload) {
+  pendingFrame = payload;
+  if (decodingFrame) return;
+  decodingFrame = true;
+  try {
+    while (pendingFrame !== null) {
+      const next = pendingFrame;
+      pendingFrame = null;
+      const bitmap = await createImageBitmap(new Blob([next], {type:"image/png"}));
+      if (frame.width !== bitmap.width || frame.height !== bitmap.height) {
+        frame.width = bitmap.width;
+        frame.height = bitmap.height;
+      }
+      frameContext.drawImage(bitmap, 0, 0);
+      bitmap.close();
+    }
+  } finally {
+    decodingFrame = false;
+  }
+}
+ws.onmessage = event => {
+  if (typeof event.data === "string") {
+    update(JSON.parse(event.data));
+  } else {
+    queueFrame(event.data).catch(err => { error.textContent = "preview frame decode failed: " + err; });
+  }
+};
 view.onchange = () => send({type:"view", pass:view.value});
 pause.onclick = () => send({type: status && status.paused ? "resume" : "pause"});
 document.getElementById("step").onclick = () => send({type:"step"});
@@ -85,7 +125,7 @@ document.getElementById("resolution").onclick = () => send({type:"resolution", w
 scale.oninput = () => send({type:"time-scale", value:+scale.value});
 
 function mouse(event, clicked=false) {
-  if (!status || !frame.naturalWidth) return;
+  if (!status || !frame.width || !frame.height) return;
   const rect = frame.getBoundingClientRect();
   const x = (event.clientX - rect.left) / rect.width * status.width;
   const yTop = (event.clientY - rect.top) / rect.height * status.height;

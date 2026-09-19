@@ -5,11 +5,12 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-/// Hidden OpenGL context suitable for deterministic/offscreen ShaderToy rendering.
+/// Display-less OpenGL context suitable for deterministic/offscreen ShaderToy rendering.
 ///
-/// GLFW initialization, hidden-window creation and destruction must happen on the process
-/// main thread. The context itself is thread-affine, so this type is deliberately neither
-/// Send nor Sync and must be created and dropped on that main thread.
+/// On Linux the native helper creates a surfaceless EGL context directly, so no X11/Wayland
+/// display is required. Context creation and destruction must happen on the process main
+/// thread. The context itself is thread-affine, so this type is deliberately neither Send
+/// nor Sync and must be created and dropped on that main thread.
 pub struct HeadlessContext {
     handle: NonNull<sys::st_context>,
     _thread_affine: PhantomData<Rc<()>>,

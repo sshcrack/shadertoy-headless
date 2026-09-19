@@ -14,7 +14,7 @@ The repository has several frontends built on one rendering implementation:
 - **shadertoy CLI** — the agent-first project/check/render/debug/live-preview workflow.
 - **desktop editor** — the existing ImGui editor. It remains a C++ library client; direct directory-project editing will be adapted later.
 
-The core C++ library does not depend on ImGui, HelloImGui, the node editor, GLFW, or native file dialogs. The embedding application owns the OpenGL context and makes it current. The optional C ABI includes a hidden GLFW context helper for command-line/off-screen hosts.
+The core C++ library does not depend on ImGui, HelloImGui, the node editor, GLFW, or native file dialogs. The embedding application owns the OpenGL context and makes it current. The optional C ABI includes an offscreen context helper for command-line hosts. On Linux it creates a surfaceless EGL context directly, so CLI compilation/rendering does not require an X11/Wayland display.
 
 ## Architecture
 
@@ -136,6 +136,7 @@ cd feedback
 shadertoy inspect --json
 shadertoy check --json
 shadertoy render -o target/check.png
+shadertoy render-frames --frames 0,60,120,180 --contact-sheet target/contact.png
 shadertoy preview
 ~~~
 
@@ -173,7 +174,7 @@ shadertoy check adds semantic validation that JSON Schema cannot express, includ
 
 ### Live native preview
 
-shadertoy preview starts a local web server, but the browser is only a viewer/controller: rendering remains in the native C++ renderer. It watches the manifest, shader sources, and assets, keeps the last successful frame when a new edit fails compilation, and hot-reloads automatically after the error is fixed.
+shadertoy preview starts a local web server, but the browser is only a viewer/controller: rendering remains in the native C++ renderer. Rendered PNG frames are pushed over the existing WebSocket and drawn into a canvas, so pass selection and controls do not fight a continuously refreshed HTTP image. It watches the manifest, shader sources, and assets, keeps the last successful frame when a new edit fails compilation, and hot-reloads automatically after the error is fixed.
 
 The preview exposes final Image and named 2D buffers plus pause/resume, reset, frame step, time scale, resolution, mouse, and keyboard controls. It binds to 127.0.0.1 by default; non-loopback binds require --token.
 
@@ -301,7 +302,7 @@ cargo build -p shadertoy-cli
 ./target/debug/shadertoy --help
 ~~~
 
-The Rust CLI statically links the ShaderToy C ABI, C++ renderer, and vcpkg-provided native dependencies into the executable. Normal operating-system runtime/graphics libraries (for example libc, libstdc++, OpenGL/GLX, and X11 on Linux) remain dynamically linked, but no adjacent `libshadertoy_c`/GLFW/GLEW/fmt/OpenSSL/Brotli shared libraries are required.
+The Rust CLI statically links the ShaderToy C ABI, C++ renderer, GLAD loader, and vcpkg-provided native dependencies into the executable. On Linux the resulting binary has no link-time X11, GLX, OpenGL, GLFW, or EGL dependency; the display-less helper loads `libEGL.so.1` at runtime and GLAD resolves the current OpenGL context. Normal C/C++ runtime libraries remain dynamic, and no adjacent `libshadertoy_c`/GLFW/GLEW/GLAD/fmt/OpenSSL/Brotli shared libraries are required.
 
 The equivalent CMake switches are `SHADERTOY_BUILD_GUI`, `SHADERTOY_BUILD_PREVIEW_TOOL`, `SHADERTOY_BUILD_C_API`, `SHADERTOY_BUILD_C_API_STATIC`, and `BUILD_TESTING`.
 

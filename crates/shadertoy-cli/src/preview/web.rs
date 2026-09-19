@@ -82,6 +82,7 @@ pub(super) async fn websocket(
 async fn websocket_loop(mut socket: WebSocket, shared: Shared) {
     shared.clients.fetch_add(1, Ordering::Relaxed);
     let mut updates = shared.updates.subscribe();
+    let mut frames = shared.frames.subscribe();
 
     let initial = shared
         .status
@@ -90,6 +91,14 @@ async fn websocket_loop(mut socket: WebSocket, shared: Shared) {
         .clone();
     if let Ok(message) = serde_json::to_string(&initial) {
         let _ = socket.send(Message::Text(message.into())).await;
+    }
+    let initial_frame = shared
+        .frame_png
+        .read()
+        .expect("preview frame lock poisoned")
+        .clone();
+    if !initial_frame.is_empty() {
+        let _ = socket.send(Message::Binary(initial_frame)).await;
     }
 
     loop {
@@ -110,6 +119,17 @@ async fn websocket_loop(mut socket: WebSocket, shared: Shared) {
                 match update {
                     Ok(update) => {
                         if socket.send(Message::Text(update.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            frame = frames.recv() => {
+                match frame {
+                    Ok(frame) => {
+                        if socket.send(Message::Binary(frame)).await.is_err() {
                             break;
                         }
                     }

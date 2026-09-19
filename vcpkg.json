@@ -4,7 +4,12 @@
   "version": "2.0.1",
   "dependencies": [
     "fmt",
-    "glew",
+    {
+      "name": "glad",
+      "features": [
+        "gl-api-41"
+      ]
+    },
     "cpp-httplib",
     "ms-gsl",
     "magic-enum",
@@ -18,6 +23,7 @@
       "description": "Dependencies for the interactive ShaderToy editor",
       "dependencies": [
         "glfw3",
+        "glew",
         {
           "name": "hello-imgui",
           "features": [
@@ -36,9 +42,16 @@
       ]
     },
     "c-api": {
-      "description": "Dependencies for the stable C ABI headless OpenGL context helper",
+      "description": "Dependencies for the stable C ABI offscreen OpenGL context helper",
       "dependencies": [
-        "glfw3"
+        {
+          "name": "egl-registry",
+          "platform": "linux"
+        },
+        {
+          "name": "glfw3",
+          "platform": "!linux"
+        }
       ]
     }
   },

@@ -19,6 +19,8 @@ supported remote assets local.
 
 4. Render deterministic evidence:
      shadertoy render -o target/check.png
+   For temporal comparison/contact sheets, reuse one runtime:
+     shadertoy render-frames --frames 0,60,120,180 --contact-sheet target/contact.png
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
@@ -36,5 +38,7 @@ supported remote assets local.
 
 8. Use live native-rendered review when iterating:
      shadertoy preview
+
+On Linux, check/render/render-frames/state capture/preview use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY.
 
 Do not edit target/. It is disposable generated output.

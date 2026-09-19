@@ -53,7 +53,8 @@ static const st_wrap ST_WRAP_REPEAT = 1;
 
 ST_NATIVE_EXPORT const char* st_last_error(void);
 
-/* GLFW-backed context lifecycle must be created and destroyed on the process main thread. */
+/* Offscreen context lifecycle must be created and destroyed on the process main thread.
+ * Linux uses EGL's surfaceless platform directly and requires no X11/Wayland display. */
 ST_NATIVE_EXPORT st_context* st_context_create_hidden(uint32_t width, uint32_t height);
 ST_NATIVE_EXPORT int st_context_make_current(st_context* context);
 ST_NATIVE_EXPORT void st_context_destroy(st_context* context);

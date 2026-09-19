@@ -288,6 +288,232 @@ fn frame_for_time(time: f32, fps: f32, source: &str) -> Result<i32> {
     Ok(frame.round() as i32)
 }
 
+const MAX_BATCH_FRAMES: usize = 1024;
+const MAX_CONTACT_SHEET_BYTES: usize = 256 * 1024 * 1024;
+
+pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
+    let loaded = LoadedManifest::load(&options.project)?;
+    ensure_source_files_exist(&loaded)?;
+    let frames = normalize_frames(&options.frames)?;
+    let (width, height) = resolve_dimensions(&loaded, None, options.width, options.height)?;
+    let fps = resolve_fps(&loaded, None, options.fps)?;
+
+    let selected_pass = options
+        .pass
+        .as_deref()
+        .unwrap_or(&loaded.manifest.final_pass().name);
+    let pass = loaded
+        .manifest
+        .passes
+        .iter()
+        .find(|pass| pass.name == selected_pass)
+        .with_context(|| format!("unknown render pass '{selected_pass}'"))?;
+    if pass.kind == PassKind::Cubemap {
+        bail!("render-frames only supports the final image and 2D buffer passes");
+    }
+
+    let output_dir = options
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| loaded.root.join("target/frames"));
+    fs::create_dir_all(&output_dir)
+        .with_context(|| format!("failed to create {}", output_dir.display()))?;
+
+    let mut contact_sheet = options
+        .contact_sheet
+        .as_ref()
+        .map(|path| prepare_contact_sheet(path, frames.len(), options.columns, width, height))
+        .transpose()?;
+
+    let context = HeadlessContext::new(64, 64)
+        .context("failed to create headless OpenGL context for multi-frame rendering")?;
+    let mut runtime = Runtime::new(&context)?;
+    let project = build_native_project(&loaded)?;
+    runtime.load_project(&project)?;
+
+    let final_pass = loaded.manifest.final_pass().name.as_str();
+    let mut outputs = Vec::with_capacity(frames.len());
+    let mut next_requested = 0usize;
+    let max_frame = *frames
+        .last()
+        .expect("normalize_frames guarantees non-empty");
+
+    for frame in 0..=max_frame {
+        if frame > 0 {
+            runtime.tick_fixed(1.0 / fps, fps)?;
+        }
+        let final_image = runtime.render(width, height)?;
+
+        if frame != frames[next_requested] {
+            continue;
+        }
+
+        let image = if selected_pass == final_pass {
+            final_image
+        } else {
+            runtime.snapshot_pass_rgb(selected_pass, width, height)?
+        };
+        let path = output_dir.join(format!("frame-{frame:06}.png"));
+        save_rgb_png(&image, &path)?;
+        if let Some(sheet) = &mut contact_sheet {
+            sheet.blit(next_requested, &image)?;
+        }
+        outputs.push(path);
+        next_requested += 1;
+        if next_requested == frames.len() {
+            break;
+        }
+    }
+
+    let contact_sheet_output = if let Some(sheet) = contact_sheet {
+        Some(sheet.save()?)
+    } else {
+        None
+    };
+
+    let frame_list = frames
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(Output {
+        human: format!(
+            "Rendered {}x{} frames [{}]{} -> {}{}",
+            width,
+            height,
+            frame_list,
+            options
+                .pass
+                .as_ref()
+                .map(|name| format!(" pass '{name}'"))
+                .unwrap_or_default(),
+            output_dir.display(),
+            contact_sheet_output
+                .as_ref()
+                .map(|path| format!("; contact sheet {}", path.display()))
+                .unwrap_or_default()
+        ),
+        json: json!({
+            "ok": true,
+            "project": loaded.manifest.project.name,
+            "output_dir": output_dir,
+            "outputs": outputs,
+            "contact_sheet": contact_sheet_output,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "frames": frames,
+            "pass": selected_pass,
+        }),
+    })
+}
+
+fn normalize_frames(frames: &[i32]) -> Result<Vec<i32>> {
+    if frames.is_empty() {
+        bail!("--frames must contain at least one frame");
+    }
+    if frames.len() > MAX_BATCH_FRAMES {
+        bail!("--frames accepts at most {MAX_BATCH_FRAMES} entries");
+    }
+    if let Some(frame) = frames.iter().find(|frame| **frame < 0) {
+        bail!("frame {frame} is negative; deterministic frames must be non-negative");
+    }
+    let mut normalized = frames.to_vec();
+    normalized.sort_unstable();
+    normalized.dedup();
+    Ok(normalized)
+}
+
+struct ContactSheet {
+    path: PathBuf,
+    columns: u32,
+    width: u32,
+    height: u32,
+    sheet_width: u32,
+    sheet_height: u32,
+    pixels: Vec<u8>,
+}
+
+impl ContactSheet {
+    fn blit(&mut self, index: usize, image: &RgbImage) -> Result<()> {
+        if image.width != self.width || image.height != self.height {
+            bail!("contact-sheet frame dimensions changed during rendering");
+        }
+        let mut source = image.pixels.clone();
+        super::images::flip_rgb_rows(&mut source, image.width, image.height);
+        let column = (index as u32) % self.columns;
+        let row = (index as u32) / self.columns;
+        let x = column * self.width;
+        let y = row * self.height;
+        let source_row_bytes = self.width as usize * 3;
+        let sheet_row_bytes = self.sheet_width as usize * 3;
+        for source_y in 0..self.height as usize {
+            let source_start = source_y * source_row_bytes;
+            let destination_start = (y as usize + source_y) * sheet_row_bytes + x as usize * 3;
+            self.pixels[destination_start..destination_start + source_row_bytes]
+                .copy_from_slice(&source[source_start..source_start + source_row_bytes]);
+        }
+        Ok(())
+    }
+
+    fn save(self) -> Result<PathBuf> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        ::image::save_buffer_with_format(
+            &self.path,
+            &self.pixels,
+            self.sheet_width,
+            self.sheet_height,
+            ::image::ColorType::Rgb8,
+            ::image::ImageFormat::Png,
+        )
+        .with_context(|| format!("failed to write contact sheet {}", self.path.display()))?;
+        Ok(self.path)
+    }
+}
+
+fn prepare_contact_sheet(
+    path: &Path,
+    frame_count: usize,
+    requested_columns: Option<u32>,
+    width: u32,
+    height: u32,
+) -> Result<ContactSheet> {
+    let columns = match requested_columns {
+        Some(0) => bail!("--columns must be positive"),
+        Some(columns) => columns.min(frame_count as u32),
+        None => (frame_count as f64).sqrt().ceil() as u32,
+    };
+    let rows = (frame_count as u32).div_ceil(columns);
+    let sheet_width = width
+        .checked_mul(columns)
+        .context("contact-sheet width overflow")?;
+    let sheet_height = height
+        .checked_mul(rows)
+        .context("contact-sheet height overflow")?;
+    let bytes = (sheet_width as usize)
+        .checked_mul(sheet_height as usize)
+        .and_then(|pixels| pixels.checked_mul(3))
+        .context("contact-sheet allocation size overflow")?;
+    if bytes > MAX_CONTACT_SHEET_BYTES {
+        bail!(
+            "contact sheet would require {} MiB; reduce resolution/frame count or change --columns (limit {} MiB)",
+            bytes / (1024 * 1024),
+            MAX_CONTACT_SHEET_BYTES / (1024 * 1024)
+        );
+    }
+    Ok(ContactSheet {
+        path: path.to_path_buf(),
+        columns,
+        width,
+        height,
+        sheet_width,
+        sheet_height,
+        pixels: vec![0; bytes],
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,5 +521,22 @@ mod tests {
     #[test]
     fn frame_for_time_rejects_i32_overflow() {
         assert!(frame_for_time(f32::MAX, 1000.0, "--time").is_err());
+    }
+
+    #[test]
+    fn normalize_frames_sorts_and_deduplicates() {
+        assert_eq!(
+            normalize_frames(&[120, 0, 60, 60]).unwrap(),
+            vec![0, 60, 120]
+        );
+        assert!(normalize_frames(&[-1]).is_err());
+        assert!(normalize_frames(&[]).is_err());
+    }
+
+    #[test]
+    fn contact_sheet_uses_near_square_default() {
+        let sheet = prepare_contact_sheet(Path::new("sheet.png"), 4, None, 10, 5).unwrap();
+        assert_eq!(sheet.columns, 2);
+        assert_eq!((sheet.sheet_width, sheet.sheet_height), (20, 10));
     }
 }

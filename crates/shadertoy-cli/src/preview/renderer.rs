@@ -141,10 +141,11 @@ pub(super) fn render_loop(
                     if let Some(image) = selected {
                         match rgb_png_bytes(&image) {
                             Ok(png) => {
+                                let png = Bytes::from(png);
                                 *shared
                                     .frame_png
                                     .write()
-                                    .expect("preview frame lock poisoned") = png;
+                                    .expect("preview frame lock poisoned") = png.clone();
                                 update_status(
                                     &shared,
                                     loaded.as_ref(),
@@ -157,6 +158,7 @@ pub(super) fn render_loop(
                                     None,
                                     true,
                                 );
+                                let _ = shared.frames.send(png);
                             }
                             Err(error) => set_error(&shared, error.to_string()),
                         }

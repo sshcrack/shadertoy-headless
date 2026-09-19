@@ -2,7 +2,7 @@
 
 Safe Rust bindings for the native ShaderToy renderer in this repository. The crates.io package is `shadertoy-native`, while the Rust library target remains `shadertoy`.
 
-The crate wraps `shadertoy-sys` and exposes native project construction, hidden OpenGL context creation, deterministic stepping, per-pass rendering, lossless feedback-state snapshot/restore, and input injection without exposing raw C pointers.
+The crate wraps `shadertoy-sys` and exposes native project construction, display-less/offscreen OpenGL context creation, deterministic stepping, per-pass rendering, lossless feedback-state snapshot/restore, and input injection without exposing raw C pointers.
 
 For the directory-project format and agent-oriented workflow, see the repository README and the `shadertoy-cli` crate.
 

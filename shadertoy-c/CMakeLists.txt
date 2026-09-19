@@ -1,14 +1,23 @@
-find_package(glfw3 CONFIG REQUIRED)
+if(UNIX AND NOT APPLE)
+    find_path(EGL_REGISTRY_INCLUDE_DIRS "EGL/egl.h" REQUIRED)
+else()
+    find_package(glfw3 CONFIG REQUIRED)
+endif()
 if(SHADERTOY_BUILD_C_API_STATIC)
     find_package(fmt CONFIG REQUIRED)
-    find_package(GLEW CONFIG REQUIRED)
+    find_package(glad CONFIG REQUIRED)
     find_package(OpenSSL REQUIRED)
     find_package(unofficial-brotli CONFIG REQUIRED)
 endif()
 
 function(configure_shadertoy_c_target target)
     target_compile_features(${target} PRIVATE cxx_std_23)
-    target_link_libraries(${target} PRIVATE shadertoy::shadertoy glfw)
+    target_link_libraries(${target} PRIVATE shadertoy::shadertoy)
+    if(UNIX AND NOT APPLE)
+        target_include_directories(${target} PRIVATE ${EGL_REGISTRY_INCLUDE_DIRS})
+    else()
+        target_link_libraries(${target} PRIVATE glfw)
+    endif()
     target_include_directories(${target} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
@@ -82,9 +91,6 @@ if(SHADERTOY_BUILD_C_API_STATIC)
     else()
         string(APPEND SHADERTOY_RUST_SYSTEM_LINKS
             "system=stdc++\n"
-            "system=OpenGL\n"
-            "system=GLX\n"
-            "system=X11\n"
             "system=m\n"
             "system=rt\n"
             "system=dl\n"
@@ -92,14 +98,18 @@ if(SHADERTOY_BUILD_C_API_STATIC)
         )
     endif()
 
+    set(SHADERTOY_RUST_CONTEXT_STATIC_LINK "")
+    if(NOT (UNIX AND NOT APPLE))
+        set(SHADERTOY_RUST_CONTEXT_STATIC_LINK "static=$<TARGET_LINKER_FILE:glfw>\n")
+    endif()
+
     file(GENERATE
         OUTPUT "${CMAKE_BINARY_DIR}/shadertoy-rust-link-$<CONFIG>.txt"
         CONTENT
 "static=$<TARGET_LINKER_FILE:shadertoy-c-static>
 static=$<TARGET_LINKER_FILE:shadertoy-lib>
-static=$<TARGET_LINKER_FILE:glfw>
-static=$<TARGET_LINKER_FILE:fmt::fmt>
-static=$<TARGET_LINKER_FILE:GLEW::GLEW>
+${SHADERTOY_RUST_CONTEXT_STATIC_LINK}static=$<TARGET_LINKER_FILE:fmt::fmt>
+static=$<TARGET_LINKER_FILE:glad::glad>
 static=$<TARGET_LINKER_FILE:unofficial::brotli::brotlienc>
 static=$<TARGET_LINKER_FILE:unofficial::brotli::brotlidec>
 static=$<TARGET_LINKER_FILE:unofficial::brotli::brotlicommon>

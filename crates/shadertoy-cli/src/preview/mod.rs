@@ -2,6 +2,7 @@ use crate::manifest::{LoadedManifest, PassKind};
 use crate::ops::rgb_png_bytes;
 use crate::project::{build_native_project, ensure_source_files_exist};
 use anyhow::{Context, Result, bail};
+use axum::body::Bytes;
 use axum::extract::{
     Query, State,
     ws::{Message, WebSocket, WebSocketUpgrade},
@@ -82,10 +83,11 @@ impl Default for PreviewStatus {
 
 #[derive(Clone)]
 struct Shared {
-    frame_png: Arc<RwLock<Vec<u8>>>,
+    frame_png: Arc<RwLock<Bytes>>,
     status: Arc<RwLock<PreviewStatus>>,
     controls: mpsc::Sender<Control>,
     updates: broadcast::Sender<String>,
+    frames: broadcast::Sender<Bytes>,
     clients: Arc<AtomicUsize>,
     token: Option<Arc<String>>,
 }
@@ -186,11 +188,13 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     let (control_tx, control_rx) = mpsc::channel();
     let (update_tx, _) = broadcast::channel(128);
+    let (frame_tx, _) = broadcast::channel(2);
     let shared = Shared {
-        frame_png: Arc::new(RwLock::new(Vec::new())),
+        frame_png: Arc::new(RwLock::new(Bytes::new())),
         status: Arc::new(RwLock::new(initial_status)),
         controls: control_tx.clone(),
         updates: update_tx.clone(),
+        frames: frame_tx,
         clients: Arc::new(AtomicUsize::new(0)),
         token: config.token.clone().map(Arc::new),
     };
@@ -226,8 +230,8 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         .context("failed to configure preview server socket")?;
     let address = listener.local_addr()?;
 
-    // GLFW requires initialization and window lifecycle on the process main
-    // thread. Keep the renderer here and move only the HTTP server to a worker.
+    // Keep the graphics context/runtime on the process main thread; the native
+    // context helper is thread-affine. Move only the HTTP/WebSocket server to a worker.
     let context = HeadlessContext::new(64, 64)
         .context("failed to create headless OpenGL context for preview")?;
     let mut runtime =

@@ -23,7 +23,7 @@ pub use importer::import_project;
 pub use inspect::inspect_project;
 pub use mutate::{ChannelSetOptions, add_pass, remove_channel, remove_pass, set_channel};
 pub use project::{build_project, check_project, init_project, new_project};
-pub use render::render_project;
+pub use render::{render_frames_project, render_project};
 pub use state::{capture_state, inspect_state, set_state_buffers};
 
 use images::{flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
@@ -47,6 +47,19 @@ pub struct RenderOptions {
     pub time: Option<f32>,
     pub state: Option<PathBuf>,
     pub set_buffers: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderFramesOptions {
+    pub project: PathBuf,
+    pub output_dir: Option<PathBuf>,
+    pub contact_sheet: Option<PathBuf>,
+    pub columns: Option<u32>,
+    pub pass: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f32>,
+    pub frames: Vec<i32>,
 }
 
 #[derive(Debug, Clone)]
