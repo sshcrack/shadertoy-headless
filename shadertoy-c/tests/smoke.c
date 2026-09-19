@@ -9,6 +9,22 @@ int main(void) {
         return 3;
     }
 
+#if defined(__linux__)
+    st_context* context = st_context_create_hidden(16, 16);
+    if(context == NULL) {
+        const char* error = st_last_error();
+        fprintf(stderr, "failed to create display-less EGL context: %s\n", error != NULL ? error : "unknown error");
+        return 6;
+    }
+    if(st_context_make_current(context) != 0) {
+        const char* error = st_last_error();
+        fprintf(stderr, "failed to make display-less EGL context current: %s\n", error != NULL ? error : "unknown error");
+        st_context_destroy(context);
+        return 7;
+    }
+    st_context_destroy(context);
+#endif
+
     st_runtime* runtime = st_runtime_create();
     if(runtime == NULL) {
         fputs("failed to create runtime for validation smoke\n", stderr);

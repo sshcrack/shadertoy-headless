@@ -1,5 +1,5 @@
 find_package(fmt CONFIG REQUIRED)
-find_package(GLEW CONFIG REQUIRED)
+find_package(glad CONFIG REQUIRED)
 find_package(Microsoft.GSL CONFIG REQUIRED)
 find_package(magic_enum CONFIG REQUIRED)
 find_package(Stb REQUIRED)
@@ -39,7 +39,7 @@ target_include_directories(shadertoy-lib
 target_link_libraries(shadertoy-lib
     PRIVATE
         fmt::fmt
-        GLEW::GLEW
+        glad::glad
         Microsoft.GSL::GSL
         magic_enum::magic_enum
         httplib::httplib

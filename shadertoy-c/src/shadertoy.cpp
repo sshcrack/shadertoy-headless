@@ -4,7 +4,13 @@
 */
 #include <shadertoy/shadertoy.h>
 
+#ifdef __linux__
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <dlfcn.h>
+#else
 #include <GLFW/glfw3.h>
+#endif
 
 #include <shadertoy/Project.hpp>
 #include <shadertoy/ShaderToy.hpp>
@@ -18,6 +24,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -42,8 +49,154 @@ namespace {
         }
     }
 
+#ifdef __linux__
+    class EglApi final {
+    public:
+        EglApi() {
+            library = dlopen("libEGL.so.1", RTLD_NOW | RTLD_LOCAL);
+            if(!library) {
+                const auto* error = dlerror();
+                throw std::runtime_error(std::string("Failed to load libEGL.so.1: ") +
+                    (error ? error : "unknown error"));
+            }
+            try {
+                getError = load<PFNEGLGETERRORPROC>("eglGetError");
+                queryString = load<PFNEGLQUERYSTRINGPROC>("eglQueryString");
+                getProcAddress = load<PFNEGLGETPROCADDRESSPROC>("eglGetProcAddress");
+                initialize = load<PFNEGLINITIALIZEPROC>("eglInitialize");
+                bindApi = load<PFNEGLBINDAPIPROC>("eglBindAPI");
+                chooseConfig = load<PFNEGLCHOOSECONFIGPROC>("eglChooseConfig");
+                createContext = load<PFNEGLCREATECONTEXTPROC>("eglCreateContext");
+                createPbufferSurface = load<PFNEGLCREATEPBUFFERSURFACEPROC>("eglCreatePbufferSurface");
+                makeCurrent = load<PFNEGLMAKECURRENTPROC>("eglMakeCurrent");
+                getCurrentContext = load<PFNEGLGETCURRENTCONTEXTPROC>("eglGetCurrentContext");
+                destroySurface = load<PFNEGLDESTROYSURFACEPROC>("eglDestroySurface");
+                destroyContext = load<PFNEGLDESTROYCONTEXTPROC>("eglDestroyContext");
+                terminate = load<PFNEGLTERMINATEPROC>("eglTerminate");
+            } catch(...) {
+                dlclose(library);
+                library = nullptr;
+                throw;
+            }
+        }
+
+        EglApi(const EglApi&) = delete;
+        EglApi& operator=(const EglApi&) = delete;
+
+        ~EglApi() {
+            if(library)
+                dlclose(library);
+        }
+
+        PFNEGLGETERRORPROC getError{};
+        PFNEGLQUERYSTRINGPROC queryString{};
+        PFNEGLGETPROCADDRESSPROC getProcAddress{};
+        PFNEGLINITIALIZEPROC initialize{};
+        PFNEGLBINDAPIPROC bindApi{};
+        PFNEGLCHOOSECONFIGPROC chooseConfig{};
+        PFNEGLCREATECONTEXTPROC createContext{};
+        PFNEGLCREATEPBUFFERSURFACEPROC createPbufferSurface{};
+        PFNEGLMAKECURRENTPROC makeCurrent{};
+        PFNEGLGETCURRENTCONTEXTPROC getCurrentContext{};
+        PFNEGLDESTROYSURFACEPROC destroySurface{};
+        PFNEGLDESTROYCONTEXTPROC destroyContext{};
+        PFNEGLTERMINATEPROC terminate{};
+
+    private:
+        template <typename T>
+        T load(const char* name) {
+            dlerror();
+            auto* symbol = dlsym(library, name);
+            if(!symbol) {
+                const auto* error = dlerror();
+                throw std::runtime_error(std::string("Failed to load ") + name + " from libEGL.so.1: " +
+                    (error ? error : "unknown error"));
+            }
+            return reinterpret_cast<T>(symbol);
+        }
+
+        void* library{};
+    };
+
+    EglApi& egl() {
+        static EglApi api;
+        return api;
+    }
+
+    std::mutex eglMutex;
+    std::size_t eglUsers = 0;
+    EGLDisplay sharedEglDisplay = EGL_NO_DISPLAY;
+
+    [[nodiscard]] std::string eglFailure(const char* action) {
+        auto value = egl().getError();
+        static constexpr char digits[] = "0123456789ABCDEF";
+        std::string code(4, '0');
+        for(int index = 3; index >= 0; --index) {
+            code[static_cast<size_t>(index)] = digits[value & 0xF];
+            value >>= 4;
+        }
+        return std::string(action) + " (EGL error 0x" + code + ")";
+    }
+
+    [[nodiscard]] bool hasExtension(const char* extensions, const std::string_view name) {
+        if(!extensions)
+            return false;
+        const std::string_view list{ extensions };
+        size_t start = 0;
+        while(start < list.size()) {
+            const auto end = list.find(' ', start);
+            const auto token = list.substr(start, end == std::string_view::npos ? list.size() - start : end - start);
+            if(token == name)
+                return true;
+            if(end == std::string_view::npos)
+                break;
+            start = end + 1;
+        }
+        return false;
+    }
+
+    EGLDisplay acquireEglDisplay() {
+        std::scoped_lock lock(eglMutex);
+        if(eglUsers == 0) {
+            auto& api = egl();
+            const auto getPlatformDisplay =
+                reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(api.getProcAddress("eglGetPlatformDisplayEXT"));
+            if(!getPlatformDisplay)
+                throw std::runtime_error("libEGL does not expose eglGetPlatformDisplayEXT");
+
+            sharedEglDisplay = getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, nullptr);
+            if(sharedEglDisplay == EGL_NO_DISPLAY)
+                throw std::runtime_error(eglFailure("Failed to create surfaceless EGL display"));
+            EGLint major = 0;
+            EGLint minor = 0;
+            if(api.initialize(sharedEglDisplay, &major, &minor) != EGL_TRUE) {
+                const auto message = eglFailure("Failed to initialize surfaceless EGL display");
+                sharedEglDisplay = EGL_NO_DISPLAY;
+                throw std::runtime_error(message);
+            }
+            if(api.bindApi(EGL_OPENGL_API) != EGL_TRUE) {
+                const auto message = eglFailure("Failed to bind EGL OpenGL API");
+                api.terminate(sharedEglDisplay);
+                sharedEglDisplay = EGL_NO_DISPLAY;
+                throw std::runtime_error(message);
+            }
+        }
+        ++eglUsers;
+        return sharedEglDisplay;
+    }
+
+    void releaseEglDisplay() noexcept {
+        std::scoped_lock lock(eglMutex);
+        if(eglUsers > 0 && --eglUsers == 0) {
+            if(sharedEglDisplay != EGL_NO_DISPLAY)
+                egl().terminate(sharedEglDisplay);
+            sharedEglDisplay = EGL_NO_DISPLAY;
+        }
+    }
+#else
     std::mutex glfwMutex;
     std::size_t glfwUsers = 0;
+#endif
 
     ShaderToy::ProjectPassKind passKind(const st_pass_kind kind) {
         switch(kind) {
@@ -114,7 +267,13 @@ namespace {
 }  // namespace
 
 struct st_context {
+#ifdef __linux__
+    EGLDisplay display{ EGL_NO_DISPLAY };
+    EGLContext context{ EGL_NO_CONTEXT };
+    EGLSurface surface{ EGL_NO_SURFACE };
+#else
     GLFWwindow* window{};
+#endif
 };
 
 struct st_project {
@@ -138,8 +297,63 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
             throw std::runtime_error("Context dimensions must be positive");
         if(width > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
            height > static_cast<uint32_t>(std::numeric_limits<int>::max()))
-            throw std::runtime_error("Context dimensions exceed GLFW's signed integer range");
+            throw std::runtime_error("Context dimensions exceed the signed integer range");
 
+#ifdef __linux__
+        const auto display = acquireEglDisplay();
+        EGLContext context = EGL_NO_CONTEXT;
+        EGLSurface surface = EGL_NO_SURFACE;
+        try {
+            constexpr EGLint configAttributes[] = {
+                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                EGL_RED_SIZE, 8,
+                EGL_GREEN_SIZE, 8,
+                EGL_BLUE_SIZE, 8,
+                EGL_ALPHA_SIZE, 8,
+                EGL_NONE,
+            };
+            EGLConfig config{};
+            EGLint configCount = 0;
+            if(egl().chooseConfig(display, configAttributes, &config, 1, &configCount) != EGL_TRUE || configCount < 1)
+                throw std::runtime_error(eglFailure("Failed to choose EGL OpenGL config"));
+
+            constexpr EGLint contextAttributes[] = {
+                EGL_CONTEXT_MAJOR_VERSION_KHR, 4,
+                EGL_CONTEXT_MINOR_VERSION_KHR, 1,
+                EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
+                EGL_NONE,
+            };
+            context = egl().createContext(display, config, EGL_NO_CONTEXT, contextAttributes);
+            if(context == EGL_NO_CONTEXT)
+                throw std::runtime_error(eglFailure("Failed to create EGL OpenGL 4.1 core context"));
+
+            const auto displayExtensions = egl().queryString(display, EGL_EXTENSIONS);
+            if(!hasExtension(displayExtensions, "EGL_KHR_surfaceless_context")) {
+                const EGLint surfaceAttributes[] = {
+                    EGL_WIDTH, static_cast<EGLint>(width),
+                    EGL_HEIGHT, static_cast<EGLint>(height),
+                    EGL_NONE,
+                };
+                surface = egl().createPbufferSurface(display, config, surfaceAttributes);
+                if(surface == EGL_NO_SURFACE)
+                    throw std::runtime_error(eglFailure("Failed to create EGL fallback pbuffer"));
+            }
+
+            if(egl().makeCurrent(display, surface, surface, context) != EGL_TRUE)
+                throw std::runtime_error(eglFailure("Failed to make EGL context current"));
+
+            lastError.clear();
+            return new st_context{ display, context, surface };
+        } catch(...) {
+            if(surface != EGL_NO_SURFACE)
+                egl().destroySurface(display, surface);
+            if(context != EGL_NO_CONTEXT)
+                egl().destroyContext(display, context);
+            releaseEglDisplay();
+            throw;
+        }
+#else
         {
             std::scoped_lock lock(glfwMutex);
             if(glfwUsers == 0) {
@@ -170,6 +384,7 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
         glfwMakeContextCurrent(window);
         lastError.clear();
         return new st_context{ window };
+#endif
     } catch(const std::exception& error) {
         setError(error.what());
         return nullptr;
@@ -181,15 +396,33 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
 
 int st_context_make_current(st_context* context) {
     return guard([&] {
+#ifdef __linux__
+        if(!context || context->context == EGL_NO_CONTEXT)
+            throw std::runtime_error("Context is null");
+        if(egl().makeCurrent(context->display, context->surface, context->surface, context->context) != EGL_TRUE)
+            throw std::runtime_error(eglFailure("Failed to make EGL context current"));
+#else
         if(!context || !context->window)
             throw std::runtime_error("Context is null");
         glfwMakeContextCurrent(context->window);
+#endif
     });
 }
 
 void st_context_destroy(st_context* context) {
     if(!context)
         return;
+#ifdef __linux__
+    if(context->context != EGL_NO_CONTEXT) {
+        if(egl().getCurrentContext() == context->context)
+            egl().makeCurrent(context->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if(context->surface != EGL_NO_SURFACE)
+            egl().destroySurface(context->display, context->surface);
+        egl().destroyContext(context->display, context->context);
+    }
+    delete context;
+    releaseEglDisplay();
+#else
     if(context->window)
         glfwDestroyWindow(context->window);
     delete context;
@@ -197,6 +430,7 @@ void st_context_destroy(st_context* context) {
     std::scoped_lock lock(glfwMutex);
     if(glfwUsers > 0 && --glfwUsers == 0)
         glfwTerminate();
+#endif
 }
 
 st_project* st_project_create(const char* name) {

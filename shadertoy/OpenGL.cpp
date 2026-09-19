@@ -22,7 +22,7 @@
 
 #include "shadertoy/SuppressWarningPush.hpp"
 
-#include <GL/glew.h>
+#include <glad/glad.h>
 
 #include "shadertoy/SuppressWarningPop.hpp"
 
@@ -1064,16 +1064,8 @@ std::unique_ptr<Pipeline> createPipeline() {
     // The embedding application owns the OpenGL context, while the renderer
     // owns its loader implementation. A compatible context must be current
     // before a document is compiled.
-    glewExperimental = GL_TRUE;
-    const auto glewResult = glewInit();
-    if(glewResult != GLEW_OK) {
-        const auto* message = reinterpret_cast<const char*>(glewGetErrorString(glewResult));
-        throw Error(std::string("Failed to initialize OpenGL loader: ") + (message ? message : "unknown GLEW error"));
-    }
-
-    // GLEW may leave GL_INVALID_ENUM behind when initialized against a core
-    // profile. It is not a renderer error and should not leak to callers.
-    glGetError();
+    if(gladLoadGL() == 0)
+        throw Error("Failed to initialize OpenGL loader");
     return std::make_unique<OpenGLPipeline>();
 }
 
