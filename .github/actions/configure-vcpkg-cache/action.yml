@@ -64,9 +64,25 @@ runs:
         elif [ -n "${VCPKG_INSTALLATION_ROOT:-}" ]; then
           vcpkg_exe="$VCPKG_INSTALLATION_ROOT/vcpkg"
         else
-          vcpkg_exe="$(command -v vcpkg)"
+          # command -v fails when vcpkg is not on PATH; must not die silently
+          # under `bash -e`, so fall back explicitly (notably the
+          # ubuntu-24.04-arm partner image sets neither VCPKG_ROOT nor
+          # VCPKG_INSTALLATION_ROOT).
+          vcpkg_exe="$(command -v vcpkg || true)"
         fi
+        if [ -z "$vcpkg_exe" ] && [ -x /usr/local/share/vcpkg/vcpkg ]; then
+          vcpkg_exe=/usr/local/share/vcpkg/vcpkg
+        fi
+        if [ ! -x "$vcpkg_exe" ]; then
+          echo "::error::vcpkg executable not found (checked VCPKG_ROOT, VCPKG_INSTALLATION_ROOT, PATH and /usr/local/share/vcpkg/vcpkg)"
+          exit 1
+        fi
+        echo "Using vcpkg at $vcpkg_exe"
         nuget_exe="$("$vcpkg_exe" fetch nuget | tail -n 1)"
+        if [ ! -f "$nuget_exe" ]; then
+          echo "::error::could not locate nuget via '$vcpkg_exe fetch nuget' (got: '$nuget_exe')"
+          exit 1
+        fi
         case "$nuget_exe" in
           *.exe|*.EXE)
             mono "$nuget_exe" setapikey "$NUGET_API_KEY" -Source "$FEED_URL"
