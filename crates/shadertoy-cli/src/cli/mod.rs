@@ -1,7 +1,7 @@
 mod conversions;
 use crate::docs;
 use crate::ops;
-use crate::ops::{ChannelSetOptions, InspectMode, Output, RenderOptions};
+use crate::ops::{ChannelSetOptions, InspectMode, Output, RenderFramesOptions, RenderOptions};
 use crate::preview;
 use crate::preview::PreviewConfig;
 use anyhow::Result;
@@ -37,6 +37,8 @@ enum Command {
     Build(BuildArgs),
     /// Deterministically render the final image or a named 2D buffer pass.
     Render(RenderArgs),
+    /// Render multiple deterministic frames in one runtime, optionally as a contact sheet.
+    RenderFrames(RenderFramesArgs),
     /// Run a native-rendered live preview web server with hot reload.
     Preview(PreviewArgs),
     /// Inspect project structure progressively, from summary to pass/channel detail.
@@ -128,6 +130,34 @@ struct RenderArgs {
     /// Override a persistent buffer immediately before the target frame, e.g. buffer-a=fixture.png.
     #[arg(long = "set-buffer")]
     set_buffers: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct RenderFramesArgs {
+    /// Project directory (or any path inside it).
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Directory for individual PNG frames. Defaults to PROJECT/target/frames.
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+    /// Also write a contact-sheet PNG containing the requested frames.
+    #[arg(long)]
+    contact_sheet: Option<PathBuf>,
+    /// Contact-sheet column count. Defaults to a near-square layout.
+    #[arg(long, requires = "contact_sheet")]
+    columns: Option<u32>,
+    /// Render/snapshot a named pass instead of the final Image pass.
+    #[arg(long)]
+    pass: Option<String>,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    /// Deterministic iFrames to render, e.g. --frames 0,60,120,180.
+    #[arg(long, required = true, value_delimiter = ',', num_args = 1..)]
+    frames: Vec<i32>,
 }
 
 #[derive(Debug, Args)]
@@ -393,6 +423,17 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             state: args.state,
             set_buffers: args.set_buffers,
+        })?,
+        Command::RenderFrames(args) => ops::render_frames_project(&RenderFramesOptions {
+            project: args.project,
+            output_dir: args.output_dir,
+            contact_sheet: args.contact_sheet,
+            columns: args.columns,
+            pass: args.pass,
+            width: args.width,
+            height: args.height,
+            fps: args.fps,
+            frames: args.frames,
         })?,
         Command::Preview(args) => {
             preview::run(
