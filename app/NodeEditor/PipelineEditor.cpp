@@ -78,23 +78,6 @@ static constexpr auto initialShader = R"(void mainImage( out vec4 fragColor, in 
 }
 )";
 
-static constexpr auto initialCubeMap [[maybe_unused]] =
-    R"(void mainCubemap( out vec4 fragColor, in vec2 fragCoord, in vec3 rayOri, in vec3 rayDir )
-{
-    // Ray direction as color
-    vec3 col = 0.5 + 0.5*rayDir;
-
-    // Output to cubemap
-    fragColor = vec4(col,1.0);
-}
-)";
-
-static constexpr auto initialBuffer [[maybe_unused]] = R"(void mainImage( out vec4 fragColor, in vec2 fragCoord )
-{
-    fragColor = vec4(0.0,0.0,1.0,1.0);
-}
-)";
-
 uint32_t PipelineEditor::nextId() {
     return mNextId++;
 }
