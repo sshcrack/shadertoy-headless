@@ -36,6 +36,7 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
+        toolchain: stable
         components: rustfmt, clippy
 
     - name: Cache Cargo dependencies and build artifacts
@@ -45,10 +46,10 @@ jobs:
       run: cargo fmt --all --check
 
     - name: Check Rust CLI
-      run: cargo clippy --workspace --all-targets -- -D warnings
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
     - name: Test Rust workspace
-      run: cargo test --workspace
+      run: cargo test --workspace --locked
 
     - name: Configure CMake
       run: cmake -G Ninja -B ${{github.workspace}}/build -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake

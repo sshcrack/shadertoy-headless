@@ -33,6 +33,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Cache Cargo dependencies and build artifacts
