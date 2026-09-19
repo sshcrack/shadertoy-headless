@@ -31,13 +31,15 @@ jobs:
           git tag --points-at HEAD | grep -Fx -- "${{ inputs.tag }}"
           python3 scripts/release/version.py --tag "${{ inputs.tag }}" --github-repository "$GITHUB_REPOSITORY"
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev ninja-build mono-complete \
-            libgl-dev libglu1-mesa-dev libltdl-dev \
+      - name: Cache and install native build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: >-
+            clang libclang-dev ninja-build mono-complete
+            libgl-dev libglu1-mesa-dev libltdl-dev
             libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
+          version: 1.0
+          execute_install_scripts: true
 
       - name: Configure vcpkg binary cache
         uses: ./.github/actions/configure-vcpkg-cache
@@ -45,6 +47,9 @@ jobs:
           api-key: ${{ secrets.NUGET_API_KEY }}
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Authenticate to crates.io with OIDC
         id: crates

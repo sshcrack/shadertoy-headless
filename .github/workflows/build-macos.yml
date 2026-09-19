@@ -18,6 +18,9 @@ jobs:
       with:
         submodules: 'recursive'
         
+    - name: Cache Homebrew downloads
+      uses: ./.github/actions/cache-homebrew-downloads
+
     - name: Install Dependencies
       run: brew install ninja cmake mono
 
@@ -54,6 +57,9 @@ jobs:
       with:
         submodules: 'recursive'
         
+    - name: Cache Homebrew downloads
+      uses: ./.github/actions/cache-homebrew-downloads
+
     - name: Install Dependencies
       run: brew install ninja cmake mono
 

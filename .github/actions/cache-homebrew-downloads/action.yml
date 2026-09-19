@@ -1,0 +1,21 @@
+name: Cache Homebrew downloads
+description: Cache Homebrew bottle downloads for the native build tool dependencies.
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Homebrew formula cache key
+      id: formulas
+      shell: bash
+      run: |
+        mkdir -p "$HOME/Library/Caches/Homebrew/downloads"
+        formula_hash="$(brew info --json=v2 cmake ninja mono | shasum -a 256 | awk '{print $1}')"
+        echo "hash=$formula_hash" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Homebrew bottle downloads
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ~/Library/Caches/Homebrew/downloads
+        key: homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-${{ steps.formulas.outputs.hash }}
+        restore-keys: |
+          homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-

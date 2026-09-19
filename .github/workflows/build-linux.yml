@@ -18,10 +18,14 @@ jobs:
       with:
         submodules: 'recursive'
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev libltdl-dev make ninja-build clang libclang-dev mono-complete
+    - name: Cache and install dependencies
+      uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+      with:
+        packages: >-
+          libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev
+          libglu1-mesa-dev libltdl-dev make ninja-build clang libclang-dev mono-complete
+        version: 1.0
+        execute_install_scripts: true
 
     - name: Configure vcpkg binary cache
       uses: ./.github/actions/configure-vcpkg-cache
@@ -32,6 +36,9 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
+
+    - name: Cache Cargo dependencies and build artifacts
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
     - name: Check Rust formatting
       run: cargo fmt --all --check

@@ -21,6 +21,16 @@ runs:
           mode=readwrite
         fi
         echo "VCPKG_BINARY_SOURCES=clear;nuget,${FEED_URL},${mode}" >> "$GITHUB_ENV"
+        mkdir -p "$RUNNER_TEMP/vcpkg-downloads"
+        echo "VCPKG_DOWNLOADS=$RUNNER_TEMP/vcpkg-downloads" >> "$GITHUB_ENV"
+
+    - name: Cache vcpkg source and tool downloads
+      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      with:
+        path: ${{ runner.temp }}/vcpkg-downloads
+        key: vcpkg-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json') }}
+        restore-keys: |
+          vcpkg-downloads-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Configure NuGet publishing key (Unix)
       if: runner.os != 'Windows' && inputs.api-key != ''

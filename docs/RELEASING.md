@@ -54,7 +54,21 @@ Once the OIDC workflow has been proven, crates.io can optionally be switched to 
 
 GitHub Actions shares vcpkg build artifacts through `https://nuget.sshcrack.me/v3/index.json`. The local composite action `.github/actions/configure-vcpkg-cache` configures the feed for every workflow that can build the native C++ dependencies.
 
-When the repository secret `NUGET_API_KEY` is available, the cache is `readwrite` and newly built ABI packages are uploaded. When GitHub withholds the secret, such as for an untrusted fork pull request, the same feed is configured read-only so existing packages can still be restored. Non-Windows jobs install Mono because vcpkg's NuGet client is `nuget.exe`.
+When the repository secret `NUGET_API_KEY` is available, the cache is `readwrite` and newly built ABI packages are uploaded. When GitHub withholds the secret, such as for an untrusted fork pull request, the same feed is configured read-only so existing packages can still be restored. On Unix, the cache action runs a `NuGet.exe` client through Mono when vcpkg returns one, but executes native/wrapper NuGet clients directly.
+
+The same composite action also points `VCPKG_DOWNLOADS` at a GitHub Actions cache. That cache stores vcpkg's downloaded source archives and tools, while the NuGet feed remains the authoritative cache for compiled vcpkg ABI packages.
+
+## CI dependency caches
+
+The workflows cache repeatable dependency/download work at the package-manager boundary rather than preserving whole build directories:
+
+- Linux APT packages are restored with `cache-apt-pkgs-action`;
+- Cargo registry/git data and reusable `target` artifacts are restored with `rust-cache`;
+- vcpkg compiled ABI packages use the shared NuGet feed;
+- vcpkg source/tool downloads use `VCPKG_DOWNLOADS` plus the GitHub Actions cache;
+- macOS Homebrew bottle downloads for CMake, Ninja, and Mono use a formula-version-derived GitHub Actions cache.
+
+CMake build directories and installed system/Homebrew trees are intentionally not cached. They contain machine- and configuration-specific generated state; rebuilding those from cached dependencies is safer than restoring stale configured build trees.
 
 ## Normal release flow
 
