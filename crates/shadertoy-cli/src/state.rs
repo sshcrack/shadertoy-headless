@@ -162,10 +162,8 @@ impl StateFile {
             let mut raw = vec![0u8; expected_bytes_per_buffer];
             cursor.read_exact(&mut raw)?;
             let mut values = Vec::with_capacity(expected_values);
-            for chunk in raw.chunks_exact(4) {
-                values.push(f32::from_le_bytes(
-                    chunk.try_into().expect("four-byte chunk"),
-                ));
+            for &chunk in raw.as_chunks::<4>().0 {
+                values.push(f32::from_le_bytes(chunk));
             }
             if buffers.insert(name.clone(), values).is_some() {
                 bail!("state contains duplicate buffer '{name}'");
