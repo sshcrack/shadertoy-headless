@@ -1,7 +1,46 @@
+[package]
+name = "shadertoy-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Raw generated Rust bindings for the ShaderToy renderer and stable C ABI"
+readme = "README.md"
+keywords = ["shadertoy", "shader", "opengl", "ffi", "graphics"]
+categories = ["external-ffi-bindings", "graphics"]
+links = "shadertoy"
+build = "crates/shadertoy-sys/build.rs"
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+    "CMakeLists.txt",
+    "vcpkg.json",
+    "crates/shadertoy-sys/build.rs",
+    "crates/shadertoy-sys/src/**",
+    "shadertoy/**",
+    "shadertoy-c/**",
+]
+
+[lib]
+path = "crates/shadertoy-sys/src/lib.rs"
+
+[build-dependencies]
+bindgen = "0.72"
+cmake = "0.1"
+
 [workspace]
 members = [
-    "crates/shadertoy-sys",
     "crates/shadertoy",
     "crates/shadertoy-cli",
 ]
 resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/sshcrack/shadertoy"
+homepage = "https://github.com/sshcrack/shadertoy"

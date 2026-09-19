@@ -1,15 +1,22 @@
 [package]
 name = "shadertoy-cli"
-version = "0.1.0"
-edition = "2024"
-license = "Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Agent-friendly ShaderToy project, rendering, debugging, and live-preview CLI"
+readme = "README.md"
+keywords = ["shadertoy", "shader", "cli", "opengl", "graphics"]
+categories = ["command-line-utilities", "graphics", "development-tools"]
 
 [[bin]]
 name = "shadertoy"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
-shadertoy = { path = "../shadertoy" }
+shadertoy = { package = "shadertoy-native", version = "0.1.0", path = "../shadertoy" }
 anyhow = "1.0"
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4.5", features = ["derive"] }
@@ -22,3 +29,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.47", features = ["macros", "rt-multi-thread", "net", "sync", "time", "signal"] }
 toml = "0.9"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }-v{ version }{ archive-suffix }"
+bin-dir = "shadertoy{ binary-ext }"
+pkg-fmt = "tgz"
+disabled-strategies = ["quick-install", "compile"]
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-fmt = "zip"

@@ -1,0 +1,51 @@
+name: publish-crates
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, for example v0.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify exact release tag
+        shell: bash
+        run: |
+          git tag --points-at HEAD | grep -Fx -- "${{ inputs.tag }}"
+          python3 scripts/release/version.py --tag "${{ inputs.tag }}" --github-repository "$GITHUB_REPOSITORY"
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev ninja-build \
+            libgl-dev libglu1-mesa-dev libltdl-dev \
+            libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Authenticate to crates.io with OIDC
+        id: crates
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish workspace crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates.outputs.token }}
+        run: scripts/release/publish_crates.sh

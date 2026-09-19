@@ -77,7 +77,7 @@ struct ProjectPathArgs {
 struct BuildArgs {
     #[arg(default_value = ".")]
     path: PathBuf,
-    /// Output STTF path. Defaults to target/<project>.sttf.
+    /// Output STTF path. Defaults to target/PROJECT.sttf.
     #[arg(short, long)]
     output: Option<PathBuf>,
 }

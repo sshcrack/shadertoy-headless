@@ -1,0 +1,64 @@
+name: rust-cli
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang libclang-dev ninja-build \
+            libgl-dev libglu1-mesa-dev libltdl-dev \
+            libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Test docs.rs-compatible documentation build
+        run: DOCS_RS=1 cargo doc --workspace --no-deps --locked
+
+      - name: Verify shadertoy-sys crates.io package in isolation
+        run: cargo package -p shadertoy-sys --locked
+
+      - name: Check child crate package manifests and contents
+        run: |
+          cargo package -p shadertoy-native --list --locked > /tmp/shadertoy-package.txt
+          cargo package -p shadertoy-cli --list --locked > /tmp/shadertoy-cli-package.txt
+          grep -Fx 'README.md' /tmp/shadertoy-package.txt
+          grep -Fx 'assets/preview/app.html' /tmp/shadertoy-cli-package.txt
+          grep -Fx 'assets/schema/shadertoy.schema.json' /tmp/shadertoy-cli-package.txt
+
+      - name: Build release CLI
+        run: cargo build --release -p shadertoy-cli --locked
+
+      - name: Verify release archive layout
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          python3 scripts/release/package_cli.py \
+            --target "$target" \
+            --binary target/release/shadertoy \
+            --out dist
+          version="$(python3 scripts/release/version.py --print)"
+          tar -tzf "dist/shadertoy-cli-${target}-v${version}.tgz" | grep -Fx shadertoy

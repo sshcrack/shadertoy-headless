@@ -19,3 +19,5 @@ build-*
 
 /target-rust/
 /target/
+/dist/
+__pycache__/

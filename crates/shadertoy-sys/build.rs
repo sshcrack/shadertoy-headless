@@ -1,19 +1,20 @@
+use std::collections::BTreeSet;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../../shadertoy-c/include/shadertoy/shadertoy.h");
-    println!("cargo:rerun-if-changed=../../shadertoy-c/src/shadertoy.cpp");
-    println!("cargo:rerun-if-changed=../../shadertoy");
-    println!("cargo:rerun-if-changed=../../CMakeLists.txt");
-    println!("cargo:rerun-if-changed=../../vcpkg.json");
+    println!("cargo:rerun-if-changed=shadertoy-c/include/shadertoy/shadertoy.h");
+    println!("cargo:rerun-if-changed=shadertoy-c/src/shadertoy.cpp");
+    println!("cargo:rerun-if-changed=shadertoy-c/CMakeLists.txt");
+    println!("cargo:rerun-if-changed=shadertoy");
+    println!("cargo:rerun-if-changed=CMakeLists.txt");
+    println!("cargo:rerun-if-changed=vcpkg.json");
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .join("../..")
+    let repo_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
         .canonicalize()
-        .expect("failed to locate repository root");
+        .expect("failed to locate packaged ShaderToy source root");
     let header = repo_root.join("shadertoy-c/include/shadertoy/shadertoy.h");
 
     let bindings = bindgen::Builder::default()
@@ -42,7 +43,8 @@ fn main() {
     config
         .define("SHADERTOY_BUILD_GUI", "OFF")
         .define("SHADERTOY_BUILD_PREVIEW_TOOL", "OFF")
-        .define("SHADERTOY_BUILD_C_API", "ON")
+        .define("SHADERTOY_BUILD_C_API", "OFF")
+        .define("SHADERTOY_BUILD_C_API_STATIC", "ON")
         .define("BUILD_TESTING", "OFF")
         .define("CMAKE_BUILD_TYPE", "Release");
 
@@ -54,69 +56,90 @@ fn main() {
             .join("vcpkg.cmake");
         config.define("CMAKE_TOOLCHAIN_FILE", toolchain);
 
-        let vcpkg_root = out_dir.join("vcpkg");
+        let vcpkg_work_root = out_dir.join("vcpkg");
         let install_options = format!(
             "--x-buildtrees-root={};--x-packages-root={};--downloads-root={}",
-            vcpkg_root.join("buildtrees").display(),
-            vcpkg_root.join("packages").display(),
-            vcpkg_root.join("downloads").display()
+            vcpkg_work_root.join("buildtrees").display(),
+            vcpkg_work_root.join("packages").display(),
+            vcpkg_work_root.join("downloads").display()
         );
         config.define("VCPKG_INSTALL_OPTIONS", install_options);
     }
 
-    let destination = config.build();
-    let lib_dir = destination.join("lib");
-    let bin_dir = destination.join("bin");
+    if env::var_os("DOCS_RS").is_some() {
+        return;
+    }
 
-    // Cargo makes native build-script search paths available while it launches
-    // binaries itself, but a directly executed target/{profile}/shadertoy also
-    // needs a stable relative location. Stage the C ABI next to the Cargo target
-    // tree and embed only a relative loader path (never an OUT_DIR path).
-    let profile_dir = out_dir
-        .ancestors()
-        .nth(3)
-        .expect("unexpected Cargo OUT_DIR layout");
-    if cfg!(target_os = "windows") {
-        let source = bin_dir.join("shadertoy_c.dll");
-        let destination = profile_dir.join("shadertoy_c.dll");
-        std::fs::copy(&source, &destination).unwrap_or_else(|error| {
+    config.build_target("shadertoy-c-static");
+    let destination = config.build();
+    emit_static_link_manifest(&destination.join("build"));
+}
+
+fn emit_static_link_manifest(build_dir: &Path) {
+    let manifest = fs::read_dir(build_dir)
+        .unwrap_or_else(|error| panic!("failed to inspect {}: {error}", build_dir.display()))
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("shadertoy-rust-link-") && name.ends_with(".txt")
+                })
+        })
+        .unwrap_or_else(|| {
             panic!(
-                "failed to stage {} at {}: {error}",
-                source.display(),
-                destination.display()
+                "CMake did not generate a ShaderToy Rust static-link manifest in {}",
+                build_dir.display()
             )
         });
-    } else {
-        let target_root = profile_dir
-            .parent()
-            .expect("Cargo profile directory should have a target root");
-        let staged_lib_dir = target_root.join("lib");
-        std::fs::create_dir_all(&staged_lib_dir)
-            .expect("failed to create staged native library directory");
-        let library_name = if cfg!(target_os = "macos") {
-            "libshadertoy_c.dylib"
+
+    let body = fs::read_to_string(&manifest)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", manifest.display()));
+    let mut search_paths = BTreeSet::new();
+    let mut static_libraries = Vec::new();
+    let mut system_libraries = Vec::new();
+    let mut frameworks = Vec::new();
+
+    for raw in body.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("static=") {
+            let path = PathBuf::from(path);
+            let parent = path
+                .parent()
+                .unwrap_or_else(|| panic!("static library path has no parent: {}", path.display()));
+            let filename = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_else(|| panic!("invalid static library filename: {}", path.display()));
+            search_paths.insert(parent.to_path_buf());
+            static_libraries.push(filename.to_string());
+        } else if let Some(name) = line.strip_prefix("system=") {
+            if !name.is_empty() {
+                system_libraries.push(name.to_string());
+            }
+        } else if let Some(name) = line.strip_prefix("framework=") {
+            if !name.is_empty() {
+                frameworks.push(name.to_string());
+            }
         } else {
-            "libshadertoy_c.so"
-        };
-        let source = lib_dir.join(library_name);
-        let staged = staged_lib_dir.join(library_name);
-        std::fs::copy(&source, &staged).unwrap_or_else(|error| {
-            panic!(
-                "failed to stage {} at {}: {error}",
-                source.display(),
-                staged.display()
-            )
-        });
-        if cfg!(target_os = "macos") {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,@loader_path/../lib");
-        } else {
-            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib");
+            panic!("unsupported ShaderToy Rust link-manifest entry: {line}");
         }
     }
 
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-search=native={}", bin_dir.display());
-    println!("cargo:rustc-link-lib=dylib=shadertoy_c");
-    println!("cargo:libdir={}", lib_dir.display());
-    println!("cargo:bindir={}", bin_dir.display());
+    for path in search_paths {
+        println!("cargo:rustc-link-search=native={}", path.display());
+    }
+    for library in static_libraries {
+        println!("cargo:rustc-link-lib=static:+verbatim={library}");
+    }
+    for library in system_libraries {
+        println!("cargo:rustc-link-lib=dylib={library}");
+    }
+    for framework in frameworks {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
 }

@@ -155,4 +155,4 @@ fn browser_control(command: BrowserControl) -> Control {
     }
 }
 
-const INDEX_HTML: &str = crate::include_file!("preview/index.html");
+const INDEX_HTML: &str = crate::include_file!("preview/app.html");

@@ -46,6 +46,18 @@
         "SHADERTOY_BUILD_C_API": "ON"
       },
       "generator": "Ninja"
+    },
+    {
+      "name": "c-api-static",
+      "displayName": "Library + static C ABI",
+      "binaryDir": "${sourceDir}/build-c-api-static",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SHADERTOY_BUILD_GUI": "OFF",
+        "SHADERTOY_BUILD_C_API_STATIC": "ON"
+      },
+      "generator": "Ninja"
     }
   ],
   "buildPresets": [
@@ -64,12 +76,23 @@
     {
       "name": "c-api",
       "configurePreset": "c-api"
+    },
+    {
+      "name": "c-api-static",
+      "configurePreset": "c-api-static"
     }
   ],
   "testPresets": [
     {
       "name": "library",
       "configurePreset": "library",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "c-api-static",
+      "configurePreset": "c-api-static",
       "output": {
         "outputOnFailure": true
       }

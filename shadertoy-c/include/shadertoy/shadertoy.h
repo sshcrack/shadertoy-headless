@@ -8,7 +8,9 @@
 #include <stdint.h>
 
 #if defined(_WIN32)
-#if defined(SHADERTOY_C_BUILD)
+#if defined(SHADERTOY_C_STATIC)
+#define ST_NATIVE_EXPORT
+#elif defined(SHADERTOY_C_BUILD)
 #define ST_NATIVE_EXPORT __declspec(dllexport)
 #else
 #define ST_NATIVE_EXPORT __declspec(dllimport)

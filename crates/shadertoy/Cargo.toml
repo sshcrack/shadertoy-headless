@@ -1,9 +1,18 @@
 [package]
-name = "shadertoy"
-version = "0.1.0"
-edition = "2024"
-license = "Apache-2.0"
+name = "shadertoy-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Safe Rust wrapper for the ShaderToy renderer runtime and project API"
+readme = "README.md"
+keywords = ["shadertoy", "shader", "opengl", "graphics", "rendering"]
+categories = ["graphics", "rendering"]
 
 [dependencies]
-shadertoy-sys = { path = "../shadertoy-sys" }
+shadertoy-sys = { version = "0.1.0", path = "../.." }
 thiserror = "2.0"
+
+[lib]
+name = "shadertoy"

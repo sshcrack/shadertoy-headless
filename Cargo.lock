@@ -1135,14 +1135,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shadertoy"
-version = "0.1.0"
-dependencies = [
- "shadertoy-sys",
- "thiserror",
-]
-
-[[package]]
 name = "shadertoy-cli"
 version = "0.1.0"
 dependencies = [
@@ -1156,9 +1148,17 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "shadertoy",
+ "shadertoy-native",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "shadertoy-native"
+version = "0.1.0"
+dependencies = [
+ "shadertoy-sys",
+ "thiserror",
 ]
 
 [[package]]

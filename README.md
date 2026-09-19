@@ -1,8 +1,8 @@
 # shadertoy
 
-[![build-windows](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-windows.yml/badge.svg)](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-windows.yml)
-[![build-linux](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-linux.yml/badge.svg)](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-linux.yml)
-[![build-macos](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-macos.yml/badge.svg)](https://github.com/dtcxzyw/shadertoy/actions/workflows/build-macos.yml)
+[![build-windows](https://github.com/sshcrack/shadertoy/actions/workflows/build-windows.yml/badge.svg)](https://github.com/sshcrack/shadertoy/actions/workflows/build-windows.yml)
+[![build-linux](https://github.com/sshcrack/shadertoy/actions/workflows/build-linux.yml/badge.svg)](https://github.com/sshcrack/shadertoy/actions/workflows/build-linux.yml)
+[![build-macos](https://github.com/sshcrack/shadertoy/actions/workflows/build-macos.yml/badge.svg)](https://github.com/sshcrack/shadertoy/actions/workflows/build-macos.yml)
 
 An unofficial ShaderToy renderer and live editor.
 
@@ -10,7 +10,7 @@ The repository has several frontends built on one rendering implementation:
 
 - **shadertoy::shadertoy** — the standalone C++23 renderer/library.
 - **shadertoy-c** — a deliberately small stable C ABI over project construction and runtime rendering.
-- **Rust shadertoy-sys / shadertoy crates** — generated raw bindings plus a safe, idiomatic wrapper.
+- **Rust shadertoy-sys / shadertoy-native crates** — generated raw bindings plus a safe, idiomatic wrapper.
 - **shadertoy CLI** — the agent-first project/check/render/debug/live-preview workflow.
 - **desktop editor** — the existing ImGui editor. It remains a C++ library client; direct directory-project editing will be adapted later.
 
@@ -37,7 +37,7 @@ The core C++ library does not depend on ImGui, HelloImGui, the node editor, GLFW
        |            |
  shadertoy-sys   other FFI
        |
- safe Rust shadertoy
+ safe Rust shadertoy-native (crate name: shadertoy)
        |
  shadertoy CLI
   check / render / inspect / state / preview
@@ -47,7 +47,17 @@ ShaderDocument remains GUI-independent. Directory-project graph semantics live b
 
 ## Using the library
 
-After installing the project:
+For Rust, the safe wrapper is published as `shadertoy-native` while its library target remains `shadertoy`:
+
+~~~bash
+cargo add shadertoy-native
+~~~
+
+~~~rust
+use shadertoy::Runtime;
+~~~
+
+For C++, after installing the project:
 
 ~~~cmake
 find_package(shadertoy CONFIG REQUIRED)
@@ -84,6 +94,15 @@ The host may instead construct/load a ShaderDocument, import a ShaderToy URL/res
 Runtime can be constructed before an OpenGL context exists. A current context is required when a document is compiled and whenever it is rendered. The library initializes its own OpenGL loader; the host does not need to use GLEW directly.
 
 ## Agent-first CLI
+
+Install the prebuilt CLI with cargo-binstall:
+
+~~~bash
+cargo binstall shadertoy-cli
+shadertoy --version
+~~~
+
+The binary package is `shadertoy-cli`; the installed executable is `shadertoy`. Source installation with `cargo install shadertoy-cli` is also supported when the required native build dependencies are available, but cargo-binstall is the preferred fast path.
 
 A CLI project is an editable directory rather than a monolithic STTF file:
 
@@ -250,7 +269,7 @@ Editor/runtime utilities:
 Clone with the text-editor submodule:
 
 ~~~bash
-git clone --recursive https://github.com/dtcxzyw/shadertoy.git
+git clone --recursive https://github.com/sshcrack/shadertoy.git
 cd shadertoy
 ~~~
 
@@ -279,9 +298,15 @@ cargo build -p shadertoy-cli
 ./target/debug/shadertoy --help
 ~~~
 
-The Rust build stages the native C ABI in target/lib (or the platform-equivalent layout) and gives the CLI a relative loader path, so the built executable can be launched directly. Release bundles should preserve the conventional bin/../lib relationship.
+The Rust CLI statically links the ShaderToy C ABI, C++ renderer, and vcpkg-provided native dependencies into the executable. Normal operating-system runtime/graphics libraries (for example libc, libstdc++, OpenGL/GLX, and X11 on Linux) remain dynamically linked, but no adjacent `libshadertoy_c`/GLFW/GLEW/fmt/OpenSSL/Brotli shared libraries are required.
 
-The equivalent CMake switches are SHADERTOY_BUILD_GUI, SHADERTOY_BUILD_PREVIEW_TOOL, SHADERTOY_BUILD_C_API, and BUILD_TESTING.
+The equivalent CMake switches are `SHADERTOY_BUILD_GUI`, `SHADERTOY_BUILD_PREVIEW_TOOL`, `SHADERTOY_BUILD_C_API`, `SHADERTOY_BUILD_C_API_STATIC`, and `BUILD_TESTING`.
+
+### Laptop MCP
+
+Current Laptop MCP managed images install the pinned `shadertoy-cli` release globally, so fresh sandboxes can invoke `shadertoy` without repository configuration or a source build. This repository therefore does not declare a ShaderToy-specific workspace bootstrap contract.
+
+The generic `[image].cargo_binstall` and per-session `sandbox_config_update(cargo_binstall=[...])` mechanisms remain available for other exact-version prebuilt Rust tools.
 
 ### Install the standalone package
 
@@ -325,7 +350,7 @@ See [examples](examples) for more shaders.
 
 ## Releases
 
-See the [Releases page](https://github.com/dtcxzyw/shadertoy/releases) for pre-built binaries.
+See the [Releases page](https://github.com/sshcrack/shadertoy/releases) for pre-built binaries.
 
 ## License
 

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ShaderToy Preview</title>
+<style>
+:root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #101114; color: #e8e8ea; height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
+aside { padding: 16px; border-right: 1px solid #2c2e35; overflow: auto; }
+main { min-width: 0; display: grid; place-items: center; overflow: hidden; background: #08090b; }
+#frame { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; outline: none; }
+h1 { font-size: 16px; margin: 0 0 16px; }
+label { display: block; font-size: 12px; color: #aaa; margin-top: 12px; }
+select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: #eee; border: 1px solid #343741; border-radius: 5px; padding: 7px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.meta { margin-top: 14px; font-size: 11px; line-height: 1.65; color: #b7bac3; white-space: pre-line; }
+#error { margin-top: 14px; white-space: pre-wrap; color: #ff8e8e; font-size: 11px; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>ShaderToy native preview</h1>
+  <label>View<select id="view"></select></label>
+  <div class="row">
+    <button id="pause">Pause</button>
+    <button id="step">Step</button>
+  </div>
+  <button id="reset">Reset</button>
+  <label>Resolution</label>
+  <div class="row">
+    <input id="width" type="number" min="1" max="4096">
+    <input id="height" type="number" min="1" max="4096">
+  </div>
+  <button id="resolution">Apply resolution</button>
+  <label>Time scale (log2)<input id="scale" type="range" min="-4" max="4" step="0.25" value="0"></label>
+  <div class="meta" id="meta"></div>
+  <div id="error"></div>
+</aside>
+<main><img id="frame" tabindex="0" alt="Shader preview"></main>
+<script>
+const query = location.search;
+const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+const ws = new WebSocket(wsProto + "//" + location.host + "/ws" + query);
+const frame = document.getElementById("frame");
+const view = document.getElementById("view");
+const pause = document.getElementById("pause");
+const meta = document.getElementById("meta");
+const error = document.getElementById("error");
+const width = document.getElementById("width");
+const height = document.getElementById("height");
+const scale = document.getElementById("scale");
+let status = null;
+let down = false;
+
+function send(value) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value));
+}
+function update(s) {
+  status = s;
+  meta.textContent = s.project + "\nframe " + s.frame + "  time " + s.time.toFixed(3) + "s\n" + s.width + "x" + s.height + " @ " + s.fps + " fps";
+  error.textContent = s.error || "";
+  pause.textContent = s.paused ? "Resume" : "Pause";
+  width.value = s.width;
+  height.value = s.height;
+  scale.value = s.time_scale;
+  const old = view.value;
+  view.innerHTML = "";
+  for (const name of s.passes) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    view.appendChild(option);
+  }
+  view.value = s.view || old || s.final_pass;
+  if (s.sequence) frame.src = "/frame.png" + query + (query ? "&" : "?") + "seq=" + s.sequence;
+}
+ws.onmessage = event => update(JSON.parse(event.data));
+view.onchange = () => send({type:"view", pass:view.value});
+pause.onclick = () => send({type: status && status.paused ? "resume" : "pause"});
+document.getElementById("step").onclick = () => send({type:"step"});
+document.getElementById("reset").onclick = () => send({type:"reset"});
+document.getElementById("resolution").onclick = () => send({type:"resolution", width:+width.value, height:+height.value});
+scale.oninput = () => send({type:"time-scale", value:+scale.value});
+
+function mouse(event, clicked=false) {
+  if (!status || !frame.naturalWidth) return;
+  const rect = frame.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / rect.width * status.width;
+  const yTop = (event.clientY - rect.top) / rect.height * status.height;
+  const y = status.height - yTop;
+  send({type:"mouse", x:x, y:y, down:down, clicked:clicked});
+}
+frame.addEventListener("mousedown", e => { down=true; frame.focus(); mouse(e,true); });
+window.addEventListener("mouseup", e => { if (down) { down=false; mouse(e,false); } });
+frame.addEventListener("mousemove", e => mouse(e,false));
+
+function keyEvent(e, isDown) {
+  if (["INPUT","SELECT","BUTTON"].includes(document.activeElement && document.activeElement.tagName)) return;
+  const code = e.keyCode || e.which;
+  if (code >= 0 && code <= 255) {
+    send({type:"key", code:code, down:isDown, pressed:isDown && !e.repeat});
+  }
+}
+window.addEventListener("keydown", e => keyEvent(e,true));
+window.addEventListener("keyup", e => keyEvent(e,false));
+</script>
+</body>
+</html>
