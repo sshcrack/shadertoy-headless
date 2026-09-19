@@ -25,10 +25,6 @@ pub fn create_project(
         bail!("{} already contains ShaderToy.toml", root.display());
     }
 
-    fs::create_dir_all(root.join("shaders"))?;
-    fs::create_dir_all(root.join("assets"))?;
-    fs::create_dir_all(root.join(".shadertoy"))?;
-
     let manifest = match template {
         Template::Minimal => Manifest::minimal(name),
         Template::Multipass => Manifest::multipass(name),
@@ -43,6 +39,13 @@ pub fn create_project(
             );
         }
     }
+
+    // Complete all no-I/O validation before creating project subdirectories so
+    // an invalid initialization does not leave a partial scaffold behind.
+    manifest.validate_structure()?;
+    fs::create_dir_all(root.join("shaders"))?;
+    fs::create_dir_all(root.join("assets"))?;
+    fs::create_dir_all(root.join(".shadertoy"))?;
 
     write_manifest(root, &manifest)?;
     fs::write(

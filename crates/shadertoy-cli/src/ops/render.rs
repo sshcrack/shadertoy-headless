@@ -239,7 +239,7 @@ pub(super) fn resolve_target_frame(
         if !time.is_finite() || time < 0.0 {
             bail!("--time must be a finite non-negative number");
         }
-        return Ok((time * fps).round() as i32);
+        return frame_for_time(time, fps, "--time");
     }
     if let Some(state) = state {
         return state
@@ -248,22 +248,52 @@ pub(super) fn resolve_target_frame(
             .checked_add(1)
             .context("state frame counter overflow");
     }
-    Ok((loaded.manifest.render.preview_time * fps).round() as i32)
+    frame_for_time(
+        loaded.manifest.render.preview_time,
+        fps,
+        "render.preview_time",
+    )
 }
 
 pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
     if width == 0 || height == 0 {
         bail!("render dimensions must be positive");
     }
-    if width > 16384 || height > 16384 {
-        bail!("render dimensions exceed the 16384 pixel safety limit");
+    if width > crate::manifest::MAX_RENDER_DIMENSION
+        || height > crate::manifest::MAX_RENDER_DIMENSION
+    {
+        bail!(
+            "render dimensions exceed the {} pixel safety limit",
+            crate::manifest::MAX_RENDER_DIMENSION
+        );
     }
     Ok(())
 }
 
 pub(super) fn validate_fps(fps: f32) -> Result<()> {
-    if !fps.is_finite() || fps <= 0.0 || fps > 1000.0 {
-        bail!("fps must be finite and in the range (0, 1000]");
+    if !fps.is_finite() || fps <= 0.0 || fps > crate::manifest::MAX_RENDER_FPS {
+        bail!(
+            "fps must be finite and in the range (0, {}]",
+            crate::manifest::MAX_RENDER_FPS
+        );
     }
     Ok(())
+}
+
+fn frame_for_time(time: f32, fps: f32, source: &str) -> Result<i32> {
+    let frame = f64::from(time) * f64::from(fps);
+    if !frame.is_finite() || frame.round() > f64::from(i32::MAX) {
+        bail!("{source} resolves to a frame outside the supported i32 range");
+    }
+    Ok(frame.round() as i32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_for_time_rejects_i32_overflow() {
+        assert!(frame_for_time(f32::MAX, 1000.0, "--time").is_err());
+    }
 }

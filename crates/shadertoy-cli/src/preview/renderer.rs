@@ -5,24 +5,9 @@ pub(super) fn render_loop(
     root: PathBuf,
     shared: Shared,
     controls: mpsc::Receiver<Control>,
-    startup: mpsc::SyncSender<std::result::Result<(), String>>,
     preserve_reload_state: bool,
+    runtime: &mut Runtime<'_>,
 ) {
-    let context = match HeadlessContext::new(64, 64) {
-        Ok(context) => context,
-        Err(error) => {
-            let _ = startup.send(Err(error.to_string()));
-            return;
-        }
-    };
-    let mut runtime = match Runtime::new(&context) {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            let _ = startup.send(Err(error.to_string()));
-            return;
-        }
-    };
-
     let mut loaded: Option<LoadedManifest> = None;
     let mut width = 1280u32;
     let mut height = 720u32;
@@ -36,7 +21,7 @@ pub(super) fn render_loop(
 
     match reload(
         &root,
-        &mut runtime,
+        runtime,
         &mut loaded,
         &mut width,
         &mut height,
@@ -48,7 +33,7 @@ pub(super) fn render_loop(
             update_status(
                 &shared,
                 loaded.as_ref(),
-                &runtime,
+                runtime,
                 width,
                 height,
                 fps,
@@ -62,7 +47,7 @@ pub(super) fn render_loop(
             update_status(
                 &shared,
                 loaded.as_ref(),
-                &runtime,
+                runtime,
                 width,
                 height,
                 fps,
@@ -73,8 +58,6 @@ pub(super) fn render_loop(
             );
         }
     }
-    let _ = startup.send(Ok(()));
-
     'main: loop {
         let mut pending = Vec::new();
         while let Ok(control) = controls.try_recv() {
@@ -85,7 +68,7 @@ pub(super) fn render_loop(
                 control,
                 &root,
                 &shared,
-                &mut runtime,
+                runtime,
                 &mut loaded,
                 &mut width,
                 &mut height,
@@ -107,7 +90,7 @@ pub(super) fn render_loop(
             reload_due = None;
             match reload(
                 &root,
-                &mut runtime,
+                runtime,
                 &mut loaded,
                 &mut width,
                 &mut height,
@@ -165,7 +148,7 @@ pub(super) fn render_loop(
                                 update_status(
                                     &shared,
                                     loaded.as_ref(),
-                                    &runtime,
+                                    runtime,
                                     width,
                                     height,
                                     fps,
@@ -200,7 +183,7 @@ pub(super) fn render_loop(
                     control,
                     &root,
                     &shared,
-                    &mut runtime,
+                    runtime,
                     &mut loaded,
                     &mut width,
                     &mut height,
@@ -298,10 +281,17 @@ fn handle_control(
             }
         }
         Control::Resolution(new_width, new_height) => {
-            if new_width == 0 || new_height == 0 || new_width > 4096 || new_height > 4096 {
+            if new_width == 0
+                || new_height == 0
+                || new_width > MAX_PREVIEW_DIMENSION
+                || new_height > MAX_PREVIEW_DIMENSION
+            {
                 set_error(
                     shared,
-                    "preview resolution must be between 1x1 and 4096x4096".into(),
+                    format!(
+                        "preview resolution must be between 1x1 and {0}x{0}",
+                        MAX_PREVIEW_DIMENSION
+                    ),
                 );
             } else {
                 *width = new_width;

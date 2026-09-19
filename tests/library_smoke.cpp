@@ -6,6 +6,7 @@
 #include <shadertoy/ShaderToy.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -37,6 +38,50 @@ int main() {
     if(!require(roundTrip.nodes.size() == 2 && roundTrip.links.size() == 1, "STTF round-trip changed document shape"))
         return 1;
     if(!require(roundTrip.metadata.at("Name") == "smoke", "STTF round-trip lost metadata"))
+        return 1;
+
+    const auto overflowPath = std::filesystem::temp_directory_path() / "shadertoy-library-overflow.sttf";
+    {
+        std::ofstream file(overflowPath);
+        file << R"json({
+          "metadata": {},
+          "nodes": [
+            { "class": "Texture", "name": "huge", "width": 2147483648, "height": 2147483648, "data": "" }
+          ],
+          "links": []
+        })json";
+    }
+    bool rejectedOverflow = false;
+    try {
+        ShaderToy::ShaderDocument malformed;
+        malformed.load(overflowPath.string());
+    } catch(const ShaderToy::Error&) {
+        rejectedOverflow = true;
+    }
+    std::filesystem::remove(overflowPath);
+    if(!require(rejectedOverflow, "STTF size overflow was not rejected"))
+        return 1;
+
+    const auto channelPath = std::filesystem::temp_directory_path() / "shadertoy-library-volume-channels.sttf";
+    {
+        std::ofstream file(channelPath);
+        file << R"json({
+          "metadata": {},
+          "nodes": [
+            { "class": "Volume", "name": "bad-volume", "size": 1, "channels": 2, "data": "AAA=" }
+          ],
+          "links": []
+        })json";
+    }
+    bool rejectedChannels = false;
+    try {
+        ShaderToy::ShaderDocument malformed;
+        malformed.load(channelPath.string());
+    } catch(const ShaderToy::Error&) {
+        rejectedChannels = true;
+    }
+    std::filesystem::remove(channelPath);
+    if(!require(rejectedChannels, "unsupported STTF volume channels were not rejected"))
         return 1;
 
     constexpr std::string_view Response = R"json([

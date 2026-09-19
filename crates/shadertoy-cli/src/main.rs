@@ -10,7 +10,6 @@ mod state;
 
 use std::process::ExitCode;
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    cli::run().await
+fn main() -> ExitCode {
+    cli::run()
 }

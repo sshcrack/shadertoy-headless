@@ -18,6 +18,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <limits>
 
 #include "shadertoy/SuppressWarningPush.hpp"
 
@@ -28,6 +29,21 @@
 #include <cmath>
 
 SHADERTOY_NAMESPACE_BEGIN
+
+namespace {
+    uint32_t checkedPixelDimension(const float value, const char* label) {
+        if(!std::isfinite(value) || value < 1.0f ||
+           static_cast<double>(value) > static_cast<double>(std::numeric_limits<GLsizei>::max()) || std::floor(value) != value)
+            throw Error(std::string(label) + " must be a positive integer within the OpenGL dimension range");
+        return static_cast<uint32_t>(value);
+    }
+
+    void validateFramebufferDimensions(const uint32_t width, const uint32_t height) {
+        if(width == 0 || height == 0 || width > static_cast<uint32_t>(std::numeric_limits<GLsizei>::max()) ||
+           height > static_cast<uint32_t>(std::numeric_limits<GLsizei>::max()))
+            throw Error("Framebuffer dimensions are outside the OpenGL dimension range");
+    }
+}  // namespace
 
 static const char* const shaderVersionDirective = "#version 410 core\n";
 static const char* const shaderCubeMapDef = "#define INTERFACE_SHADERTOY_CUBE_MAP\n";
@@ -209,6 +225,7 @@ public:
         glDeleteTextures(1, &mTexture);
     }
     void bind(const uint32_t width, const uint32_t height) override {
+        validateFramebufferDimensions(width, height);
         if(width != mWidth || height != mHeight) {
             glBindTexture(GL_TEXTURE_2D, mTexture);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
@@ -233,7 +250,7 @@ public:
         GLint previousFramebuffer = 0;
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
-        std::vector<uint8_t> result(static_cast<size_t>(mWidth) * mHeight * 3U);
+        std::vector<uint8_t> result(checkedSizeProduct({ mWidth, mHeight, 3U }, "Framebuffer RGB readback"));
         glReadPixels(0, 0, static_cast<GLsizei>(mWidth), static_cast<GLsizei>(mHeight), GL_RGB, GL_UNSIGNED_BYTE, result.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
         return result;
@@ -244,12 +261,13 @@ public:
         GLint previousFramebuffer = 0;
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
-        std::vector<float> result(static_cast<size_t>(mWidth) * mHeight * 4U);
+        std::vector<float> result(checkedSizeProduct({ mWidth, mHeight, 4U }, "Framebuffer RGBA readback"));
         glReadPixels(0, 0, static_cast<GLsizei>(mWidth), static_cast<GLsizei>(mHeight), GL_RGBA, GL_FLOAT, result.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
         return result;
     }
     void writeRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) override {
+        validateFramebufferDimensions(width, height);
         glBindTexture(GL_TEXTURE_2D, mTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, data);
@@ -258,6 +276,7 @@ public:
         mHeight = height;
     }
     void writeRgba32f(const uint32_t width, const uint32_t height, const float* data) override {
+        validateFramebufferDimensions(width, height);
         glBindTexture(GL_TEXTURE_2D, mTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
                      GL_FLOAT, data);
@@ -328,7 +347,8 @@ public:
         GLint previousFramebuffer = 0;
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
-        std::vector<uint8_t> result(static_cast<size_t>(cubeMapRenderTargetSize) * cubeMapRenderTargetSize * 3U);
+        std::vector<uint8_t> result(
+            checkedSizeProduct({ cubeMapRenderTargetSize, cubeMapRenderTargetSize, 3U }, "Cubemap RGB readback"));
         glReadPixels(0, 0, static_cast<GLsizei>(cubeMapRenderTargetSize), static_cast<GLsizei>(cubeMapRenderTargetSize), GL_RGB,
                      GL_UNSIGNED_BYTE, result.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
@@ -938,9 +958,11 @@ public:
     }
 
     TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) {
-        mDynamicTextures.push_back(DynamicTexture{ std::make_unique<GLTextureObject>(width, height, nullptr),
-                                                   std::vector<uint32_t>(static_cast<size_t>(width) * height),
-                                                   std::move(update) });
+        mDynamicTextures.push_back(DynamicTexture{
+            std::make_unique<GLTextureObject>(width, height, nullptr),
+            std::vector<uint32_t>(checkedSizeProduct({ width, height }, "Dynamic texture")),
+            std::move(update),
+        });
         return mDynamicTextures.back().tex->getTexture();
     }
     TextureId createTexture(const uint32_t width, const uint32_t height, const uint32_t* data) override {
@@ -970,6 +992,9 @@ public:
         mAudioInput = input;
     }
     std::vector<uint8_t> renderToBuffer(Vec2 size, const ShaderToyUniform& uniform) override {
+        const auto width = checkedPixelDimension(size.x, "Render width");
+        const auto height = checkedPixelDimension(size.y, "Render height");
+
         // Update dynamic textures first, like in the regular render function
         for(auto& [tex, data, update] : mDynamicTextures) {
             update(data.data());
@@ -981,21 +1006,21 @@ public:
         }
 
         auto fb = std::make_unique<GLFrameBuffer>();
-        fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+        fb->bind(width, height);
 
         // Render all passes. Offscreen passes may bind and unbind their own framebuffer,
         // so explicitly restore the capture framebuffer before any pass that renders
         // directly to the caller target.
         for(const auto& pass : mRenderPasses) {
             if(!pass->hasOffscreenTarget())
-                fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+                fb->bind(width, height);
             pass->render(size, Vec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
                          mVBO);
         }
 
-        fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
-        std::vector<uint8_t> buffer(static_cast<size_t>(size.x) * static_cast<size_t>(size.y) * 3);
-        glReadPixels(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+        fb->bind(width, height);
+        std::vector<uint8_t> buffer(checkedSizeProduct({ width, height, 3U }, "Render readback"));
+        glReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
         fb->unbind();
         return buffer;
     }

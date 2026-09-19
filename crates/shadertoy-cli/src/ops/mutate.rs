@@ -6,7 +6,7 @@ pub fn add_pass(
     kind: PassKind,
     source: Option<&Path>,
 ) -> Result<Output> {
-    use crate::manifest::Pass;
+    use crate::manifest::{Pass, validate_project_relative_path};
     use crate::scaffold::write_manifest;
 
     let mut loaded = LoadedManifest::load(project_path)?;
@@ -25,18 +25,24 @@ pub fn add_pass(
         );
     }
 
-    let source_rel = source
-        .map(|path| path.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from(format!("shaders/{}.frag", slug(name))));
-    if source_rel.is_absolute() {
-        bail!("pass source must be relative to the project root");
-    }
-    let source_abs = loaded.root.join(&source_rel);
-    if !source_abs.exists() {
-        if let Some(parent) = source_abs.parent() {
-            fs::create_dir_all(parent)?;
+    let source_rel = match source {
+        Some(path) => {
+            let value = path
+                .to_str()
+                .context("pass source must be valid UTF-8")?
+                .replace('\\', "/");
+            PathBuf::from(value)
         }
-        fs::write(&source_abs, pass_stub(kind))?;
+        None => default_pass_source(&loaded, name),
+    };
+    let source_text = source_rel
+        .to_str()
+        .context("pass source must be valid UTF-8")?
+        .replace('\\', "/");
+    validate_project_relative_path(&source_text, "pass source")?;
+    let source_abs = project_write_target(&loaded.root, &source_rel)?;
+    if source_abs.exists() && !source_abs.is_file() {
+        bail!("pass source is not a file: {}", source_abs.display());
     }
 
     loaded.manifest.passes.insert(
@@ -44,11 +50,28 @@ pub fn add_pass(
         Pass {
             name: name.to_string(),
             kind,
-            source: source_rel.to_string_lossy().replace('\\', "/"),
+            source: source_text,
             inputs: Vec::new(),
         },
     );
-    write_manifest(&loaded.root, &loaded.manifest)?;
+    // Validate the complete mutation before touching the filesystem. In
+    // particular, a bad pass name must not leave a source stub behind.
+    loaded.manifest.validate_structure()?;
+
+    let created_source = !source_abs.exists();
+    if created_source {
+        if let Some(parent) = source_abs.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&source_abs, pass_stub(kind))?;
+    }
+
+    if let Err(error) = write_manifest(&loaded.root, &loaded.manifest) {
+        if created_source {
+            let _ = fs::remove_file(&source_abs);
+        }
+        return Err(error);
+    }
 
     Ok(Output {
         human: format!(
@@ -216,6 +239,65 @@ pub fn remove_channel(project_path: &Path, pass_name: &str, channel: u8) -> Resu
             "channel": channel,
         }),
     })
+}
+
+fn default_pass_source(loaded: &LoadedManifest, name: &str) -> PathBuf {
+    let base = slug(name);
+    for suffix in 1usize.. {
+        let stem = if suffix == 1 {
+            base.clone()
+        } else {
+            format!("{base}-{suffix}")
+        };
+        let candidate = PathBuf::from(format!("shaders/{stem}.frag"));
+        let serialized = candidate.to_string_lossy();
+        if !loaded
+            .manifest
+            .passes
+            .iter()
+            .any(|pass| pass.source == serialized)
+        {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded pass-source suffix search must find a free name")
+}
+
+fn project_write_target(root: &Path, relative: &Path) -> Result<PathBuf> {
+    let candidate = root.join(relative);
+    let canonical_root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve project root {}", root.display()))?;
+
+    let candidate_metadata = fs::symlink_metadata(&candidate).ok();
+    if candidate_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink())
+    {
+        bail!(
+            "pass source must not be a symbolic link: {}",
+            candidate.display()
+        );
+    }
+
+    let mut probe = if candidate_metadata.is_some() {
+        candidate.as_path()
+    } else {
+        candidate.parent().unwrap_or(root)
+    };
+    while !probe.exists() {
+        probe = probe
+            .parent()
+            .context("pass source has no existing project ancestor")?;
+    }
+    let canonical_probe = fs::canonicalize(probe)
+        .with_context(|| format!("failed to resolve pass source ancestor {}", probe.display()))?;
+    if !canonical_probe.starts_with(&canonical_root) {
+        bail!(
+            "pass source resolves outside the project root: {}",
+            candidate.display()
+        );
+    }
+    Ok(candidate)
 }
 
 fn slug(value: &str) -> String {

@@ -26,6 +26,16 @@ for crate in "${crates[@]}"; do
     continue
   fi
 
-  cargo publish --locked -p "$crate"
+  if ! cargo publish --locked -p "$crate"; then
+    # A rerun can race crates.io index propagation after a previous upload.
+    # Treat a failed publish as successful only if this exact version becomes
+    # visible during the normal propagation window; otherwise preserve failure.
+    echo "publish command for ${crate}@${version} failed; checking whether the version is already propagating" >&2
+    if wait_until_visible "$crate"; then
+      echo "${crate}@${version} became visible after the failed publish; continuing"
+      continue
+    fi
+    exit 1
+  fi
   wait_until_visible "$crate"
 done

@@ -1,4 +1,5 @@
 use crate::ffi::{check, last_error};
+use crate::types::{checked_image_len, zeroed_image_vec};
 use crate::{Error, HeadlessContext, Project, Result, RgbImage};
 use shadertoy_sys as sys;
 use std::ffi::CString;
@@ -159,7 +160,7 @@ impl<'context> Runtime<'context> {
 
     pub fn render(&mut self, width: u32, height: u32) -> Result<RgbImage> {
         self.context.make_current()?;
-        let mut pixels = vec![0u8; width as usize * height as usize * 3];
+        let mut pixels = zeroed_image_vec::<u8>(width, height, 3)?;
         // SAFETY: runtime and output buffer are valid; native side writes exactly out_len bytes on success.
         check(unsafe {
             sys::st_runtime_render_rgb(
@@ -176,7 +177,7 @@ impl<'context> Runtime<'context> {
     pub fn snapshot_pass_rgb(&mut self, pass: &str, width: u32, height: u32) -> Result<RgbImage> {
         self.context.make_current()?;
         let pass = CString::new(pass)?;
-        let mut pixels = vec![0u8; width as usize * height as usize * 3];
+        let mut pixels = zeroed_image_vec::<u8>(width, height, 3)?;
         // SAFETY: runtime/buffer/string are valid across the call.
         check(unsafe {
             sys::st_runtime_snapshot_pass_rgb(
@@ -197,7 +198,7 @@ impl<'context> Runtime<'context> {
     ) -> Result<Vec<f32>> {
         self.context.make_current()?;
         let pass = CString::new(pass)?;
-        let mut pixels = vec![0.0f32; width as usize * height as usize * 4];
+        let mut pixels = zeroed_image_vec::<f32>(width, height, 4)?;
         // SAFETY: runtime/buffer/string are valid across the call.
         check(unsafe {
             sys::st_runtime_snapshot_pass_rgba32f(
@@ -217,7 +218,7 @@ impl<'context> Runtime<'context> {
         height: u32,
         rgba: &[u8],
     ) -> Result<()> {
-        if rgba.len() != width as usize * height as usize * 4 {
+        if rgba.len() != checked_image_len(width, height, 4)? {
             return Err(Error::InvalidRgbaBuffer { width, height });
         }
         self.context.make_current()?;
@@ -242,7 +243,7 @@ impl<'context> Runtime<'context> {
         height: u32,
         rgba: &[f32],
     ) -> Result<()> {
-        if rgba.len() != width as usize * height as usize * 4 {
+        if rgba.len() != checked_image_len(width, height, 4)? {
             return Err(Error::InvalidRgbaBuffer { width, height });
         }
         self.context.make_current()?;

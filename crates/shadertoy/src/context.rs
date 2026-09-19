@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 /// Hidden OpenGL context suitable for deterministic/offscreen ShaderToy rendering.
 ///
-/// OpenGL contexts are thread-affine. This type is deliberately neither Send nor Sync.
+/// GLFW initialization, hidden-window creation and destruction must happen on the process
+/// main thread. The context itself is thread-affine, so this type is deliberately neither
+/// Send nor Sync and must be created and dropped on that main thread.
 pub struct HeadlessContext {
     handle: NonNull<sys::st_context>,
     _thread_affine: PhantomData<Rc<()>>,

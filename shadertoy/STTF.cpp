@@ -6,6 +6,7 @@
 #include "shadertoy/STTF.hpp"
 #include "shadertoy/Support.hpp"
 
+#include <cstring>
 #include <fstream>
 #include <unordered_map>
 
@@ -54,29 +55,41 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                 case NodeClass::Texture: {
                     const auto width = node.at("width").get<uint32_t>();
                     const auto height = node.at("height").get<uint32_t>();
+                    if(width == 0 || height == 0)
+                        throw Error("Texture dimensions must be positive");
                     const auto decoded = base64_decode(node.at("data").get<std::string>());
-                    const auto expectedBytes = static_cast<std::size_t>(width) * height * sizeof(uint32_t);
+                    const auto pixelCount = checkedSizeProduct({ width, height }, "Texture");
+                    const auto expectedBytes = checkedSizeProduct({ pixelCount, sizeof(uint32_t) }, "Texture payload");
                     if(decoded.size() != expectedBytes)
                         throw Error("Texture payload has an invalid size");
-                    const auto begin = reinterpret_cast<const uint32_t*>(decoded.data());
-                    nodeValue = std::make_unique<Texture>(width, height, std::vector<uint32_t>{ begin, begin + width * height });
+                    std::vector<uint32_t> pixels(pixelCount);
+                    std::memcpy(pixels.data(), decoded.data(), expectedBytes);
+                    nodeValue = std::make_unique<Texture>(width, height, std::move(pixels));
                     break;
                 }
                 case NodeClass::CubeMap: {
                     const auto size = node.at("size").get<uint32_t>();
+                    if(size == 0)
+                        throw Error("Cubemap size must be positive");
                     const auto decoded = base64_decode(node.at("data").get<std::string>());
-                    const auto pixelCount = static_cast<std::size_t>(size) * size * 6U;
-                    if(decoded.size() != pixelCount * sizeof(uint32_t))
+                    const auto pixelCount = checkedSizeProduct({ size, size, 6U }, "Cubemap");
+                    const auto expectedBytes = checkedSizeProduct({ pixelCount, sizeof(uint32_t) }, "Cubemap payload");
+                    if(decoded.size() != expectedBytes)
                         throw Error("Cubemap payload has an invalid size");
-                    const auto begin = reinterpret_cast<const uint32_t*>(decoded.data());
-                    nodeValue = std::make_unique<CubeMap>(size, std::vector<uint32_t>{ begin, begin + pixelCount });
+                    std::vector<uint32_t> pixels(pixelCount);
+                    std::memcpy(pixels.data(), decoded.data(), expectedBytes);
+                    nodeValue = std::make_unique<CubeMap>(size, std::move(pixels));
                     break;
                 }
                 case NodeClass::Volume: {
                     const auto size = node.at("size").get<uint32_t>();
                     const auto channels = node.at("channels").get<uint32_t>();
+                    if(size == 0)
+                        throw Error("Volume size must be positive");
+                    if(channels != 1 && channels != 4)
+                        throw Error("Volume channel count must be 1 or 4");
                     const auto decoded = base64_decode(node.at("data").get<std::string>());
-                    const auto byteCount = static_cast<std::size_t>(size) * size * size * channels;
+                    const auto byteCount = checkedSizeProduct({ size, size, size, channels }, "Volume");
                     if(decoded.size() != byteCount)
                         throw Error("Volume payload has an invalid size");
                     nodeValue = std::make_unique<Volume>(

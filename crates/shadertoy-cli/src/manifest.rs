@@ -3,10 +3,13 @@ use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const MANIFEST_NAME: &str = "ShaderToy.toml";
 pub const FORMAT_VERSION: u32 = 1;
+pub const MAX_RENDER_DIMENSION: u32 = 16384;
+pub const MAX_RENDER_FPS: f32 = 1000.0;
+const RESERVED_INPUT_NAMES: [&str; 2] = ["keyboard", "music"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -214,8 +217,14 @@ impl Manifest {
         if self.render.width == 0 || self.render.height == 0 {
             bail!("render width and height must be positive");
         }
-        if !self.render.fps.is_finite() || self.render.fps <= 0.0 {
-            bail!("render.fps must be a positive finite number");
+        if self.render.width > MAX_RENDER_DIMENSION || self.render.height > MAX_RENDER_DIMENSION {
+            bail!("render dimensions exceed the {MAX_RENDER_DIMENSION} pixel safety limit");
+        }
+        if !self.render.fps.is_finite()
+            || self.render.fps <= 0.0
+            || self.render.fps > MAX_RENDER_FPS
+        {
+            bail!("render.fps must be finite and in the range (0, {MAX_RENDER_FPS}]");
         }
         if !self.render.preview_time.is_finite() || self.render.preview_time < 0.0 {
             bail!("render.preview_time must be a finite non-negative number");
@@ -231,6 +240,13 @@ impl Manifest {
             if pass.name.trim().is_empty() {
                 bail!("pass name must not be empty");
             }
+            if is_reserved_input_name(&pass.name) {
+                bail!("pass name '{}' is reserved for a built-in input", pass.name);
+            }
+            validate_project_relative_path(
+                &pass.source,
+                &format!("source for pass '{}'", pass.name),
+            )?;
             if !names.insert(pass.name.as_str()) {
                 bail!("duplicate pass/asset name '{}'", pass.name);
             }
@@ -245,6 +261,16 @@ impl Manifest {
             if asset.name.trim().is_empty() {
                 bail!("asset name must not be empty");
             }
+            if is_reserved_input_name(&asset.name) {
+                bail!(
+                    "asset name '{}' is reserved for a built-in input",
+                    asset.name
+                );
+            }
+            validate_project_relative_path(
+                &asset.path,
+                &format!("path for asset '{}'", asset.name),
+            )?;
             if !names.insert(asset.name.as_str()) || !asset_names.insert(asset.name.as_str()) {
                 bail!("duplicate pass/asset name '{}'", asset.name);
             }
@@ -295,6 +321,22 @@ impl Manifest {
                 if kind == InputKind::Texture && !asset_names.contains(input.source.as_str()) {
                     bail!(
                         "pass '{}' channel {} references unknown texture '{}'",
+                        pass.name,
+                        input.channel,
+                        input.source
+                    );
+                }
+                if kind == InputKind::Keyboard && input.source != "keyboard" {
+                    bail!(
+                        "pass '{}' channel {} uses keyboard input with source '{}'; use source 'keyboard'",
+                        pass.name,
+                        input.channel,
+                        input.source
+                    );
+                }
+                if kind == InputKind::Music && input.source != "music" {
+                    bail!(
+                        "pass '{}' channel {} uses music input with source '{}'; use source 'music'",
                         pass.name,
                         input.channel,
                         input.source
@@ -380,21 +422,35 @@ pub fn schema_json() -> Result<String> {
         .context("failed to serialize manifest schema")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn checked_in_schema_matches_manifest_types() {
-        let expected = crate::include_file!("schema/shadertoy.schema.json").trim_end();
-        let generated = schema_json().expect("schema generation should succeed");
-        assert_eq!(expected, generated);
+pub fn validate_project_relative_path(value: &str, label: &str) -> Result<()> {
+    let value = value.trim();
+    if value.is_empty() {
+        bail!("{label} must not be empty");
     }
 
-    #[test]
-    fn multipass_template_validates() {
-        Manifest::multipass("feedback")
-            .validate_structure()
-            .expect("multipass template should remain valid");
+    // Manifests use portable project-relative paths. Normalize separators before
+    // checking so a Windows traversal is rejected even when inspected on Unix.
+    let normalized = value.replace('\\', "/");
+    let bytes = normalized.as_bytes();
+    let windows_drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    let path = Path::new(&normalized);
+    if windows_drive
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        bail!("{label} must stay relative to the project root");
     }
+    Ok(())
 }
+
+fn is_reserved_input_name(value: &str) -> bool {
+    RESERVED_INPUT_NAMES.contains(&value)
+}
+
+#[cfg(test)]
+mod tests;
