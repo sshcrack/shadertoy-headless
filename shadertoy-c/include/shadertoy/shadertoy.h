@@ -28,32 +28,26 @@ typedef struct st_project st_project;
 typedef struct st_runtime st_runtime;
 
 typedef uint32_t st_pass_kind;
-enum {
-    ST_PASS_IMAGE = 0,
-    ST_PASS_BUFFER = 1,
-    ST_PASS_CUBEMAP = 2,
-};
+/* Plain constants (not an enum): MSVC fixes enum type to int while GCC/Clang
+ * pick unsigned, which made bindgen emit i32 on Windows but u32 elsewhere. */
+static const st_pass_kind ST_PASS_IMAGE = 0;
+static const st_pass_kind ST_PASS_BUFFER = 1;
+static const st_pass_kind ST_PASS_CUBEMAP = 2;
 
 typedef uint32_t st_input_kind;
-enum {
-    ST_INPUT_PASS = 0,
-    ST_INPUT_TEXTURE = 1,
-    ST_INPUT_KEYBOARD = 2,
-    ST_INPUT_MUSIC = 3,
-};
+static const st_input_kind ST_INPUT_PASS = 0;
+static const st_input_kind ST_INPUT_TEXTURE = 1;
+static const st_input_kind ST_INPUT_KEYBOARD = 2;
+static const st_input_kind ST_INPUT_MUSIC = 3;
 
 typedef uint32_t st_filter;
-enum {
-    ST_FILTER_MIPMAP = 0,
-    ST_FILTER_LINEAR = 1,
-    ST_FILTER_NEAREST = 2,
-};
+static const st_filter ST_FILTER_MIPMAP = 0;
+static const st_filter ST_FILTER_LINEAR = 1;
+static const st_filter ST_FILTER_NEAREST = 2;
 
 typedef uint32_t st_wrap;
-enum {
-    ST_WRAP_CLAMP = 0,
-    ST_WRAP_REPEAT = 1,
-};
+static const st_wrap ST_WRAP_CLAMP = 0;
+static const st_wrap ST_WRAP_REPEAT = 1;
 
 ST_NATIVE_EXPORT const char* st_last_error(void);
 
