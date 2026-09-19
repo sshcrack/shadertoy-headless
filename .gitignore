@@ -16,3 +16,6 @@ cmake-build-*
 .idea
 index.html
 build-*
+
+/target-rust/
+/target/

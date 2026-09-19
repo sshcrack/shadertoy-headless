@@ -1,0 +1,9 @@
+[package]
+name = "shadertoy"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+shadertoy-sys = { path = "../shadertoy-sys" }
+thiserror = "2.0"

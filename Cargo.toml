@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/shadertoy-sys",
+    "crates/shadertoy",
+    "crates/shadertoy-cli",
+]
+resolver = "3"

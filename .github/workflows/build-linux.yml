@@ -19,7 +19,21 @@ jobs:
         submodules: 'recursive'
 
     - name: Install Dependencies
-      run: sudo apt install libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev libltdl-dev make ninja-build
+      run: sudo apt install libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev libltdl-dev make ninja-build clang libclang-dev
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Check Rust formatting
+      run: cargo fmt --all --check
+
+    - name: Check Rust CLI
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Test Rust workspace
+      run: cargo test --workspace
 
     - name: Configure CMake
       run: cmake -G Ninja -B ${{github.workspace}}/build -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
@@ -34,6 +48,14 @@ jobs:
       run: |
         cmake --build ${{github.workspace}}/build-lib -j
         ctest --test-dir ${{github.workspace}}/build-lib --output-on-failure
+
+    - name: Configure C API
+      run: cmake -G Ninja -B ${{github.workspace}}/build-c-api -DSHADERTOY_BUILD_GUI=OFF -DSHADERTOY_BUILD_C_API=ON -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+
+    - name: Test C API
+      run: |
+        cmake --build ${{github.workspace}}/build-c-api -j
+        ctest --test-dir ${{github.workspace}}/build-c-api --output-on-failure
 
     - name: Install
       run: |

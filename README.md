@@ -6,38 +6,44 @@
 
 An unofficial ShaderToy renderer and live editor.
 
-The repository has two layers built on the same rendering implementation:
+The repository has several frontends built on one rendering implementation:
 
-- **shadertoy::shadertoy** — a standalone C++23 library for importing, compiling, advancing, and rendering ShaderToy pipelines.
-- **shadertoy** — the interactive editor. It is a client of the library and adds the ImGui pipeline editor, GLSL editor, dialogs, screenshots, and desktop interaction.
+- **shadertoy::shadertoy** — the standalone C++23 renderer/library.
+- **shadertoy-c** — a deliberately small stable C ABI over project construction and runtime rendering.
+- **Rust shadertoy-sys / shadertoy crates** — generated raw bindings plus a safe, idiomatic wrapper.
+- **shadertoy CLI** — the agent-first project/check/render/debug/live-preview workflow.
+- **desktop editor** — the existing ImGui editor. It remains a C++ library client; direct directory-project editing will be adapted later.
 
-The library does not depend on ImGui, HelloImGui, the node editor, GLFW, or native file dialogs. The embedding application owns the OpenGL context and makes it current; the library owns the renderer and OpenGL loader details.
+The core C++ library does not depend on ImGui, HelloImGui, the node editor, GLFW, or native file dialogs. The embedding application owns the OpenGL context and makes it current. The optional C ABI includes a hidden GLFW context helper for command-line/off-screen hosts.
 
 ## Architecture
 
-The library seam is the shader document/runtime interface:
-
 ~~~
-                 +-----------------------+
-                 |     ShaderDocument    |
-                 | passes, inputs, links |
-                 +-----------+-----------+
-                             |
-              import/STTF    |    compile
-                             v
-+-------------+       +------+-------+       +----------------+
-| ShaderToy   | ----> |    Runtime   | ----> | OpenGL renderer|
-| importer    |       | time + input |       | passes/buffers |
-+-------------+       +------+-------+       +----------------+
-                             ^
-                             |
-                    +--------+---------+
-                    | GUI / other host |
-                    | owns GL context  |
-                    +------------------+
+ ShaderToy.toml + GLSL/assets
+             |
+             v
+      project semantics
+             |
+             v
+      ShaderDocument
+             |
+             v
+       C++ Runtime  -----------------> desktop GUI
+             |
+             v
+       stable C ABI
+             |
+       +-----+------+
+       |            |
+ shadertoy-sys   other FFI
+       |
+ safe Rust shadertoy
+       |
+ shadertoy CLI
+  check / render / inspect / state / preview
 ~~~
 
-ShaderDocument is GUI-independent, so the desktop editor and embedded/headless users compile exactly the same pipeline representation. Runtime owns playback state, ShaderToy uniforms, host audio/keyboard/mouse state, and the compiled renderer.
+ShaderDocument remains GUI-independent. Directory-project graph semantics live below the frontends, while the Rust CLI owns TOML/schema/file-watching/web-server concerns. shadertoy-sys generates its bindings directly from shadertoy-c/shadertoy.h; CLI code never handles raw C pointers.
 
 ## Using the library
 
@@ -76,6 +82,80 @@ auto rgb = runtime.renderToBuffer({128.0f, 128.0f});
 The host may instead construct/load a ShaderDocument, import a ShaderToy URL/response, or load an STTF file and pass the resulting document to Runtime::setDocument().
 
 Runtime can be constructed before an OpenGL context exists. A current context is required when a document is compiled and whenever it is rendered. The library initializes its own OpenGL loader; the host does not need to use GLEW directly.
+
+## Agent-first CLI
+
+A CLI project is an editable directory rather than a monolithic STTF file:
+
+~~~text
+my-shader/
+├── ShaderToy.toml
+├── README.md
+├── shaders/
+│   ├── image.frag
+│   └── buffer-a.frag
+├── assets/
+└── target/          # generated, gitignored
+~~~
+
+Create a minimal project or a working feedback-buffer example:
+
+~~~bash
+shadertoy new hello
+shadertoy new feedback --template multipass
+~~~
+
+The multipass template intentionally demonstrates Buffer A previous-frame feedback and wiring the current Buffer A result into Image through iChannel0.
+
+The common agent loop is deliberately small:
+
+~~~bash
+cd feedback
+shadertoy inspect --json
+shadertoy check --json
+shadertoy render -o target/check.png
+shadertoy preview
+~~~
+
+When something is wrong, the same interface drills down instead of requiring renderer internals:
+
+~~~bash
+shadertoy inspect graph --json
+shadertoy inspect pass buffer-a --json
+shadertoy inspect channels image --json
+shadertoy render --pass buffer-a -o target/buffer-a.png
+~~~
+
+shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
+
+~~~bash
+shadertoy state capture --frame 300 -o target/frame300.ststate
+shadertoy state inspect target/frame300.ststate --json
+
+shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtures/known.png   -o target/debug.png
+~~~
+
+Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, manifest, passes, buffers, channels, state, and preview.
+
+### Schema-backed ShaderToy.toml
+
+The canonical JSON Schema is checked in at crates/shadertoy-cli/assets/schema/shadertoy.schema.json and generated from the same Rust types that parse the manifest. A test prevents the checked-in schema from drifting from those types.
+
+New projects receive a local .shadertoy/shadertoy.schema.json, a #:schema directive in ShaderToy.toml, and a .taplo.toml association. Editors with Taplo / compatible TOML schema support can therefore validate keys and types and provide completion. Agents can print the exact same schema with:
+
+~~~bash
+shadertoy docs manifest --schema
+~~~
+
+shadertoy check adds semantic validation that JSON Schema cannot express, including graph references/cycles and real GLSL compilation through the native renderer.
+
+### Live native preview
+
+shadertoy preview starts a local web server, but the browser is only a viewer/controller: rendering remains in the native C++ renderer. It watches the manifest, shader sources, and assets, keeps the last successful frame when a new edit fails compilation, and hot-reloads automatically after the error is fixed.
+
+The preview exposes final Image and named 2D buffers plus pause/resume, reset, frame step, time scale, resolution, mouse, and keyboard controls. It binds to 127.0.0.1 by default; non-loopback binds require --token.
+
+Browser/Camoufox ShaderToy-page import is intentionally not part of CLI v1.
 
 ## Interactive editor
 
@@ -165,6 +245,7 @@ Editor/runtime utilities:
 - a C++23 compiler
 - [vcpkg](https://github.com/microsoft/vcpkg)
 - OpenGL
+- for the Rust CLI: stable Rust with Edition 2024 support plus Clang/libclang for bindgen
 
 Clone with the text-editor submodule:
 
@@ -185,12 +266,22 @@ cmake --preset library
 cmake --build --preset library
 ctest --preset library
 
-# Library + deterministic preview CLI
+# Library + legacy deterministic preview fixture
 cmake --preset preview
 cmake --build --preset preview
+
+# Library + stable C ABI
+cmake --preset c-api
+cmake --build --preset c-api
+
+# Agent-first Rust CLI. shadertoy-sys builds the C ABI and generates bindings.
+cargo build -p shadertoy-cli
+./target/debug/shadertoy --help
 ~~~
 
-The equivalent configuration switches are SHADERTOY_BUILD_GUI, SHADERTOY_BUILD_PREVIEW_TOOL, and BUILD_TESTING.
+The Rust build stages the native C ABI in target/lib (or the platform-equivalent layout) and gives the CLI a relative loader path, so the built executable can be launched directly. Release bundles should preserve the conventional bin/../lib relationship.
+
+The equivalent CMake switches are SHADERTOY_BUILD_GUI, SHADERTOY_BUILD_PREVIEW_TOOL, SHADERTOY_BUILD_C_API, and BUILD_TESTING.
 
 ### Install the standalone package
 

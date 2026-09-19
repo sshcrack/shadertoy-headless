@@ -33,9 +33,9 @@ ShaderToyUniform ShaderToyContext::makeUniform() const {
 }
 
 void ShaderToyContext::updateDate() {
-    const auto offsetNow =
-        mStartTime + std::chrono::duration_cast<SystemClock::duration>(
-                         std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
+    const auto offsetNow = mStartTime +
+        std::chrono::duration_cast<SystemClock::duration>(
+                               std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
     const auto current = SystemClock::to_time_t(offsetNow);
     const auto tm = std::localtime(&current);  // NOLINT(concurrency-mt-unsafe)
     if(!tm)
@@ -153,6 +153,44 @@ std::vector<uint8_t> ShaderToyContext::renderToBuffer(const Vec2 size) {
     if(!mPipeline)
         return {};
     return mPipeline->renderToBuffer(size, makeUniform());
+}
+
+std::vector<uint8_t> ShaderToyContext::snapshotPassRgb(const std::string_view passName) {
+    if(!mPipeline)
+        return {};
+    return mPipeline->snapshotPassRgb(passName);
+}
+
+std::vector<float> ShaderToyContext::snapshotPassRgba32f(const std::string_view passName) {
+    if(!mPipeline)
+        return {};
+    return mPipeline->snapshotPassRgba32f(passName);
+}
+
+void ShaderToyContext::overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
+                                         const uint8_t* data) {
+    if(!mPipeline)
+        return;
+    mPipeline->overridePassRgba8(passName, width, height, data);
+}
+
+void ShaderToyContext::restorePassRgba32f(const std::string_view passName, const uint32_t width, const uint32_t height,
+                                          const float* data) {
+    if(!mPipeline)
+        return;
+    mPipeline->restorePassRgba32f(passName, width, height, data);
+}
+
+void ShaderToyContext::setFixedState(const float timeSeconds, const int32_t frame, const float frameRate) {
+    mTime = std::max(0.0f, timeSeconds);
+    mTimeDelta = 0.0f;
+    mFrameCount = std::max(0, frame);
+    mFrameRate = std::max(0.0f, frameRate);
+    mRunning = true;
+    mStartTime = SystemClock::now() -
+        std::chrono::duration_cast<SystemClock::duration>(
+                     std::chrono::nanoseconds{ static_cast<std::chrono::nanoseconds::rep>(mTime * 1e9) });
+    updateDate();
 }
 
 SHADERTOY_NAMESPACE_END

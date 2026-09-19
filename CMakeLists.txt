@@ -2,12 +2,16 @@ cmake_minimum_required(VERSION 3.20)
 
 option(SHADERTOY_BUILD_GUI "Build the interactive ShaderToy editor" ON)
 option(SHADERTOY_BUILD_PREVIEW_TOOL "Build the deterministic hidden-window shader preview CLI" OFF)
+option(SHADERTOY_BUILD_C_API "Build the stable C ABI used by Rust and other language bindings" OFF)
 
 if(SHADERTOY_BUILD_GUI)
     list(APPEND VCPKG_MANIFEST_FEATURES gui)
 endif()
 if(SHADERTOY_BUILD_PREVIEW_TOOL)
     list(APPEND VCPKG_MANIFEST_FEATURES preview)
+endif()
+if(SHADERTOY_BUILD_C_API)
+    list(APPEND VCPKG_MANIFEST_FEATURES c-api)
 endif()
 
 project(shadertoy VERSION 0.1.2 HOMEPAGE_URL "https://github.com/dtcxzyw/shadertoy" LANGUAGES CXX)
@@ -31,6 +35,10 @@ endif()
 
 if(SHADERTOY_BUILD_GUI)
     add_subdirectory(app)
+endif()
+
+if(SHADERTOY_BUILD_C_API)
+    add_subdirectory(shadertoy-c)
 endif()
 
 install(FILES README.md LICENSE DESTINATION .)

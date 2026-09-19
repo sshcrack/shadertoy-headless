@@ -113,7 +113,7 @@ float sampleAudioWaveform(sampler2D channel, float x) {
 #define char char_
 )";
 
-static const char* const shaderPixelFooter =  R"(
+static const char* const shaderPixelFooter = R"(
 void main() {
 #ifdef SHADERTOY_CLAMP_OUTPUT
     out_frag_color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -227,6 +227,44 @@ public:
     [[nodiscard]] uintptr_t getTexture() const override {
         return mTexture;
     }
+    [[nodiscard]] std::vector<uint8_t> readRgb() override {
+        if(mWidth == 0 || mHeight == 0)
+            throw Error("Framebuffer has not been rendered yet");
+        GLint previousFramebuffer = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
+        std::vector<uint8_t> result(static_cast<size_t>(mWidth) * mHeight * 3U);
+        glReadPixels(0, 0, static_cast<GLsizei>(mWidth), static_cast<GLsizei>(mHeight), GL_RGB, GL_UNSIGNED_BYTE, result.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+        return result;
+    }
+    [[nodiscard]] std::vector<float> readRgba32f() override {
+        if(mWidth == 0 || mHeight == 0)
+            throw Error("Framebuffer has not been rendered yet");
+        GLint previousFramebuffer = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
+        std::vector<float> result(static_cast<size_t>(mWidth) * mHeight * 4U);
+        glReadPixels(0, 0, static_cast<GLsizei>(mWidth), static_cast<GLsizei>(mHeight), GL_RGBA, GL_FLOAT, result.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+        return result;
+    }
+    void writeRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) override {
+        glBindTexture(GL_TEXTURE_2D, mTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, data);
+        glBindTexture(GL_TEXTURE_2D, GL_NONE);
+        mWidth = width;
+        mHeight = height;
+    }
+    void writeRgba32f(const uint32_t width, const uint32_t height, const float* data) override {
+        glBindTexture(GL_TEXTURE_2D, mTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
+                     GL_FLOAT, data);
+        glBindTexture(GL_TEXTURE_2D, GL_NONE);
+        mWidth = width;
+        mHeight = height;
+    }
 };
 
 static constexpr uint32_t cubeMapRenderTargetSize = 1024;
@@ -286,9 +324,29 @@ public:
     [[nodiscard]] uintptr_t getTexture() const override {
         return mTexture;
     }
+    [[nodiscard]] std::vector<uint8_t> readRgb() override {
+        GLint previousFramebuffer = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
+        std::vector<uint8_t> result(static_cast<size_t>(cubeMapRenderTargetSize) * cubeMapRenderTargetSize * 3U);
+        glReadPixels(0, 0, static_cast<GLsizei>(cubeMapRenderTargetSize), static_cast<GLsizei>(cubeMapRenderTargetSize), GL_RGB,
+                     GL_UNSIGNED_BYTE, result.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+        return result;
+    }
+    [[nodiscard]] std::vector<float> readRgba32f() override {
+        throw Error("Cubemap pass state snapshots are not supported");
+    }
+    void writeRgba8(const uint32_t, const uint32_t, const uint8_t*) override {
+        throw Error("Cubemap pass overrides are not supported");
+    }
+    void writeRgba32f(const uint32_t, const uint32_t, const float*) override {
+        throw Error("Cubemap pass state restores are not supported");
+    }
 };
 
 class RenderPass final {
+    std::string mName;
     GLuint mProgram;
     std::vector<DoubleBufferedFB> mBuffers;
     NodeType mType;
@@ -310,9 +368,9 @@ class RenderPass final {
     std::vector<Channel> mChannels;
 
 public:
-    RenderPass(const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer, std::vector<Channel> channels,
-               bool clampOutput)
-        : mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) } {
+    RenderPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer,
+               std::vector<Channel> channels, bool clampOutput)
+        : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) } {
         std::string vertexSrc = shaderVersionDirective;
         std::string pixelSrc = shaderVersionDirective;
         if(type == NodeType::CubeMap) {
@@ -404,6 +462,48 @@ public:
     }
     [[nodiscard]] NodeType getType() const noexcept {
         return mType;
+    }
+    [[nodiscard]] std::string_view getName() const noexcept {
+        return mName;
+    }
+    [[nodiscard]] bool hasOffscreenTarget() const noexcept {
+        return !mBuffers.empty() && mBuffers.front().t1 != nullptr;
+    }
+    [[nodiscard]] std::vector<uint8_t> readRgb() {
+        if(mType != NodeType::Image)
+            throw Error("Only image/buffer passes can be read as RGB");
+        if(!hasOffscreenTarget())
+            throw Error("Final image pass is rendered to the caller framebuffer");
+        return mBuffers.front().t1->readRgb();
+    }
+    [[nodiscard]] std::vector<float> readRgba32f() {
+        if(mType != NodeType::Image)
+            throw Error("Only image/buffer passes can be snapshotted as RGBA32F");
+        if(!hasOffscreenTarget())
+            throw Error("The final image pass has no persistent buffer state");
+        return mBuffers.front().t1->readRgba32f();
+    }
+    void overrideRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) {
+        if(mType != NodeType::Image)
+            throw Error("Only image/buffer passes can be overridden with a 2D image");
+        if(!hasOffscreenTarget())
+            throw Error("The final image pass cannot be used as a persistent buffer override");
+        auto* first = mBuffers.front().t1;
+        auto* second = mBuffers.front().t2;
+        first->writeRgba8(width, height, data);
+        if(second && second != first)
+            second->writeRgba8(width, height, data);
+    }
+    void restoreRgba32f(const uint32_t width, const uint32_t height, const float* data) {
+        if(mType != NodeType::Image)
+            throw Error("Only image/buffer passes can restore RGBA32F state");
+        if(!hasOffscreenTarget())
+            throw Error("The final image pass has no persistent buffer state");
+        auto* first = mBuffers.front().t1;
+        auto* second = mBuffers.front().t2;
+        first->writeRgba32f(width, height, data);
+        if(second && second != first)
+            second->writeRgba32f(width, height, data);
     }
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, const Vec2 canvasSize,
                 const ShaderToyUniform& uniform, const GLuint vao, const GLuint vbo) {
@@ -560,18 +660,23 @@ public:
             if(mLocationDate != -1)
                 glUniform4f(mLocationDate, uniform.date.x, uniform.date.y, uniform.date.z, uniform.date.w);
             if(mLocationMusicBands != -1)
-                glUniform4f(mLocationMusicBands, uniform.audioBands.x, uniform.audioBands.y, uniform.audioBands.z, uniform.audioBands.w);
+                glUniform4f(mLocationMusicBands, uniform.audioBands.x, uniform.audioBands.y, uniform.audioBands.z,
+                            uniform.audioBands.w);
             if(mLocationMusicHits != -1)
-                glUniform4f(mLocationMusicHits, uniform.audioHits.x, uniform.audioHits.y, uniform.audioHits.z, uniform.audioHits.w);
+                glUniform4f(mLocationMusicHits, uniform.audioHits.x, uniform.audioHits.y, uniform.audioHits.z,
+                            uniform.audioHits.w);
             if(mLocationMusicBeat != -1)
-                glUniform4f(mLocationMusicBeat, uniform.audioBeat.x, uniform.audioBeat.y, uniform.audioBeat.z, uniform.audioBeat.w);
+                glUniform4f(mLocationMusicBeat, uniform.audioBeat.x, uniform.audioBeat.y, uniform.audioBeat.z,
+                            uniform.audioBeat.w);
             if(mLocationMusicStereo != -1)
-                glUniform4f(mLocationMusicStereo, uniform.audioStereo.x, uniform.audioStereo.y, uniform.audioStereo.z, uniform.audioStereo.w);
+                glUniform4f(mLocationMusicStereo, uniform.audioStereo.x, uniform.audioStereo.y, uniform.audioStereo.z,
+                            uniform.audioStereo.w);
             if(mLocationMusicStructure != -1)
                 glUniform4f(mLocationMusicStructure, uniform.audioStructure.x, uniform.audioStructure.y, uniform.audioStructure.z,
                             uniform.audioStructure.w);
             if(mLocationMusicMeta != -1)
-                glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z, uniform.audioMeta.w);
+                glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z,
+                            uniform.audioMeta.w);
 
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
             if(buffer)
@@ -738,10 +843,9 @@ class OpenGLPipeline final : public Pipeline {
             const uint8_t spectrumByte = toByte(spectrum);
             const uint8_t waveformByte = toByte(waveform);
             data[x] = static_cast<uint32_t>(spectrumByte) | (static_cast<uint32_t>(spectrumByte) << 8U) |
-                      (static_cast<uint32_t>(spectrumByte) << 16U) | 0xff000000U;
+                (static_cast<uint32_t>(spectrumByte) << 16U) | 0xff000000U;
             data[AudioInput::TextureWidth + x] = static_cast<uint32_t>(waveformByte) |
-                                                 (static_cast<uint32_t>(waveformByte) << 8U) |
-                                                 (static_cast<uint32_t>(waveformByte) << 16U) | 0xff000000U;
+                (static_cast<uint32_t>(waveformByte) << 8U) | (static_cast<uint32_t>(waveformByte) << 16U) | 0xff000000U;
         }
     }
 
@@ -806,13 +910,16 @@ public:
         return buffers;
     }
 
-    void addPass(const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target, std::vector<Channel> channels,
-                 bool clampOutput) override {
-        mRenderPasses.push_back(std::make_unique<RenderPass>(src, type, std::move(target), std::move(channels), clampOutput));
+    void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
+                 std::vector<Channel> channels, bool clampOutput) override {
+        mRenderPasses.push_back(
+            std::make_unique<RenderPass>(std::move(name), src, type, std::move(target), std::move(channels), clampOutput));
     }
 
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,
                 const ShaderToyUniform& uniform) override {
+        GLint callerFramebuffer = 0;
+        glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &callerFramebuffer);
         for(auto& [tex, data, update] : mDynamicTextures) {
             update(data.data());
             const auto texId = static_cast<GLuint>(tex->getTexture());
@@ -821,9 +928,13 @@ public:
                          GL_RGBA, GL_UNSIGNED_BYTE, data.data());  // R8G8B8A8
             glBindTexture(GL_TEXTURE_2D, GL_NONE);
         }
-        for(const auto& pass : mRenderPasses)
+        for(const auto& pass : mRenderPasses) {
+            if(!pass->hasOffscreenTarget())
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
             pass->render(frameBufferSize, clipMin, clipMax, size, uniform,
                          pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+        }
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
     }
 
     TextureId createDynamicTexture(uint32_t width, uint32_t height, std::function<void(uint32_t*)> update) {
@@ -845,8 +956,7 @@ public:
         return mTextures.back()->getTexture();
     }
     TextureId createKeyboardTexture() override {
-        return createDynamicTexture(static_cast<uint32_t>(KeyboardInput::KeyCount),
-                                    static_cast<uint32_t>(KeyboardInput::Rows),
+        return createDynamicTexture(static_cast<uint32_t>(KeyboardInput::KeyCount), static_cast<uint32_t>(KeyboardInput::Rows),
                                     [this](uint32_t* data) { updateKeyboardTexture(data); });
     }
     TextureId createAudioTexture() override {
@@ -873,16 +983,55 @@ public:
         auto fb = std::make_unique<GLFrameBuffer>();
         fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
 
-        // Render all passes, not just the first one
+        // Render all passes. Offscreen passes may bind and unbind their own framebuffer,
+        // so explicitly restore the capture framebuffer before any pass that renders
+        // directly to the caller target.
         for(const auto& pass : mRenderPasses) {
+            if(!pass->hasOffscreenTarget())
+                fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
             pass->render(size, Vec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
                          mVBO);
         }
 
+        fb->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
         std::vector<uint8_t> buffer(static_cast<size_t>(size.x) * static_cast<size_t>(size.y) * 3);
         glReadPixels(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
         fb->unbind();
         return buffer;
+    }
+
+    std::vector<uint8_t> snapshotPassRgb(const std::string_view passName) override {
+        const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
+                                           [passName](const auto& pass) { return pass->getName() == passName; });
+        if(selected == mRenderPasses.end())
+            throw Error("Unknown shader pass: " + std::string(passName));
+        return (*selected)->readRgb();
+    }
+
+    std::vector<float> snapshotPassRgba32f(const std::string_view passName) override {
+        const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
+                                           [passName](const auto& pass) { return pass->getName() == passName; });
+        if(selected == mRenderPasses.end())
+            throw Error("Unknown shader pass: " + std::string(passName));
+        return (*selected)->readRgba32f();
+    }
+
+    void overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
+                           const uint8_t* data) override {
+        const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
+                                           [passName](const auto& pass) { return pass->getName() == passName; });
+        if(selected == mRenderPasses.end())
+            throw Error("Unknown shader pass: " + std::string(passName));
+        (*selected)->overrideRgba8(width, height, data);
+    }
+
+    void restorePassRgba32f(const std::string_view passName, const uint32_t width, const uint32_t height,
+                            const float* data) override {
+        const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
+                                           [passName](const auto& pass) { return pass->getName() == passName; });
+        if(selected == mRenderPasses.end())
+            throw Error("Unknown shader pass: " + std::string(passName));
+        (*selected)->restoreRgba32f(width, height, data);
     }
 };
 

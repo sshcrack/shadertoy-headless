@@ -12,6 +12,7 @@ set(SHADERTOY_LIBRARY_SOURCES
     Compiler.cpp
     Importer.cpp
     OpenGL.cpp
+    Project.cpp
     ShaderToy.cpp
     ShaderToyContext.cpp
     STTF.cpp
@@ -23,6 +24,7 @@ add_library(shadertoy::shadertoy ALIAS shadertoy-lib)
 set_target_properties(shadertoy-lib PROPERTIES
     OUTPUT_NAME shadertoy
     EXPORT_NAME shadertoy
+    POSITION_INDEPENDENT_CODE ON
 )
 
 target_compile_features(shadertoy-lib PUBLIC cxx_std_23)
@@ -65,6 +67,7 @@ set(SHADERTOY_PUBLIC_HEADERS
     Config.hpp
     Error.hpp
     Importer.hpp
+    Project.hpp
     Result.hpp
     ShaderToy.hpp
     STTF.hpp

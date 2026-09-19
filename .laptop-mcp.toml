@@ -5,6 +5,7 @@ apt_packages = [
   "libgl-dev",
   "libglu1-mesa-dev",
   "libltdl-dev",
+  "libclang-dev",
   "libxcursor-dev",
   "libxi-dev",
   "libxinerama-dev",

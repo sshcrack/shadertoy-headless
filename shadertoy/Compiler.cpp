@@ -150,7 +150,12 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                 }
 
                 const auto& shader = dynamic_cast<const GLSLShader&>(*node);
-                pipeline->addPass(shader.source, shader.nodeType, targets, std::move(channels), node == directRenderNode);
+                try {
+                    pipeline->addPass(node->name, shader.source, shader.nodeType, targets, std::move(channels),
+                                      node == directRenderNode);
+                } catch(const std::exception& error) {
+                    throw Error("Pass '" + node->name + "': " + error.what());
+                }
 
                 if(targets.front().t1) {
                     const auto texType = shader.nodeType == NodeType::CubeMap ? TexType::CubeMap : TexType::Tex2D;

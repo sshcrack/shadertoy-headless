@@ -146,6 +146,62 @@ std::vector<uint8_t> Runtime::renderToBuffer(const Vec2 size) {
     return mImpl->context.renderToBuffer(size);
 }
 
+Result<std::vector<uint8_t>> Runtime::snapshotPassRgb(const std::string_view passName) {
+    try {
+        return mImpl->context.snapshotPassRgb(passName);
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<std::vector<float>> Runtime::snapshotPassRgba32f(const std::string_view passName) {
+    try {
+        return mImpl->context.snapshotPassRgba32f(passName);
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
+                                        const std::vector<uint8_t>& rgba) {
+    try {
+        if(rgba.size() != static_cast<std::size_t>(width) * height * 4U)
+            throw Error("Pass override must contain width * height * 4 RGBA8 bytes");
+        mImpl->context.overridePassRgba8(passName, width, height, rgba.data());
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::restorePassRgba32f(const std::string_view passName, const uint32_t width, const uint32_t height,
+                                         const std::vector<float>& rgba) {
+    try {
+        if(rgba.size() != static_cast<std::size_t>(width) * height * 4U)
+            throw Error("Pass restore must contain width * height * 4 RGBA32F values");
+        mImpl->context.restorePassRgba32f(passName, width, height, rgba.data());
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, const float frameRate) {
+    mImpl->context.setFixedState(timeSeconds, frameValue, frameRate);
+}
+
+int32_t Runtime::frame() const noexcept {
+    return mImpl->context.getFrame();
+}
+
 Vec4 Runtime::mouseStatus() const noexcept {
     return mImpl->context.getMouseStatus();
 }

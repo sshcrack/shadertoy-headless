@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "type": "object",
+  "properties": {
+    "asset": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Asset"
+      }
+    },
+    "format": {
+      "description": "Project manifest format version. Version 1 is the only supported value.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "pass": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Pass"
+      }
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectSection"
+    },
+    "render": {
+      "$ref": "#/$defs/RenderSection",
+      "default": {
+        "fps": 60.0,
+        "height": 720,
+        "preview_time": 1.0,
+        "width": 1280
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "project",
+    "pass"
+  ],
+  "$defs": {
+    "Asset": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AssetKind"
+        },
+        "name": {
+          "description": "Unique asset name used by pass inputs.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Asset file path relative to the project root.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "path"
+      ]
+    },
+    "AssetKind": {
+      "type": "string",
+      "enum": [
+        "texture"
+      ]
+    },
+    "Filter": {
+      "type": "string",
+      "enum": [
+        "mipmap",
+        "linear",
+        "nearest"
+      ]
+    },
+    "FrameRef": {
+      "type": "string",
+      "enum": [
+        "current",
+        "previous"
+      ]
+    },
+    "Input": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "description": "ShaderToy iChannel index. Must be between 0 and 3.",
+          "type": "integer",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0
+        },
+        "filter": {
+          "$ref": "#/$defs/Filter",
+          "default": "linear"
+        },
+        "frame": {
+          "$ref": "#/$defs/FrameRef",
+          "default": "current"
+        },
+        "kind": {
+          "description": "Optional explicit source kind. Normally inferred from the source name.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Pass/asset name, or the reserved names \"keyboard\" and \"music\".",
+          "type": "string"
+        },
+        "wrap": {
+          "$ref": "#/$defs/Wrap",
+          "default": "repeat"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "source"
+      ]
+    },
+    "InputKind": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "texture",
+        "keyboard",
+        "music"
+      ]
+    },
+    "Pass": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Input"
+          }
+        },
+        "kind": {
+          "$ref": "#/$defs/PassKind"
+        },
+        "name": {
+          "description": "Unique pass name. Names are used by inspect/render/debug commands.",
+          "type": "string"
+        },
+        "source": {
+          "description": "GLSL source path relative to the project root.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "source"
+      ]
+    },
+    "PassKind": {
+      "type": "string",
+      "enum": [
+        "image",
+        "buffer",
+        "cubemap"
+      ]
+    },
+    "ProjectSection": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Human-readable project name.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "RenderSection": {
+      "type": "object",
+      "properties": {
+        "fps": {
+          "description": "Fixed timestep frame rate used by deterministic rendering.",
+          "type": "number",
+          "format": "float",
+          "default": 60.0
+        },
+        "height": {
+          "description": "Default render/preview height in pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 720,
+          "minimum": 0
+        },
+        "preview_time": {
+          "description": "Representative time used by `shadertoy render` when no frame/time is supplied.",
+          "type": "number",
+          "format": "float",
+          "default": 1.0
+        },
+        "width": {
+          "description": "Default render/preview width in pixels.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 1280,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Wrap": {
+      "type": "string",
+      "enum": [
+        "clamp",
+        "repeat"
+      ]
+    }
+  }
+}

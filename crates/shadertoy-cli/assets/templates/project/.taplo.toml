@@ -1,0 +1,5 @@
+[[rule]]
+include = ["ShaderToy.toml"]
+
+[rule.schema]
+path = ".shadertoy/shadertoy.schema.json"

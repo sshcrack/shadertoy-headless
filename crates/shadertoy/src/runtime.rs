@@ -1,0 +1,271 @@
+use crate::ffi::{check, last_error};
+use crate::{Error, HeadlessContext, Project, Result, RgbImage};
+use shadertoy_sys as sys;
+use std::ffi::CString;
+use std::marker::PhantomData;
+use std::path::Path;
+use std::ptr::NonNull;
+use std::rc::Rc;
+
+/// Compiled ShaderToy runtime bound to a caller-owned current OpenGL context.
+///
+/// The context reference guarantees it outlives all GL objects owned by this runtime.
+pub struct Runtime<'context> {
+    handle: NonNull<sys::st_runtime>,
+    context: &'context HeadlessContext,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
+impl<'context> Runtime<'context> {
+    pub fn new(context: &'context HeadlessContext) -> Result<Self> {
+        context.make_current()?;
+        // SAFETY: generated binding calls the repository-owned stable C ABI with a current GL context.
+        let handle = unsafe { sys::st_runtime_create() };
+        let handle = NonNull::new(handle).ok_or_else(last_error)?;
+        Ok(Self {
+            handle,
+            context,
+            _thread_affine: PhantomData,
+        })
+    }
+
+    pub fn load_project(&mut self, project: &Project) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: both handles are valid; native implementation creates/copies its own ShaderDocument.
+        check(unsafe { sys::st_runtime_load_project(self.handle.as_ptr(), project.as_ptr()) })
+    }
+
+    pub fn save_sttf(&self, path: impl AsRef<Path>) -> Result<()> {
+        self.context.make_current()?;
+        let path = CString::new(path.as_ref().to_string_lossy().as_bytes())?;
+        // SAFETY: runtime handle and C string are valid across the call.
+        check(unsafe { sys::st_runtime_save_sttf(self.handle.as_ptr(), path.as_ptr()) })
+    }
+
+    pub fn tick(&mut self, frame_rate: f32) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and its context is current.
+        unsafe { sys::st_runtime_tick(self.handle.as_ptr(), frame_rate) };
+        Ok(())
+    }
+
+    pub fn tick_fixed(&mut self, delta_seconds: f32, frame_rate: f32) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and its context is current.
+        unsafe { sys::st_runtime_tick_fixed(self.handle.as_ptr(), delta_seconds, frame_rate) };
+        Ok(())
+    }
+
+    pub fn reset_time(&mut self) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and its context is current.
+        unsafe { sys::st_runtime_reset_time(self.handle.as_ptr()) };
+        Ok(())
+    }
+
+    pub fn set_fixed_state(
+        &mut self,
+        time_seconds: f32,
+        frame: i32,
+        frame_rate: f32,
+    ) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        unsafe {
+            sys::st_runtime_set_fixed_state(self.handle.as_ptr(), time_seconds, frame, frame_rate)
+        };
+        Ok(())
+    }
+
+    pub fn time(&self) -> f32 {
+        // SAFETY: reading the runtime's scalar time does not mutate GL state.
+        unsafe { sys::st_runtime_time(self.handle.as_ptr()) }
+    }
+
+    pub fn frame(&self) -> i32 {
+        // SAFETY: reading the runtime's scalar frame counter does not mutate GL state.
+        unsafe { sys::st_runtime_frame(self.handle.as_ptr()) }
+    }
+
+    pub fn pause(&mut self) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        unsafe { sys::st_runtime_pause(self.handle.as_ptr()) };
+        Ok(())
+    }
+
+    pub fn resume(&mut self) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        unsafe { sys::st_runtime_resume(self.handle.as_ptr()) };
+        Ok(())
+    }
+
+    pub fn is_running(&self) -> bool {
+        // SAFETY: reading the runtime running flag does not mutate GL state.
+        unsafe { sys::st_runtime_is_running(self.handle.as_ptr()) != 0 }
+    }
+
+    pub fn time_scale(&self) -> f32 {
+        // SAFETY: reading the runtime scalar time scale does not mutate GL state.
+        unsafe { sys::st_runtime_time_scale(self.handle.as_ptr()) }
+    }
+
+    pub fn set_time_scale(&mut self, log2_scale: f32) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        unsafe { sys::st_runtime_set_time_scale(self.handle.as_ptr(), log2_scale) };
+        Ok(())
+    }
+
+    pub fn set_mouse(&mut self, x: f32, y: f32, down: bool, clicked: bool) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        check(unsafe {
+            sys::st_runtime_set_mouse(
+                self.handle.as_ptr(),
+                x,
+                y,
+                i32::from(down),
+                i32::from(clicked),
+            )
+        })
+    }
+
+    pub fn clear_mouse(&mut self) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        check(unsafe { sys::st_runtime_clear_mouse(self.handle.as_ptr()) })
+    }
+
+    pub fn set_key(&mut self, key: u8, down: bool, pressed: bool) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        check(unsafe {
+            sys::st_runtime_set_key(
+                self.handle.as_ptr(),
+                key,
+                i32::from(down),
+                i32::from(pressed),
+            )
+        })
+    }
+
+    pub fn clear_key_transients(&mut self) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        check(unsafe { sys::st_runtime_clear_key_transients(self.handle.as_ptr()) })
+    }
+
+    pub fn render(&mut self, width: u32, height: u32) -> Result<RgbImage> {
+        self.context.make_current()?;
+        let mut pixels = vec![0u8; width as usize * height as usize * 3];
+        // SAFETY: runtime and output buffer are valid; native side writes exactly out_len bytes on success.
+        check(unsafe {
+            sys::st_runtime_render_rgb(
+                self.handle.as_ptr(),
+                width,
+                height,
+                pixels.as_mut_ptr(),
+                pixels.len(),
+            )
+        })?;
+        Ok(RgbImage::new(width, height, pixels))
+    }
+
+    pub fn snapshot_pass_rgb(&mut self, pass: &str, width: u32, height: u32) -> Result<RgbImage> {
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        let mut pixels = vec![0u8; width as usize * height as usize * 3];
+        // SAFETY: runtime/buffer/string are valid across the call.
+        check(unsafe {
+            sys::st_runtime_snapshot_pass_rgb(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                pixels.as_mut_ptr(),
+                pixels.len(),
+            )
+        })?;
+        Ok(RgbImage::new(width, height, pixels))
+    }
+
+    pub fn snapshot_pass_rgba32f(
+        &mut self,
+        pass: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<f32>> {
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        let mut pixels = vec![0.0f32; width as usize * height as usize * 4];
+        // SAFETY: runtime/buffer/string are valid across the call.
+        check(unsafe {
+            sys::st_runtime_snapshot_pass_rgba32f(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                pixels.as_mut_ptr(),
+                pixels.len(),
+            )
+        })?;
+        Ok(pixels)
+    }
+
+    pub fn override_pass_rgba8(
+        &mut self,
+        pass: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<()> {
+        if rgba.len() != width as usize * height as usize * 4 {
+            return Err(Error::InvalidRgbaBuffer { width, height });
+        }
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        // SAFETY: runtime/data/string are valid across the call; native implementation copies data.
+        check(unsafe {
+            sys::st_runtime_override_pass_rgba8(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                width,
+                height,
+                rgba.as_ptr(),
+                rgba.len(),
+            )
+        })
+    }
+
+    pub fn restore_pass_rgba32f(
+        &mut self,
+        pass: &str,
+        width: u32,
+        height: u32,
+        rgba: &[f32],
+    ) -> Result<()> {
+        if rgba.len() != width as usize * height as usize * 4 {
+            return Err(Error::InvalidRgbaBuffer { width, height });
+        }
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        // SAFETY: runtime/data/string are valid across the call; native implementation copies data.
+        check(unsafe {
+            sys::st_runtime_restore_pass_rgba32f(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                width,
+                height,
+                rgba.as_ptr(),
+                rgba.len(),
+            )
+        })
+    }
+}
+
+impl Drop for Runtime<'_> {
+    fn drop(&mut self) {
+        // Keep the context current while native runtime destroys GL resources.
+        let _ = self.context.make_current();
+        // SAFETY: handle came from st_runtime_create and is owned by self.
+        unsafe { sys::st_runtime_destroy(self.handle.as_ptr()) };
+    }
+}

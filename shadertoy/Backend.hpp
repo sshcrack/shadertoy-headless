@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -81,6 +82,10 @@ public:
     virtual void bind(uint32_t width, uint32_t height) = 0;
     virtual void unbind() = 0;
     [[nodiscard]] virtual TextureId getTexture() const = 0;
+    [[nodiscard]] virtual std::vector<uint8_t> readRgb() = 0;
+    [[nodiscard]] virtual std::vector<float> readRgba32f() = 0;
+    virtual void writeRgba8(uint32_t width, uint32_t height, const uint8_t* data) = 0;
+    virtual void writeRgba32f(uint32_t width, uint32_t height, const float* data) = 0;
 };
 
 struct DoubleBufferedFB final {
@@ -115,10 +120,9 @@ public:
 
     virtual FrameBuffer* createFrameBuffer() = 0;
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
-    virtual void addPass(const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
+    virtual void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
                          std::vector<Channel> channels, bool clampOutput) = 0;
-    virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size,
-                        const ShaderToyUniform& uniform) = 0;
+    virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size, const ShaderToyUniform& uniform) = 0;
 
     virtual TextureId createTexture(uint32_t width, uint32_t height, const uint32_t* data) = 0;
     virtual TextureId createCubeMap(uint32_t size, const uint32_t* data) = 0;
@@ -130,6 +134,10 @@ public:
     virtual void setAudioInput(const AudioInput& input) = 0;
 
     virtual std::vector<uint8_t> renderToBuffer(Vec2 size, const ShaderToyUniform& uniform) = 0;
+    virtual std::vector<uint8_t> snapshotPassRgb(std::string_view passName) = 0;
+    virtual std::vector<float> snapshotPassRgba32f(std::string_view passName) = 0;
+    virtual void overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const uint8_t* data) = 0;
+    virtual void restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const float* data) = 0;
 };
 
 std::unique_ptr<TextureObject> loadTexture(uint32_t width, uint32_t height, const uint32_t* data);
