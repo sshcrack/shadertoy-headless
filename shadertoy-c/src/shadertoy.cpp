@@ -128,7 +128,7 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
         {
             std::scoped_lock lock(glfwMutex);
             if(glfwUsers == 0) {
-                glfwSetErrorCallback([](const int, const char* message) {
+                glfwSetErrorCallback([](const int, const char* message) noexcept {
                     if(message)
                         setError(std::string("GLFW: ") + message);
                 });

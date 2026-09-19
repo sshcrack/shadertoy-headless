@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    glfwSetErrorCallback([](int, const char *message) { std::cerr << "GLFW: " << message << '\n'; });
+    glfwSetErrorCallback([](int, const char *message) noexcept { std::cerr << "GLFW: " << message << '\n'; });
     if (!glfwInit()) return 3;
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
