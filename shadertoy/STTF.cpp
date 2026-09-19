@@ -9,12 +9,12 @@
 #include <fstream>
 #include <unordered_map>
 
-#include "shadertoy/SuppressWarningPop.hpp"
 #include "shadertoy/SuppressWarningPush.hpp"
 #include <cpp-base64/base64.h>
 #include <gsl/gsl>
 #include <magic_enum/magic_enum.hpp>
 #include <nlohmann/json.hpp>
+#include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
 
