@@ -37,7 +37,14 @@ runs:
           vcpkg_exe="$(command -v vcpkg)"
         fi
         nuget_exe="$("$vcpkg_exe" fetch nuget | tail -n 1)"
-        mono "$nuget_exe" setapikey "$NUGET_API_KEY" -Source "$FEED_URL"
+        case "$nuget_exe" in
+          *.exe|*.EXE)
+            mono "$nuget_exe" setapikey "$NUGET_API_KEY" -Source "$FEED_URL"
+            ;;
+          *)
+            "$nuget_exe" setapikey "$NUGET_API_KEY" -Source "$FEED_URL"
+            ;;
+        esac
 
     - name: Configure NuGet publishing key (Windows)
       if: runner.os == 'Windows' && inputs.api-key != ''
