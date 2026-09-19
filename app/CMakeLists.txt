@@ -42,7 +42,7 @@ target_link_libraries(shadertoy PRIVATE
 
 if(MSVC)
     set_source_files_properties(${SHADERTOY_GUI_SOURCES} PROPERTIES
-        COMPILE_OPTIONS "/Wall;/WX;/wd4514;/wd4820;/wd4623;/wd4625;/wd4626;/wd5026;/wd5027;/wd4061;/wd5045;/wd4365;/wd4868;/wd4710;/wd5262;/wd4711;/wd4738"
+        COMPILE_OPTIONS "/Wall;/WX;/EHsc;/wd4514;/wd4820;/wd4623;/wd4625;/wd4626;/wd5026;/wd5027;/wd4061;/wd5045;/wd4365;/wd4868;/wd4710;/wd5262;/wd4711;/wd4738"
     )
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set_source_files_properties(${SHADERTOY_GUI_SOURCES} PROPERTIES
