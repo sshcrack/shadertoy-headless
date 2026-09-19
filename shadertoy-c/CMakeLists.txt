@@ -15,7 +15,7 @@ function(configure_shadertoy_c_target target)
     )
 
     if(MSVC)
-        target_compile_options(${target} PRIVATE /Wall /WX /EHsc /wd4514 /wd4820 /wd4625 /wd4626 /wd5026 /wd5027)
+        target_compile_options(${target} PRIVATE /Wall /WX /EHsc /wd4514 /wd4820 /wd4623 /wd4625 /wd4626 /wd5026 /wd5027 /wd4061 /wd5045 /wd4365 /wd4868 /wd4710 /wd5262 /wd4711 /wd4738)
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -Wconversion -Wshadow=compatible-local)
     endif()
