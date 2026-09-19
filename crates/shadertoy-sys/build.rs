@@ -4,6 +4,36 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// `std::fs::canonicalize` yields `\\?\`-prefixed extended-length paths on
+/// Windows. CMake forwards them verbatim into compile commands, which MSVC's
+/// `cl.exe` cannot open (fatal error C1083). Strip the prefix; the path stays
+/// absolute and equivalent.
+#[cfg(windows)]
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    // `\\?\UNC\server\share\...` -> `\\server\share\...`
+    const UNC: [u16; 8] = [0x5C, 0x5C, 0x3F, 0x5C, 0x55, 0x4E, 0x43, 0x5C];
+    if wide.starts_with(&UNC) {
+        let mut fixed = vec![0x5Cu16, 0x5C];
+        fixed.extend_from_slice(&wide[UNC.len()..]);
+        return PathBuf::from(OsString::from_wide(&fixed));
+    }
+    // `\\?\D:\...` -> `D:\...`
+    const VERBATIM: [u16; 4] = [0x5C, 0x5C, 0x3F, 0x5C];
+    if wide.starts_with(&VERBATIM) {
+        return PathBuf::from(OsString::from_wide(&wide[VERBATIM.len()..]));
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=shadertoy-c/include/shadertoy/shadertoy.h");
     println!("cargo:rerun-if-changed=shadertoy-c/src/shadertoy.cpp");
@@ -12,9 +42,11 @@ fn main() {
     println!("cargo:rerun-if-changed=CMakeLists.txt");
     println!("cargo:rerun-if-changed=vcpkg.json");
 
-    let repo_root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
-        .canonicalize()
-        .expect("failed to locate packaged ShaderToy source root");
+    let repo_root = without_verbatim_prefix(
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
+            .canonicalize()
+            .expect("failed to locate packaged ShaderToy source root"),
+    );
     let header = repo_root.join("shadertoy-c/include/shadertoy/shadertoy.h");
 
     let bindings = bindgen::Builder::default()
