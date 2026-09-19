@@ -19,7 +19,12 @@ jobs:
         submodules: 'recursive'
         
     - name: Install Dependencies
-      run: brew install ninja cmake
+      run: brew install ninja cmake mono
+
+    - name: Configure vcpkg binary cache
+      uses: ./.github/actions/configure-vcpkg-cache
+      with:
+        api-key: ${{ secrets.NUGET_API_KEY }}
 
     - name: Configure CMake
       run: cmake -G Ninja -B ${{github.workspace}}/build -DVCPKG_TARGET_TRIPLET=x64-osx -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
@@ -50,7 +55,12 @@ jobs:
         submodules: 'recursive'
         
     - name: Install Dependencies
-      run: brew install ninja cmake
+      run: brew install ninja cmake mono
+
+    - name: Configure vcpkg binary cache
+      uses: ./.github/actions/configure-vcpkg-cache
+      with:
+        api-key: ${{ secrets.NUGET_API_KEY }}
 
     - name: Configure CMake
       run: cmake -G Ninja -B ${{github.workspace}}/build -DCMAKE_OSX_ARCHITECTURES=arm64 -DVCPKG_HOST_TRIPLET=arm64-osx-release -DVCPKG_TARGET_TRIPLET=arm64-osx-release -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/install -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake

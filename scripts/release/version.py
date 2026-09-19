@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+import re
 import sys
 import tomllib
 from urllib.parse import urlparse
@@ -32,10 +34,49 @@ def github_repository(repo: Path) -> str:
     return slug
 
 
+def native_versions(repo: Path) -> dict[str, str]:
+    cmake = (repo / "CMakeLists.txt").read_text(encoding="utf-8")
+    cmake_match = re.search(r"project\(shadertoy\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)", cmake)
+    if cmake_match is None:
+        raise ValueError("could not read ShaderToy version from CMakeLists.txt")
+
+    vcpkg = json.loads((repo / "vcpkg.json").read_text(encoding="utf-8"))
+    vcpkg_version = str(vcpkg.get("version", ""))
+    if not vcpkg_version:
+        raise ValueError("could not read ShaderToy version from vcpkg.json")
+
+    config = (repo / "shadertoy" / "Config.hpp").read_text(encoding="utf-8")
+    config_match = re.search(
+        r"SHADERTOY_VERSION\s+SHADERTOY_MAKE_VERSION\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)\s*\)",
+        config,
+    )
+    if config_match is None:
+        raise ValueError("could not read ShaderToy version from shadertoy/Config.hpp")
+
+    return {
+        "CMakeLists.txt": cmake_match.group(1),
+        "vcpkg.json": vcpkg_version,
+        "shadertoy/Config.hpp": ".".join(config_match.groups()),
+    }
+
+
+def validate_version_surfaces(repo: Path, expected: str) -> None:
+    mismatches = [
+        f"{path}={version}"
+        for path, version in native_versions(repo).items()
+        if version != expected
+    ]
+    if mismatches:
+        joined = ", ".join(mismatches)
+        raise ValueError(
+            f"native release versions do not match Cargo workspace version {expected}: {joined}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--tag", help="Expected git tag, e.g. v0.1.0")
+    parser.add_argument("--tag", help="Expected git tag, e.g. v2.0.0")
     parser.add_argument(
         "--github-repository",
         help="Expected GitHub owner/repo hosting release artifacts",
@@ -44,6 +85,12 @@ def main() -> int:
     args = parser.parse_args()
 
     version = workspace_version(args.repo)
+    try:
+        validate_version_surfaces(args.repo, version)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 2
+
     if args.tag is not None and args.tag != f"v{version}":
         print(
             f"release tag {args.tag!r} does not match workspace version v{version}",

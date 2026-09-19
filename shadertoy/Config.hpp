@@ -16,8 +16,8 @@
 
 // NOLINTNEXTLINE
 #define SHADERTOY_MAKE_VERSION(MAJOR, MINOR, PATCH) #MAJOR "." #MINOR "." #PATCH
-#define SHADERTOY_VERSION SHADERTOY_MAKE_VERSION(0, 1, 2)
-#define SHADERTOY_URL "https://github.com/dtcxzyw/shadertoy"
+#define SHADERTOY_VERSION SHADERTOY_MAKE_VERSION(2, 0, 0)
+#define SHADERTOY_URL "https://github.com/sshcrack/shadertoy"
 
 #define SHADERTOY_NAMESPACE_BEGIN namespace ShaderToy {
 #define SHADERTOY_NAMESPACE_END }

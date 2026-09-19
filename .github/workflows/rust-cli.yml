@@ -19,9 +19,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang libclang-dev ninja-build \
+            clang libclang-dev ninja-build mono-complete \
             libgl-dev libglu1-mesa-dev libltdl-dev \
             libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
+
+      - name: Configure vcpkg binary cache
+        uses: ./.github/actions/configure-vcpkg-cache
+        with:
+          api-key: ${{ secrets.NUGET_API_KEY }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:

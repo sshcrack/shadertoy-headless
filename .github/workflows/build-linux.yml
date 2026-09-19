@@ -19,7 +19,14 @@ jobs:
         submodules: 'recursive'
 
     - name: Install Dependencies
-      run: sudo apt install libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev libltdl-dev make ninja-build clang libclang-dev
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libxmu-dev libxi-dev libgl-dev libxinerama-dev libxcursor-dev xorg-dev libglu1-mesa-dev libltdl-dev make ninja-build clang libclang-dev mono-complete
+
+    - name: Configure vcpkg binary cache
+      uses: ./.github/actions/configure-vcpkg-cache
+      with:
+        api-key: ${{ secrets.NUGET_API_KEY }}
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable

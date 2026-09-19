@@ -1,0 +1,57 @@
+name: Configure vcpkg NuGet cache
+description: Configure the shared sshcrack NuGet feed as the vcpkg binary cache.
+
+inputs:
+  api-key:
+    description: NuGet API key used to upload newly built vcpkg packages.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Select vcpkg binary cache mode
+      shell: bash
+      env:
+        NUGET_API_KEY: ${{ inputs.api-key }}
+        FEED_URL: https://nuget.sshcrack.me/v3/index.json
+      run: |
+        mode=read
+        if [ -n "$NUGET_API_KEY" ]; then
+          mode=readwrite
+        fi
+        echo "VCPKG_BINARY_SOURCES=clear;nuget,${FEED_URL},${mode}" >> "$GITHUB_ENV"
+
+    - name: Configure NuGet publishing key (Unix)
+      if: runner.os != 'Windows' && inputs.api-key != ''
+      shell: bash
+      env:
+        NUGET_API_KEY: ${{ inputs.api-key }}
+        FEED_URL: https://nuget.sshcrack.me/v3/index.json
+      run: |
+        if [ -n "${VCPKG_ROOT:-}" ]; then
+          vcpkg_exe="$VCPKG_ROOT/vcpkg"
+        elif [ -n "${VCPKG_INSTALLATION_ROOT:-}" ]; then
+          vcpkg_exe="$VCPKG_INSTALLATION_ROOT/vcpkg"
+        else
+          vcpkg_exe="$(command -v vcpkg)"
+        fi
+        nuget_exe="$("$vcpkg_exe" fetch nuget | tail -n 1)"
+        mono "$nuget_exe" setapikey "$NUGET_API_KEY" -Source "$FEED_URL"
+
+    - name: Configure NuGet publishing key (Windows)
+      if: runner.os == 'Windows' && inputs.api-key != ''
+      shell: pwsh
+      env:
+        NUGET_API_KEY: ${{ inputs.api-key }}
+        FEED_URL: https://nuget.sshcrack.me/v3/index.json
+      run: |
+        if ($env:VCPKG_ROOT) {
+          $vcpkgExe = Join-Path $env:VCPKG_ROOT "vcpkg.exe"
+        } elseif ($env:VCPKG_INSTALLATION_ROOT) {
+          $vcpkgExe = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+        } else {
+          $vcpkgExe = (Get-Command vcpkg.exe).Source
+        }
+        $nugetExe = (& $vcpkgExe fetch nuget | Select-Object -Last 1)
+        & $nugetExe setapikey $env:NUGET_API_KEY -Source $env:FEED_URL

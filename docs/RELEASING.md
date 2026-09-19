@@ -8,6 +8,8 @@ The Rust workspace publishes three crates in dependency order:
 
 All three inherit one version from `[workspace.package]` in the repository root `Cargo.toml`.
 
+`2.0.0` is the first Rust-crate publication, but it intentionally follows the existing ShaderToy project's historical `v0.1.x` and `v1.x` C++ release tags. Do not reuse those historical tag names for the Rust/CLI release line; the breaking library/editor split starts at project version `2.0.0`.
+
 The cargo-binstall URL is derived from that same workspace `repository` value. The checked-in metadata targets `sshcrack/shadertoy`, the release repository for these crates and binaries. The release and crates-publish workflows deliberately fail when `GITHUB_REPOSITORY` does not match this metadata, because publishing a tag on a fork while leaving the upstream URL would make cargo-binstall look for binaries in the wrong repository. If the release host changes later, update `repository` (and `homepage`) before publishing a new crates.io version.
 
 ## Before the first crates.io release
@@ -48,18 +50,24 @@ Create a GitHub Actions environment named `release`. Requiring manual approval f
 
 Once the OIDC workflow has been proven, crates.io can optionally be switched to Trusted-Publishing-only mode for each crate so long-lived API tokens can no longer publish them.
 
+## vcpkg binary cache
+
+GitHub Actions shares vcpkg build artifacts through `https://nuget.sshcrack.me/v3/index.json`. The local composite action `.github/actions/configure-vcpkg-cache` configures the feed for every workflow that can build the native C++ dependencies.
+
+When the repository secret `NUGET_API_KEY` is available, the cache is `readwrite` and newly built ABI packages are uploaded. When GitHub withholds the secret, such as for an untrusted fork pull request, the same feed is configured read-only so existing packages can still be restored. Non-Windows jobs install Mono because vcpkg's NuGet client is `nuget.exe`.
+
 ## Normal release flow
 
-1. Update `[workspace.package].version` in the root `Cargo.toml`.
+1. Update the release version in the root `Cargo.toml`, `CMakeLists.txt`, `vcpkg.json`, and `shadertoy/Config.hpp`. `scripts/release/version.py` rejects releases when these surfaces disagree.
 2. Update `CHANGELOG.md` and run `cargo check` so `Cargo.lock` is current.
 3. Commit the release.
-4. Create and push an exact matching tag such as `v0.1.1`.
+4. Create and push an exact matching tag such as `v2.0.1`.
 5. Wait for `.github/workflows/release-cli.yml` to finish. It creates the GitHub Release and uploads prebuilt CLI archives plus SHA-256 files.
 6. Run the `publish-crates` workflow manually with that same tag. The protected job obtains a short-lived crates.io token through OIDC and publishes missing workspace crates in dependency order.
 7. Verify binary installation from the official release:
 
 ```bash
-cargo binstall shadertoy-cli@0.1.1 --no-confirm
+cargo binstall shadertoy-cli@2.0.1 --no-confirm
 shadertoy --version
 ```
 
