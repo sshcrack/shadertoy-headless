@@ -36,6 +36,30 @@ int main(void) {
         return 2;
     }
 
+    const uint8_t cubemap[24] = { 0 };
+    if(st_project_add_cubemap_rgba8(project, "cube", 1, cubemap, sizeof(cubemap)) != 0) {
+        fputs("valid cubemap was unexpectedly rejected\n", stderr);
+        st_project_destroy(project);
+        return 6;
+    }
+    if(st_project_add_cubemap_rgba8(project, "bad-cube", 1, cubemap, sizeof(cubemap) - 1) == 0) {
+        fputs("invalid cubemap payload was unexpectedly accepted\n", stderr);
+        st_project_destroy(project);
+        return 7;
+    }
+
+    const uint8_t volume[1] = { 42 };
+    if(st_project_add_volume_u8(project, "volume", 1, 1, volume, sizeof(volume)) != 0) {
+        fputs("valid volume was unexpectedly rejected\n", stderr);
+        st_project_destroy(project);
+        return 8;
+    }
+    if(st_project_add_volume_u8(project, "bad-volume", 1, 2, volume, sizeof(volume)) == 0) {
+        fputs("invalid volume channel count was unexpectedly accepted\n", stderr);
+        st_project_destroy(project);
+        return 9;
+    }
+
     st_project_destroy(project);
     puts("shadertoy-c-smoke=OK");
     return 0;

@@ -13,7 +13,15 @@ shadertoy render -o target/frame.png
 shadertoy preview
 ```
 
-The CLI embeds its project templates, JSON Schema, agent documentation, and preview web UI, so the installed executable does not need adjacent data files.
+The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files.
+
+Import a public ShaderToy into a fully local editable project:
+
+    shadertoy import https://www.shadertoy.com/view/lsX3W4 -o mandelbrot
+    cd mandelbrot
+    shadertoy check
+
+Import uses a Camoufox browser session to handle ShaderToy's browser/Cloudflare path. On first use it creates a private cached Python environment, installs the pinned Camoufox adapter, and fetches its browser. Python 3.10+ is required. On Linux, the Camoufox browser also needs the usual Firefox GTK runtime (for Debian/Ubuntu, `libgtk-3-0` or its distro equivalent). Supported textures, cubemaps, and volumes are downloaded into the project; the original ShaderToy response is retained under .shadertoy/import-response.json.
 
 See the repository README for project format, state/debugging workflows, and the underlying C++/Rust library architecture.
 

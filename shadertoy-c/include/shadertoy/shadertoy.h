@@ -39,6 +39,8 @@ static const st_input_kind ST_INPUT_PASS = 0;
 static const st_input_kind ST_INPUT_TEXTURE = 1;
 static const st_input_kind ST_INPUT_KEYBOARD = 2;
 static const st_input_kind ST_INPUT_MUSIC = 3;
+static const st_input_kind ST_INPUT_CUBEMAP = 4;
+static const st_input_kind ST_INPUT_VOLUME = 5;
 
 typedef uint32_t st_filter;
 static const st_filter ST_FILTER_MIPMAP = 0;
@@ -63,6 +65,10 @@ ST_NATIVE_EXPORT int st_project_add_input(st_project* project, const char* pass_
                                           const char* source, int previous_frame, st_filter filter, st_wrap wrap);
 ST_NATIVE_EXPORT int st_project_add_texture_rgba8(st_project* project, const char* name, uint32_t width, uint32_t height,
                                                   const uint8_t* rgba, size_t rgba_len);
+ST_NATIVE_EXPORT int st_project_add_cubemap_rgba8(st_project* project, const char* name, uint32_t size, const uint8_t* rgba,
+                                                  size_t rgba_len);
+ST_NATIVE_EXPORT int st_project_add_volume_u8(st_project* project, const char* name, uint32_t size, uint32_t channels,
+                                              const uint8_t* data, size_t data_len);
 
 ST_NATIVE_EXPORT st_runtime* st_runtime_create(void);
 ST_NATIVE_EXPORT void st_runtime_destroy(st_runtime* runtime);

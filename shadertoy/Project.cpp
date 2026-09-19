@@ -57,6 +57,40 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
             document.nodes.emplace_back(std::move(node));
         }
 
+        for(const auto& cubeMap : project.cubeMaps) {
+            if(cubeMap.name.empty())
+                throw Error("Cubemap name must not be empty");
+            if(!names.emplace(cubeMap.name).second)
+                throw Error("Duplicate project source name: " + cubeMap.name);
+            if(cubeMap.size == 0)
+                throw Error("Cubemap size must be positive: " + cubeMap.name);
+            if(cubeMap.rgba.size() != checkedSizeProduct({ cubeMap.size, cubeMap.size, 6U }, "Cubemap"))
+                throw Error("Cubemap pixel payload has the wrong size: " + cubeMap.name);
+
+            auto node = std::make_unique<CubeMap>(cubeMap.size, cubeMap.rgba);
+            node->name = cubeMap.name;
+            sources.emplace(cubeMap.name, node.get());
+            document.nodes.emplace_back(std::move(node));
+        }
+
+        for(const auto& volume : project.volumes) {
+            if(volume.name.empty())
+                throw Error("Volume name must not be empty");
+            if(!names.emplace(volume.name).second)
+                throw Error("Duplicate project source name: " + volume.name);
+            if(volume.size == 0)
+                throw Error("Volume size must be positive: " + volume.name);
+            if(volume.channels != 1 && volume.channels != 4)
+                throw Error("Volume channels must be 1 or 4: " + volume.name);
+            if(volume.data.size() != checkedSizeProduct({ volume.size, volume.size, volume.size, volume.channels }, "Volume"))
+                throw Error("Volume pixel payload has the wrong size: " + volume.name);
+
+            auto node = std::make_unique<Volume>(volume.size, volume.channels, volume.data);
+            node->name = volume.name;
+            sources.emplace(volume.name, node.get());
+            document.nodes.emplace_back(std::move(node));
+        }
+
         for(const auto& pass : project.passes) {
             if(pass.name.empty())
                 throw Error("Pass name must not be empty");
@@ -97,7 +131,9 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 Node* producer = nullptr;
                 switch(input.kind) {
                     case ProjectInputKind::Pass:
-                    case ProjectInputKind::Texture: {
+                    case ProjectInputKind::Texture:
+                    case ProjectInputKind::CubeMap:
+                    case ProjectInputKind::Volume: {
                         const auto found = sources.find(input.source);
                         if(found == sources.end())
                             throw Error("Unknown input source '" + input.source + "' in pass " + pass.name);
@@ -106,6 +142,10 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                             throw Error("Input source is not a shader pass: " + input.source);
                         if(input.kind == ProjectInputKind::Texture && producer->getNodeClass() != NodeClass::Texture)
                             throw Error("Input source is not a texture: " + input.source);
+                        if(input.kind == ProjectInputKind::CubeMap && producer->getNodeClass() != NodeClass::CubeMap)
+                            throw Error("Input source is not a cubemap: " + input.source);
+                        if(input.kind == ProjectInputKind::Volume && producer->getNodeClass() != NodeClass::Volume)
+                            throw Error("Input source is not a volume: " + input.source);
                         break;
                     }
                     case ProjectInputKind::Keyboard:

@@ -12,6 +12,7 @@ pub fn topic(name: &str, schema: bool) -> Result<String> {
     let text = match name {
         "agent" => crate::include_file!("docs/agent.md"),
         "project" => crate::include_file!("docs/project.md"),
+        "import" => crate::include_file!("docs/import.md"),
         "manifest" => crate::include_file!("docs/manifest.md"),
         "passes" => crate::include_file!("docs/passes.md"),
         "buffers" => crate::include_file!("docs/buffers.md"),
@@ -19,7 +20,7 @@ pub fn topic(name: &str, schema: bool) -> Result<String> {
         "state" => crate::include_file!("docs/state.md"),
         "preview" => crate::include_file!("docs/preview.md"),
         other => bail!(
-            "unknown documentation topic '{other}'; expected agent, project, manifest, passes, buffers, channels, state, or preview"
+            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, buffers, channels, state, or preview"
         ),
     };
     Ok(text.trim().to_string())

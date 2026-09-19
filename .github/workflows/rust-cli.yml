@@ -61,6 +61,8 @@ jobs:
           grep -Fx 'README.md' /tmp/shadertoy-package.txt
           grep -Fx 'assets/preview/app.html' /tmp/shadertoy-cli-package.txt
           grep -Fx 'assets/schema/shadertoy.schema.json' /tmp/shadertoy-cli-package.txt
+          grep -Fx 'assets/docs/import.md' /tmp/shadertoy-cli-package.txt
+          grep -Fx 'assets/import/camoufox_import.py' /tmp/shadertoy-cli-package.txt
 
       - name: Build release CLI
         run: cargo build --release -p shadertoy-cli --locked

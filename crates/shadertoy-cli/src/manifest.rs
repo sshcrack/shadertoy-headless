@@ -30,6 +30,18 @@ pub struct Manifest {
 pub struct ProjectSection {
     /// Human-readable project name.
     pub name: String,
+    /// Original ShaderToy author, when this project was imported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Original ShaderToy description, when this project was imported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Canonical source URL for imported projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    /// ShaderToy shader id for imported projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -81,6 +93,8 @@ pub struct Pass {
 pub enum InputKind {
     Pass,
     Texture,
+    Cubemap,
+    Volume,
     Keyboard,
     Music,
 }
@@ -132,6 +146,8 @@ pub struct Input {
 #[serde(rename_all = "kebab-case")]
 pub enum AssetKind {
     Texture,
+    Cubemap,
+    Volume,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -154,7 +170,13 @@ impl Manifest {
     pub fn minimal(name: impl Into<String>) -> Self {
         Self {
             format: FORMAT_VERSION,
-            project: ProjectSection { name: name.into() },
+            project: ProjectSection {
+                name: name.into(),
+                author: None,
+                description: None,
+                source_url: None,
+                source_id: None,
+            },
             render: RenderSection::default(),
             assets: Vec::new(),
             passes: vec![Pass {
@@ -169,7 +191,13 @@ impl Manifest {
     pub fn multipass(name: impl Into<String>) -> Self {
         Self {
             format: FORMAT_VERSION,
-            project: ProjectSection { name: name.into() },
+            project: ProjectSection {
+                name: name.into(),
+                author: None,
+                description: None,
+                source_url: None,
+                source_id: None,
+            },
             render: RenderSection::default(),
             assets: Vec::new(),
             passes: vec![
@@ -257,6 +285,7 @@ impl Manifest {
         }
 
         let mut asset_names = HashSet::new();
+        let mut asset_kinds = HashMap::new();
         for asset in &self.assets {
             if asset.name.trim().is_empty() {
                 bail!("asset name must not be empty");
@@ -274,6 +303,7 @@ impl Manifest {
             if !names.insert(asset.name.as_str()) || !asset_names.insert(asset.name.as_str()) {
                 bail!("duplicate pass/asset name '{}'", asset.name);
             }
+            asset_kinds.insert(asset.name.as_str(), asset.kind);
         }
 
         if image_count != 1 {
@@ -318,13 +348,34 @@ impl Manifest {
                         bail!("the final image pass cannot be a previous-frame source");
                     }
                 }
-                if kind == InputKind::Texture && !asset_names.contains(input.source.as_str()) {
-                    bail!(
-                        "pass '{}' channel {} references unknown texture '{}'",
-                        pass.name,
-                        input.channel,
-                        input.source
-                    );
+                if matches!(
+                    kind,
+                    InputKind::Texture | InputKind::Cubemap | InputKind::Volume
+                ) {
+                    let Some(asset_kind) = asset_kinds.get(input.source.as_str()) else {
+                        bail!(
+                            "pass '{}' channel {} references unknown asset '{}'",
+                            pass.name,
+                            input.channel,
+                            input.source
+                        );
+                    };
+                    let expected = match kind {
+                        InputKind::Texture => AssetKind::Texture,
+                        InputKind::Cubemap => AssetKind::Cubemap,
+                        InputKind::Volume => AssetKind::Volume,
+                        _ => unreachable!(),
+                    };
+                    if *asset_kind != expected {
+                        bail!(
+                            "pass '{}' channel {} expects {:?} asset '{}' but it is {:?}",
+                            pass.name,
+                            input.channel,
+                            expected,
+                            input.source,
+                            asset_kind
+                        );
+                    }
                 }
                 if kind == InputKind::Keyboard && input.source != "keyboard" {
                     bail!(
@@ -357,8 +408,12 @@ impl Manifest {
         if input.source == "music" {
             return Ok(InputKind::Music);
         }
-        if self.assets.iter().any(|asset| asset.name == input.source) {
-            return Ok(InputKind::Texture);
+        if let Some(asset) = self.assets.iter().find(|asset| asset.name == input.source) {
+            return Ok(match asset.kind {
+                AssetKind::Texture => InputKind::Texture,
+                AssetKind::Cubemap => InputKind::Cubemap,
+                AssetKind::Volume => InputKind::Volume,
+            });
         }
         if self.passes.iter().any(|pass| pass.name == input.source) {
             return Ok(InputKind::Pass);

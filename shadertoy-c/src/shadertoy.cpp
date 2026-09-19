@@ -67,6 +67,10 @@ namespace {
                 return ShaderToy::ProjectInputKind::Keyboard;
             case ST_INPUT_MUSIC:
                 return ShaderToy::ProjectInputKind::Music;
+            case ST_INPUT_CUBEMAP:
+                return ShaderToy::ProjectInputKind::CubeMap;
+            case ST_INPUT_VOLUME:
+                return ShaderToy::ProjectInputKind::Volume;
         }
         throw std::runtime_error("Unknown input kind");
     }
@@ -242,9 +246,9 @@ int st_project_add_input(st_project* project, const char* passName, const uint32
             throw std::runtime_error("Unknown pass: " + std::string(passName));
 
         std::string sourceName;
-        if(kind == ST_INPUT_PASS || kind == ST_INPUT_TEXTURE) {
+        if(kind == ST_INPUT_PASS || kind == ST_INPUT_TEXTURE || kind == ST_INPUT_CUBEMAP || kind == ST_INPUT_VOLUME) {
             if(!source || !*source)
-                throw std::runtime_error("Pass/texture input source must not be empty");
+                throw std::runtime_error("Pass/resource input source must not be empty");
             sourceName = source;
         }
 
@@ -280,6 +284,55 @@ int st_project_add_texture_rgba8(st_project* project, const char* name, const ui
                 (static_cast<uint32_t>(rgba[offset + 2]) << 16U) | (static_cast<uint32_t>(rgba[offset + 3]) << 24U);
         }
         project->description.textures.push_back(ShaderToy::ProjectTexture{ name, width, height, std::move(pixels) });
+    });
+}
+
+int st_project_add_cubemap_rgba8(st_project* project, const char* name, const uint32_t size, const uint8_t* rgba,
+                                 const size_t rgbaLen) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!name || !*name)
+            throw std::runtime_error("Cubemap name must not be empty");
+        if(!rgba)
+            throw std::runtime_error("Cubemap data is null");
+        const auto faceBytes = checkedImageValueCount(size, size, 4U, "Cubemap");
+        if(faceBytes > std::numeric_limits<size_t>::max() / 6U)
+            throw std::runtime_error("Cubemap payload size overflows addressable memory");
+        const auto expected = faceBytes * 6U;
+        if(rgbaLen != expected)
+            throw std::runtime_error("Cubemap RGBA8 payload has the wrong size");
+
+        const auto pixelCount = expected / 4U;
+        std::vector<uint32_t> pixels(pixelCount);
+        for(size_t index = 0; index < pixelCount; ++index) {
+            const auto offset = index * 4U;
+            pixels[index] = static_cast<uint32_t>(rgba[offset]) | (static_cast<uint32_t>(rgba[offset + 1]) << 8U) |
+                (static_cast<uint32_t>(rgba[offset + 2]) << 16U) | (static_cast<uint32_t>(rgba[offset + 3]) << 24U);
+        }
+        project->description.cubeMaps.push_back(ShaderToy::ProjectCubeMap{ name, size, std::move(pixels) });
+    });
+}
+
+int st_project_add_volume_u8(st_project* project, const char* name, const uint32_t size, const uint32_t channels,
+                             const uint8_t* data, const size_t dataLen) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!name || !*name)
+            throw std::runtime_error("Volume name must not be empty");
+        if(!data)
+            throw std::runtime_error("Volume data is null");
+        if(channels != 1U && channels != 4U)
+            throw std::runtime_error("Volume channels must be 1 or 4");
+        const auto plane = checkedImageValueCount(size, size, channels, "Volume");
+        if(static_cast<size_t>(size) > std::numeric_limits<size_t>::max() / plane)
+            throw std::runtime_error("Volume payload size overflows addressable memory");
+        const auto expected = plane * static_cast<size_t>(size);
+        if(dataLen != expected)
+            throw std::runtime_error("Volume payload has the wrong size");
+        project->description.volumes.push_back(
+            ShaderToy::ProjectVolume{ name, size, channels, std::vector<uint8_t>(data, data + dataLen) });
     });
 }
 

@@ -15,9 +15,9 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
     let mut project = Project::new(&loaded.manifest.project.name)?;
 
     for asset in &loaded.manifest.assets {
+        let path = existing_project_file(&loaded.root, &asset.path, "asset", &asset.name)?;
         match asset.kind {
             AssetKind::Texture => {
-                let path = existing_project_file(&loaded.root, &asset.path, "asset", &asset.name)?;
                 let image = ImageReader::open(&path)
                     .with_context(|| format!("failed to open texture {}", path.display()))?
                     .decode()
@@ -25,6 +25,56 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
                     .to_rgba8();
                 let (width, height) = image.dimensions();
                 project.add_texture_rgba8(&asset.name, width, height, image.as_raw())?;
+            }
+            AssetKind::Cubemap => {
+                let image = ImageReader::open(&path)
+                    .with_context(|| format!("failed to open cubemap {}", path.display()))?
+                    .decode()
+                    .with_context(|| format!("failed to decode cubemap {}", path.display()))?
+                    .to_rgba8();
+                let (width, height) = image.dimensions();
+                let expected_width = height
+                    .checked_mul(6)
+                    .context("cubemap strip width overflow")?;
+                if width != expected_width {
+                    bail!(
+                        "cubemap '{}' must be a horizontal 6-face strip (got {}x{}, expected {}x{})",
+                        asset.name,
+                        width,
+                        height,
+                        expected_width,
+                        height
+                    );
+                }
+                let face_bytes = (height as usize)
+                    .checked_mul(height as usize)
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .context("cubemap face size overflow")?;
+                let mut faces =
+                    Vec::with_capacity(face_bytes.checked_mul(6).context("cubemap size overflow")?);
+                let raw = image.as_raw();
+                let row_bytes = (width as usize)
+                    .checked_mul(4)
+                    .context("cubemap row size overflow")?;
+                let face_row_bytes = (height as usize)
+                    .checked_mul(4)
+                    .context("cubemap face row size overflow")?;
+                for face in 0..6usize {
+                    for y in 0..height as usize {
+                        let start = y
+                            .checked_mul(row_bytes)
+                            .and_then(|offset| offset.checked_add(face * face_row_bytes))
+                            .context("cubemap offset overflow")?;
+                        faces.extend_from_slice(&raw[start..start + face_row_bytes]);
+                    }
+                }
+                project.add_cubemap_rgba8(&asset.name, height, &faces)?;
+            }
+            AssetKind::Volume => {
+                let bytes = fs::read(&path)
+                    .with_context(|| format!("failed to read volume {}", path.display()))?;
+                let (size, channels, data) = decode_shadertoy_volume(&bytes, &asset.name)?;
+                project.add_volume_u8(&asset.name, size, channels, data)?;
             }
         }
     }
@@ -59,6 +109,8 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
                 match kind {
                     InputKind::Pass => NativeInputKind::Pass,
                     InputKind::Texture => NativeInputKind::Texture,
+                    InputKind::Cubemap => NativeInputKind::Cubemap,
+                    InputKind::Volume => NativeInputKind::Volume,
                     InputKind::Keyboard => NativeInputKind::Keyboard,
                     InputKind::Music => NativeInputKind::Music,
                 },
@@ -90,6 +142,47 @@ pub fn ensure_source_files_exist(loaded: &LoadedManifest) -> Result<()> {
     Ok(())
 }
 
+fn decode_shadertoy_volume<'a>(bytes: &'a [u8], name: &str) -> Result<(u32, u32, &'a [u8])> {
+    if bytes.len() < 20 {
+        bail!("volume '{name}' is smaller than the ShaderToy 20-byte header");
+    }
+    let read_u32 = |offset: usize| -> Result<u32> {
+        let raw: [u8; 4] = bytes[offset..offset + 4]
+            .try_into()
+            .expect("validated volume header bounds");
+        Ok(u32::from_le_bytes(raw))
+    };
+    let x = read_u32(4)?;
+    let y = read_u32(8)?;
+    let z = read_u32(12)?;
+    if x == 0 || x != y || y != z {
+        bail!("volume '{name}' must have positive cubic dimensions (got {x}x{y}x{z})");
+    }
+    let metadata = read_u32(16)?;
+    let channels = metadata & 0xff;
+    let layout = (metadata >> 8) & 0xff;
+    let format = (metadata >> 16) & 0xffff;
+    if channels != 1 && channels != 4 {
+        bail!("volume '{name}' uses unsupported channel count {channels}");
+    }
+    if layout != 0 || format != 0 {
+        bail!("volume '{name}' uses unsupported ShaderToy layout/format ({layout}/{format})");
+    }
+    let expected = (x as usize)
+        .checked_mul(x as usize)
+        .and_then(|value| value.checked_mul(x as usize))
+        .and_then(|value| value.checked_mul(channels as usize))
+        .and_then(|value| value.checked_add(20))
+        .context("volume payload size overflow")?;
+    if bytes.len() != expected {
+        bail!(
+            "volume '{name}' payload has {} bytes, expected {expected}",
+            bytes.len()
+        );
+    }
+    Ok((x, channels, &bytes[20..]))
+}
+
 fn existing_project_file(
     root: &Path,
     relative: &str,
@@ -113,4 +206,33 @@ fn existing_project_file(
         );
     }
     Ok(canonical_path)
+}
+
+#[cfg(test)]
+mod volume_tests {
+    use super::*;
+
+    #[test]
+    fn decodes_shader_toy_volume_header() {
+        let mut bytes = vec![0u8; 20];
+        bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&2u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&2u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes.extend(0u8..8);
+        let (size, channels, data) = decode_shadertoy_volume(&bytes, "fixture").unwrap();
+        assert_eq!(size, 2);
+        assert_eq!(channels, 1);
+        assert_eq!(data, &(0u8..8).collect::<Vec<_>>()[..]);
+    }
+
+    #[test]
+    fn rejects_non_cubic_volume() {
+        let mut bytes = vec![0u8; 20];
+        bytes[4..8].copy_from_slice(&2u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&3u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&2u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        assert!(decode_shadertoy_volume(&bytes, "bad").is_err());
+    }
 }

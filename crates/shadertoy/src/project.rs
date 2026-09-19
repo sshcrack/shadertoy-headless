@@ -88,6 +88,69 @@ impl Project {
         Ok(self)
     }
 
+    pub fn add_cubemap_rgba8(&mut self, name: &str, size: u32, rgba: &[u8]) -> Result<&mut Self> {
+        let face_len = checked_image_len(size, size, 4)?;
+        let expected = face_len.checked_mul(6).ok_or(Error::ImageSizeOverflow {
+            width: size,
+            height: size,
+            channels: 24,
+        })?;
+        if rgba.len() != expected {
+            return Err(Error::InvalidRgbaBuffer {
+                width: size.saturating_mul(6),
+                height: size,
+            });
+        }
+        let name = CString::new(name)?;
+        // SAFETY: project handle/data are valid for the call; native implementation copies the data.
+        check(unsafe {
+            sys::st_project_add_cubemap_rgba8(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                size,
+                rgba.as_ptr(),
+                rgba.len(),
+            )
+        })?;
+        Ok(self)
+    }
+
+    pub fn add_volume_u8(
+        &mut self,
+        name: &str,
+        size: u32,
+        channels: u32,
+        data: &[u8],
+    ) -> Result<&mut Self> {
+        if channels != 1 && channels != 4 {
+            return Err(Error::Native("volume channels must be 1 or 4".into()));
+        }
+        let plane = checked_image_len(size, size, channels as usize)?;
+        let expected = plane
+            .checked_mul(size as usize)
+            .ok_or(Error::ImageSizeOverflow {
+                width: size,
+                height: size,
+                channels: (channels as usize).saturating_mul(size as usize),
+            })?;
+        if data.len() != expected {
+            return Err(Error::Native("volume payload has the wrong size".into()));
+        }
+        let name = CString::new(name)?;
+        // SAFETY: project handle/data are valid for the call; native implementation copies the data.
+        check(unsafe {
+            sys::st_project_add_volume_u8(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                size,
+                channels,
+                data.as_ptr(),
+                data.len(),
+            )
+        })?;
+        Ok(self)
+    }
+
     pub(crate) fn as_ptr(&self) -> *const sys::st_project {
         self.handle.as_ptr()
     }

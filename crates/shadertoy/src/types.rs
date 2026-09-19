@@ -11,6 +11,8 @@ pub enum PassKind {
 pub enum InputKind {
     Pass,
     Texture,
+    Cubemap,
+    Volume,
     Keyboard,
     Music,
 }

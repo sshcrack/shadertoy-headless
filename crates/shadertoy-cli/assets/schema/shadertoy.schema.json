@@ -66,7 +66,9 @@
     "AssetKind": {
       "type": "string",
       "enum": [
-        "texture"
+        "texture",
+        "cubemap",
+        "volume"
       ]
     },
     "Filter": {
@@ -133,6 +135,8 @@
       "enum": [
         "pass",
         "texture",
+        "cubemap",
+        "volume",
         "keyboard",
         "music"
       ]
@@ -176,9 +180,37 @@
     "ProjectSection": {
       "type": "object",
       "properties": {
+        "author": {
+          "description": "Original ShaderToy author, when this project was imported.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Original ShaderToy description, when this project was imported.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
           "description": "Human-readable project name.",
           "type": "string"
+        },
+        "source_id": {
+          "description": "ShaderToy shader id for imported projects.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_url": {
+          "description": "Canonical source URL for imported projects.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "additionalProperties": false,

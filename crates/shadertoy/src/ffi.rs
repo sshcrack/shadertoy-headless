@@ -31,6 +31,8 @@ pub(crate) fn input_kind(kind: InputKind) -> sys::st_input_kind {
     match kind {
         InputKind::Pass => sys::ST_INPUT_PASS,
         InputKind::Texture => sys::ST_INPUT_TEXTURE,
+        InputKind::Cubemap => sys::ST_INPUT_CUBEMAP,
+        InputKind::Volume => sys::ST_INPUT_VOLUME,
         InputKind::Keyboard => sys::ST_INPUT_KEYBOARD,
         InputKind::Music => sys::ST_INPUT_MUSIC,
     }

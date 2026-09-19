@@ -1,5 +1,12 @@
 ShaderToy CLI agent workflow
 
+To start from an existing public ShaderToy:
+
+     shadertoy import https://www.shadertoy.com/view/XXXXXX -o project
+
+This creates the same editable directory format used by shadertoy new and keeps
+supported remote assets local.
+
 1. Start by inspecting the project:
      shadertoy inspect --json
 

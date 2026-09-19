@@ -117,12 +117,15 @@ my-shader/
 └── target/          # generated, gitignored
 ~~~
 
-Create a minimal project or a working feedback-buffer example:
+Create a minimal project, a working feedback-buffer example, or import a public ShaderToy:
 
 ~~~bash
 shadertoy new hello
 shadertoy new feedback --template multipass
+shadertoy import https://www.shadertoy.com/view/lsX3W4 -o mandelbrot
 ~~~
+
+ShaderToy import uses a Camoufox browser session rather than direct HTTP, then materializes supported shader passes, pass/feedback wiring, sampler settings, textures, cubemaps, and volumes into the normal editable directory format. Imported projects retain source metadata plus the exact browser response in .shadertoy/import-response.json. On first use the CLI creates a private cached Python environment for its pinned Camoufox adapter and fetches the matching browser; Python 3.10+ is required.
 
 The multipass template intentionally demonstrates Buffer A previous-frame feedback and wiring the current Buffer A result into Image through iChannel0.
 
@@ -174,7 +177,7 @@ shadertoy preview starts a local web server, but the browser is only a viewer/co
 
 The preview exposes final Image and named 2D buffers plus pause/resume, reset, frame step, time scale, resolution, mouse, and keyboard controls. It binds to 127.0.0.1 by default; non-loopback binds require --token.
 
-Browser/Camoufox ShaderToy-page import is intentionally not part of CLI v1.
+ShaderToy-page import is available through shadertoy import URL_OR_ID. It is isolated behind the Camoufox browser adapter; normal project checking, rendering, building, and previewing remain browser-independent.
 
 ## Interactive editor
 

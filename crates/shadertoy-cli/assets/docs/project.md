@@ -16,3 +16,12 @@ Create examples with:
 
   shadertoy new hello
   shadertoy new feedback --template multipass
+
+
+Import a public ShaderToy into the same directory format with:
+
+  shadertoy import https://www.shadertoy.com/view/XXXXXX
+  shadertoy docs import
+
+Imported projects keep their source provenance under the project section and preserve
+the original browser response under .shadertoy/import-response.json.

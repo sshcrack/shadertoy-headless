@@ -31,6 +31,8 @@ enum Command {
     New(NewArgs),
     /// Initialize the current/existing directory as a ShaderToy project.
     Init(InitArgs),
+    /// Import a ShaderToy URL or shader id through Camoufox into a local project.
+    Import(ImportArgs),
     /// Validate the manifest, graph, assets, and GLSL compilation.
     Check(ProjectPathArgs),
     /// Build the project into an STTF artifact.
@@ -65,6 +67,15 @@ struct InitArgs {
     path: PathBuf,
     #[arg(long, value_enum, default_value_t = TemplateArg::Minimal)]
     template: TemplateArg,
+}
+
+#[derive(Debug, Args)]
+struct ImportArgs {
+    /// ShaderToy view URL or shader id.
+    source: String,
+    /// Destination directory. Defaults to a filesystem-safe form of the shader name.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -373,6 +384,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
     let output = match command {
         Command::New(args) => ops::new_project(&args.path, args.template.into())?,
         Command::Init(args) => ops::init_project(&args.path, args.template.into())?,
+        Command::Import(args) => ops::import_project(&args.source, args.output.as_deref())?,
         Command::Check(args) => ops::check_project(&args.resolved())?,
         Command::Build(args) => {
             let project = args

@@ -1,4 +1,5 @@
 mod images;
+mod importer;
 mod inspect;
 mod mutate;
 mod project;
@@ -18,6 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub use images::rgb_png_bytes;
+pub use importer::import_project;
 pub use inspect::inspect_project;
 pub use mutate::{ChannelSetOptions, add_pass, remove_channel, remove_pass, set_channel};
 pub use project::{build_project, check_project, init_project, new_project};
