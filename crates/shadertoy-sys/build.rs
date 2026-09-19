@@ -34,6 +34,18 @@ fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
+/// Stable 64-bit FNV-1a hash rendered as hex. Used to key the shared native
+/// build directory by source root (std SipHash is randomly seeded per process
+/// and would defeat directory reuse across cargo invocations).
+fn fnv1a_hex(text: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=shadertoy-c/include/shadertoy/shadertoy.h");
     println!("cargo:rerun-if-changed=shadertoy-c/src/shadertoy.cpp");
@@ -64,7 +76,24 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("failed to write generated bindings");
 
+    // Cargo hands each command (build/clippy/test, dev/test profiles) its own
+    // OUT_DIR, but every invocation configures the exact same native build
+    // (CMAKE_BUILD_TYPE=Release, same defines). Share one native build tree
+    // per target dir + source root so repeat invocations are a no-op ninja run
+    // instead of a full CMake+vcpkg rebuild. OUT_DIR has the form
+    // <target>/<profile>/build/<pkg>-<hash>/out, so three ancestors up is the
+    // profile dir (debug/ or release/), shared by all in-profile invocations.
+    let profile_dir = out_dir
+        .ancestors()
+        .nth(3)
+        .expect("unexpected OUT_DIR layout")
+        .to_path_buf();
+    let source_key = fnv1a_hex(&without_verbatim_prefix(repo_root.clone()).to_string_lossy());
+    let shared_root =
+        without_verbatim_prefix(profile_dir.join(format!("shadertoy-sys-native-{source_key}")));
+
     let mut config = cmake::Config::new(&repo_root);
+    config.out_dir(shared_root.join("build"));
     if Command::new("ninja")
         .arg("--version")
         .output()
@@ -88,7 +117,7 @@ fn main() {
             .join("vcpkg.cmake");
         config.define("CMAKE_TOOLCHAIN_FILE", toolchain);
 
-        let vcpkg_work_root = out_dir.join("vcpkg");
+        let vcpkg_work_root = shared_root.join("vcpkg");
         let install_options = format!(
             "--x-buildtrees-root={};--x-packages-root={};--downloads-root={}",
             vcpkg_work_root.join("buildtrees").display(),

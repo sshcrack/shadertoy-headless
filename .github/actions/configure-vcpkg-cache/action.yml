@@ -10,6 +10,26 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Refresh Mono certificate store (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # vcpkg drives NuGet through Mono on Unix, and Mono ships its own TLS
+        # trust store (BoringSSL/btls) that goes stale independently of the
+        # system CA bundle. Without a refresh, newer roots (e.g. Google Trust
+        # Services WE1) fail with CERTIFICATE_VERIFY_FAILED and every vcpkg
+        # package falls back to a from-source build. Same recipe as led-matrix:
+        # refresh the system bundle first, then sync it into both Mono stores.
+        sudo apt-get update
+        sudo apt-get install --reinstall -y ca-certificates
+        sudo update-ca-certificates
+        if command -v cert-sync >/dev/null 2>&1; then
+          sudo cert-sync /etc/ssl/certs/ca-certificates.crt
+          cert-sync --user /etc/ssl/certs/ca-certificates.crt
+        else
+          echo "cert-sync unavailable, skipping Mono certificate refresh"
+        fi
+
     - name: Select vcpkg binary cache mode
       shell: bash
       env:
