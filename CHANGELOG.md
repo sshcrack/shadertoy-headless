@@ -4,6 +4,13 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.0
+
+- Made Linux offscreen rendering display-less (surfaceless EGL) so headless rendering needs no X/Wayland display.
+- Added deterministic multi-frame rendering with frame streaming.
+- Streamed live preview frames over the WebSocket canvas.
+- Added Camoufox-backed ShaderToy import for materializing remote shaders into local projects.
+
 ## 2.0.1
 
 - Hardened CLI project mutations and manifest paths against traversal, symlink escapes, reserved input-name collisions, and partial failed writes.
