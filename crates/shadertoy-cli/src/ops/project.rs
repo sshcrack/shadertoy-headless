@@ -118,5 +118,20 @@ fn file_safe_name(value: &str) -> String {
             result.push('-');
         }
     }
-    result.trim_matches('-').to_string()
+    let result = result.trim_matches('-');
+    if result.is_empty() {
+        "project".to_string()
+    } else {
+        result.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_safe_name_has_nonempty_fallback() {
+        assert_eq!(file_safe_name("☃"), "project");
+    }
 }

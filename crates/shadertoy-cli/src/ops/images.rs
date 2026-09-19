@@ -79,8 +79,15 @@ pub(super) fn flip_rgba_rows(data: &mut [u8], width: u32, height: u32) {
 }
 
 fn flip_rows(data: &mut [u8], width: u32, height: u32, channels: usize) {
-    let row = width as usize * channels;
-    debug_assert_eq!(data.len(), row * height as usize);
+    let Some(row) = (width as usize).checked_mul(channels) else {
+        debug_assert!(false, "row size overflow");
+        return;
+    };
+    let Some(expected_len) = row.checked_mul(height as usize) else {
+        debug_assert!(false, "image size overflow");
+        return;
+    };
+    debug_assert_eq!(data.len(), expected_len);
     for y in 0..(height as usize / 2) {
         let opposite = height as usize - 1 - y;
         let (before_opposite, opposite_and_after) = data.split_at_mut(opposite * row);

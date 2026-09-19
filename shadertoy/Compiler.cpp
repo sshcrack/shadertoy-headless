@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -179,7 +180,11 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                 break;
             case NodeClass::Texture: {
                 const auto& texture = dynamic_cast<const Texture&>(*node);
-                if(texture.pixel.size() != static_cast<std::size_t>(texture.width) * texture.height)
+                if(texture.width == 0 || texture.height == 0 ||
+                   texture.width > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+                   texture.height > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+                    throw Error("Texture node has invalid dimensions");
+                if(texture.pixel.size() != checkedSizeProduct({ texture.width, texture.height }, "Texture"))
                     throw Error("Texture node has an invalid pixel payload");
                 const auto id = pipeline->createTexture(texture.width, texture.height, texture.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(texture.width), static_cast<float>(texture.height) });
@@ -188,7 +193,9 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
             }
             case NodeClass::CubeMap: {
                 const auto& texture = dynamic_cast<const CubeMap&>(*node);
-                if(texture.pixel.size() != static_cast<std::size_t>(texture.size) * texture.size * 6U)
+                if(texture.size == 0 || texture.size > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+                    throw Error("Cubemap node has an invalid size");
+                if(texture.pixel.size() != checkedSizeProduct({ texture.size, texture.size, 6U }, "Cubemap"))
                     throw Error("Cubemap node has an invalid pixel payload");
                 const auto id = pipeline->createCubeMap(texture.size, texture.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(texture.size), static_cast<float>(texture.size) });
@@ -197,7 +204,11 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
             }
             case NodeClass::Volume: {
                 const auto& volume = dynamic_cast<const Volume&>(*node);
-                const auto expected = static_cast<std::size_t>(volume.size) * volume.size * volume.size * volume.channels;
+                if(volume.size == 0 || volume.size > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+                    throw Error("Volume node has an invalid size");
+                if(volume.channels != 1 && volume.channels != 4)
+                    throw Error("Volume node channel count must be 1 or 4");
+                const auto expected = checkedSizeProduct({ volume.size, volume.size, volume.size, volume.channels }, "Volume");
                 if(volume.pixel.size() != expected)
                     throw Error("Volume node has an invalid voxel payload");
                 const auto id = pipeline->createVolume(volume.size, volume.channels, volume.pixel.data());

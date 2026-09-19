@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -99,6 +100,17 @@ namespace {
             throw std::runtime_error("Output buffer has the wrong size");
         std::copy(pixels.begin(), pixels.end(), out);
     }
+
+    size_t checkedImageValueCount(const uint32_t width, const uint32_t height, const size_t channels, const char* label) {
+        if(width == 0 || height == 0)
+            throw std::runtime_error(std::string(label) + " dimensions must be positive");
+        if(static_cast<size_t>(width) > std::numeric_limits<size_t>::max() / static_cast<size_t>(height))
+            throw std::runtime_error(std::string(label) + " dimensions overflow addressable memory");
+        const auto pixels = static_cast<size_t>(width) * static_cast<size_t>(height);
+        if(channels == 0 || pixels > std::numeric_limits<size_t>::max() / channels)
+            throw std::runtime_error(std::string(label) + " payload size overflows addressable memory");
+        return pixels * channels;
+    }
 }  // namespace
 
 struct st_context {
@@ -124,6 +136,9 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
     try {
         if(width == 0 || height == 0)
             throw std::runtime_error("Context dimensions must be positive");
+        if(width > static_cast<uint32_t>(std::numeric_limits<int>::max()) ||
+           height > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+            throw std::runtime_error("Context dimensions exceed GLFW's signed integer range");
 
         {
             std::scoped_lock lock(glfwMutex);
@@ -253,8 +268,9 @@ int st_project_add_texture_rgba8(st_project* project, const char* name, const ui
             throw std::runtime_error("Texture name must not be empty");
         if(!rgba)
             throw std::runtime_error("Texture data is null");
-        const auto pixelCount = static_cast<size_t>(width) * height;
-        if(width == 0 || height == 0 || rgbaLen != pixelCount * 4U)
+        const auto expected = checkedImageValueCount(width, height, 4U, "Texture");
+        const auto pixelCount = expected / 4U;
+        if(rgbaLen != expected)
             throw std::runtime_error("Texture RGBA8 payload has the wrong size");
 
         std::vector<uint32_t> pixels(pixelCount);
@@ -397,6 +413,11 @@ int st_runtime_render_rgb(st_runtime* runtime, const uint32_t width, const uint3
     return guard([&] {
         if(!runtime)
             throw std::runtime_error("Runtime is null");
+        if(!outRgb)
+            throw std::runtime_error("Output buffer is null");
+        const auto expected = checkedImageValueCount(width, height, 3U, "Render");
+        if(outLen != expected)
+            throw std::runtime_error("Output buffer has the wrong size");
         const auto pixels =
             runtime->runtime.renderToBuffer(ShaderToy::Vec2{ static_cast<float>(width), static_cast<float>(height) });
         copyRgb(pixels, outRgb, outLen);
@@ -409,6 +430,8 @@ int st_runtime_snapshot_pass_rgb(st_runtime* runtime, const char* passName, uint
             throw std::runtime_error("Runtime is null");
         if(!passName || !*passName)
             throw std::runtime_error("Pass name must not be empty");
+        if(!outRgb)
+            throw std::runtime_error("Output buffer is null");
         auto result = runtime->runtime.snapshotPassRgb(passName);
         if(!result)
             throw result.error();
@@ -442,7 +465,7 @@ int st_runtime_override_pass_rgba8(st_runtime* runtime, const char* passName, co
             throw std::runtime_error("Pass name must not be empty");
         if(!rgba)
             throw std::runtime_error("Pass override data is null");
-        if(rgbaLen != static_cast<size_t>(width) * height * 4U)
+        if(rgbaLen != checkedImageValueCount(width, height, 4U, "Pass override"))
             throw std::runtime_error("Pass override RGBA8 payload has the wrong size");
         std::vector<uint8_t> pixels(rgba, rgba + rgbaLen);
         auto result = runtime->runtime.overridePassRgba8(passName, width, height, pixels);
@@ -460,7 +483,7 @@ int st_runtime_restore_pass_rgba32f(st_runtime* runtime, const char* passName, c
             throw std::runtime_error("Pass name must not be empty");
         if(!rgba)
             throw std::runtime_error("Pass state data is null");
-        if(rgbaLen != static_cast<size_t>(width) * height * 4U)
+        if(rgbaLen != checkedImageValueCount(width, height, 4U, "Pass state"))
             throw std::runtime_error("Pass state RGBA32F payload has the wrong size");
         std::vector<float> pixels(rgba, rgba + rgbaLen);
         auto result = runtime->runtime.restorePassRgba32f(passName, width, height, pixels);

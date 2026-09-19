@@ -76,27 +76,27 @@ pub fn capture_state(
 }
 
 pub fn inspect_state(path: &Path) -> Result<Output> {
-    let state = StateFile::load(path)?;
+    let header = StateFile::inspect_header(path)?;
     Ok(Output {
         human: format!(
             "State: {}\nProject: {}\nFrame: {}\nTime: {:.3}s\nRender: {}x{} @ {} fps\nBuffers: {}",
             path.display(),
-            state.header.project,
-            state.header.frame,
-            state.header.time,
-            state.header.width,
-            state.header.height,
-            state.header.fps,
-            if state.header.buffers.is_empty() {
+            header.project,
+            header.frame,
+            header.time,
+            header.width,
+            header.height,
+            header.fps,
+            if header.buffers.is_empty() {
                 "(none)".to_string()
             } else {
-                state.header.buffers.join(", ")
+                header.buffers.join(", ")
             },
         ),
         json: json!({
             "ok": true,
             "state": path,
-            "header": state.header,
+            "header": header,
         }),
     })
 }

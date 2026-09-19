@@ -16,13 +16,13 @@ use serde::{Deserialize, Serialize};
 use shadertoy::{HeadlessContext, Runtime};
 use std::collections::BTreeMap;
 use std::io::IsTerminal;
-use std::net::IpAddr;
+use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 
 mod renderer;
 mod state;
@@ -157,13 +157,16 @@ struct SavedRuntimeState {
     fps: f32,
     buffers: BTreeMap<String, Vec<f32>>,
 }
-pub async fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
+const MAX_PREVIEW_DIMENSION: u32 = 4096;
+
+pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
     if config.open && config.no_open {
         bail!("--open and --no-open are mutually exclusive");
     }
     validate_remote_auth(&config)?;
 
     let loaded = LoadedManifest::load(&config.project)?;
+    validate_preview_dimensions(&loaded)?;
     let root = loaded.root.clone();
     let initial_status = PreviewStatus {
         project: loaded.manifest.project.name.clone(),
@@ -192,34 +195,6 @@ pub async fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         token: config.token.clone().map(Arc::new),
     };
 
-    let (startup_tx, startup_rx) = mpsc::sync_channel(1);
-    let render_shared = shared.clone();
-    let preserve_reload_state = config.preserve_reload_state;
-    let render_root = root.clone();
-    let render_thread = thread::spawn(move || {
-        render_loop(
-            render_root,
-            render_shared,
-            control_rx,
-            startup_tx,
-            preserve_reload_state,
-        );
-    });
-
-    match startup_rx.recv_timeout(Duration::from_secs(15)) {
-        Ok(Ok(())) => {}
-        Ok(Err(message)) => {
-            let _ = control_tx.send(Control::Shutdown);
-            let _ = render_thread.join();
-            bail!("preview renderer failed to start: {message}");
-        }
-        Err(error) => {
-            let _ = control_tx.send(Control::Shutdown);
-            let _ = render_thread.join();
-            bail!("preview renderer did not start: {error}");
-        }
-    }
-
     let watcher_tx = control_tx.clone();
     let watch_root = root.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -240,6 +215,24 @@ pub async fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         .watch(&root, RecursiveMode::Recursive)
         .with_context(|| format!("failed to watch {}", root.display()))?;
 
+    let listener = TcpListener::bind((config.host.as_str(), config.port)).with_context(|| {
+        format!(
+            "failed to bind preview server on {}:{}",
+            config.host, config.port
+        )
+    })?;
+    listener
+        .set_nonblocking(true)
+        .context("failed to configure preview server socket")?;
+    let address = listener.local_addr()?;
+
+    // GLFW requires initialization and window lifecycle on the process main
+    // thread. Keep the renderer here and move only the HTTP server to a worker.
+    let context = HeadlessContext::new(64, 64)
+        .context("failed to create headless OpenGL context for preview")?;
+    let mut runtime =
+        Runtime::new(&context).context("failed to create native ShaderToy preview runtime")?;
+
     let app = Router::new()
         .route("/", get(index))
         .route("/frame.png", get(frame_png))
@@ -247,26 +240,35 @@ pub async fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         .route("/ws", get(websocket))
         .with_state(shared.clone());
 
-    let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
-        .await
-        .with_context(|| {
-            format!(
-                "failed to bind preview server on {}:{}",
-                config.host, config.port
-            )
-        })?;
-    let address = listener.local_addr()?;
-    let query = config
-        .token
-        .as_ref()
-        .map(|token| format!("?token={token}"))
-        .unwrap_or_default();
-    let display_host = if config.host == "0.0.0.0" || config.host == "::" {
-        "127.0.0.1"
-    } else {
-        config.host.as_str()
-    };
-    let url = format!("http://{}:{}{}", display_host, address.port(), query);
+    let url = preview_url(&config.host, address.port(), config.token.as_deref());
+    let (server_shutdown_tx, server_shutdown_rx) = oneshot::channel();
+    let server_controls = control_tx.clone();
+    let server_thread = thread::Builder::new()
+        .name("shadertoy-preview-http".into())
+        .spawn(move || {
+            let result = (|| -> Result<()> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .context("failed to create preview HTTP runtime")?;
+                runtime.block_on(async move {
+                    let listener = tokio::net::TcpListener::from_std(listener)
+                        .context("failed to adopt preview server socket")?;
+                    axum::serve(listener, app)
+                        .with_graceful_shutdown(async move {
+                            tokio::select! {
+                                _ = tokio::signal::ctrl_c() => {}
+                                _ = server_shutdown_rx => {}
+                            }
+                        })
+                        .await
+                        .context("preview server failed")
+                })
+            })();
+            let _ = server_controls.send(Control::Shutdown);
+            result
+        })
+        .context("failed to start preview HTTP thread")?;
 
     if json_mode {
         println!(
@@ -291,15 +293,75 @@ pub async fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         eprintln!("warning: could not open browser: {error}");
     }
 
-    let server_result = axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await;
+    render_loop(
+        root,
+        shared,
+        control_rx,
+        config.preserve_reload_state,
+        &mut runtime,
+    );
 
-    let _ = control_tx.send(Control::Shutdown);
+    let _ = server_shutdown_tx.send(());
     drop(watcher);
-    let _ = render_thread.join();
+    match server_thread.join() {
+        Ok(result) => result,
+        Err(_) => bail!("preview HTTP thread panicked"),
+    }
+}
 
-    server_result.context("preview server failed")
+fn validate_preview_dimensions(loaded: &LoadedManifest) -> Result<()> {
+    let width = loaded.manifest.render.width;
+    let height = loaded.manifest.render.height;
+    if width > MAX_PREVIEW_DIMENSION || height > MAX_PREVIEW_DIMENSION {
+        bail!(
+            "preview resolution must be between 1x1 and {0}x{0}; manifest requests {width}x{height}",
+            MAX_PREVIEW_DIMENSION
+        );
+    }
+    Ok(())
+}
+
+fn preview_url(host: &str, port: u16, token: Option<&str>) -> String {
+    let display_host = match host {
+        "0.0.0.0" => "127.0.0.1",
+        "::" => "::1",
+        other => other,
+    };
+    let authority_host = match display_host.parse::<IpAddr>() {
+        Ok(IpAddr::V6(_)) => format!("[{display_host}]"),
+        _ => display_host.to_string(),
+    };
+    let query = token
+        .map(|token| format!("?token={}", percent_encode_query(token)))
+        .unwrap_or_default();
+    format!("http://{authority_host}:{port}{query}")
+}
+
+fn percent_encode_query(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(HEX[(byte >> 4) as usize]));
+            encoded.push(char::from(HEX[(byte & 0x0f) as usize]));
+        }
+    }
+    encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_url_brackets_ipv6_and_encodes_token() {
+        assert_eq!(
+            preview_url("::1", 4321, Some("a b&c")),
+            "http://[::1]:4321?token=a%20b%26c"
+        );
+        assert_eq!(preview_url("::", 4321, None), "http://[::1]:4321");
+    }
 }

@@ -5,6 +5,7 @@
 #include "shadertoy/Project.hpp"
 
 #include "shadertoy/Error.hpp"
+#include "shadertoy/Support.hpp"
 
 #include <memory>
 #include <unordered_map>
@@ -47,7 +48,7 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 throw Error("Duplicate project source name: " + texture.name);
             if(texture.width == 0 || texture.height == 0)
                 throw Error("Texture dimensions must be positive: " + texture.name);
-            if(texture.rgba.size() != static_cast<std::size_t>(texture.width) * texture.height)
+            if(texture.rgba.size() != checkedSizeProduct({ texture.width, texture.height }, "Texture"))
                 throw Error("Texture pixel payload has the wrong size: " + texture.name);
 
             auto node = std::make_unique<Texture>(texture.width, texture.height, texture.rgba);

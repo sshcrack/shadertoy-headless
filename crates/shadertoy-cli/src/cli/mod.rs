@@ -17,7 +17,7 @@ use std::process::ExitCode;
     about = "Agent-friendly ShaderToy project, rendering, inspection, and live-preview CLI"
 )]
 struct Cli {
-    /// Emit machine-readable JSON on stdout. Diagnostics stay on stderr.
+    /// Emit machine-readable JSON results and errors on stdout.
     #[arg(long, global = true)]
     json: bool,
 
@@ -69,14 +69,31 @@ struct InitArgs {
 
 #[derive(Debug, Args)]
 struct ProjectPathArgs {
-    #[arg(default_value = ".")]
-    path: PathBuf,
+    /// Project directory (or any path inside it).
+    #[arg(value_name = "PATH", conflicts_with = "project")]
+    path: Option<PathBuf>,
+    /// Project directory (or any path inside it).
+    #[arg(long, value_name = "PATH")]
+    project: Option<PathBuf>,
+}
+
+impl ProjectPathArgs {
+    fn resolved(&self) -> PathBuf {
+        self.project
+            .clone()
+            .or_else(|| self.path.clone())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
 }
 
 #[derive(Debug, Args)]
 struct BuildArgs {
-    #[arg(default_value = ".")]
-    path: PathBuf,
+    /// Project directory (or any path inside it).
+    #[arg(value_name = "PATH", conflicts_with = "project")]
+    path: Option<PathBuf>,
+    /// Project directory (or any path inside it).
+    #[arg(long, value_name = "PATH")]
+    project: Option<PathBuf>,
     /// Output STTF path. Defaults to target/PROJECT.sttf.
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -302,11 +319,32 @@ enum WrapArg {
     Repeat,
 }
 
-pub async fn run() -> ExitCode {
-    let cli = Cli::parse();
+pub fn run() -> ExitCode {
+    let args = std::env::args_os().collect::<Vec<_>>();
+    let json_requested = args.iter().skip(1).any(|arg| arg == "--json");
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(error) => {
+            let exit_code = if error.use_stderr() { 2 } else { 0 };
+            if json_requested && error.use_stderr() {
+                println!(
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "ok": false,
+                        "error": error.to_string(),
+                        "kind": format!("{:?}", error.kind()),
+                    }))
+                    .expect("clap error JSON serialization cannot fail")
+                );
+            } else {
+                let _ = error.print();
+            }
+            return ExitCode::from(exit_code);
+        }
+    };
     let json_mode = cli.json;
 
-    let result = dispatch(cli.command, json_mode).await;
+    let result = dispatch(cli.command, json_mode);
     match result {
         Ok(Some(output)) => {
             emit(output, json_mode);
@@ -331,12 +369,19 @@ pub async fn run() -> ExitCode {
     }
 }
 
-async fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
+fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
     let output = match command {
         Command::New(args) => ops::new_project(&args.path, args.template.into())?,
         Command::Init(args) => ops::init_project(&args.path, args.template.into())?,
-        Command::Check(args) => ops::check_project(&args.path)?,
-        Command::Build(args) => ops::build_project(&args.path, args.output.as_deref())?,
+        Command::Check(args) => ops::check_project(&args.resolved())?,
+        Command::Build(args) => {
+            let project = args
+                .project
+                .clone()
+                .or_else(|| args.path.clone())
+                .unwrap_or_else(|| PathBuf::from("."));
+            ops::build_project(&project, args.output.as_deref())?
+        }
         Command::Render(args) => ops::render_project(&RenderOptions {
             project: args.project,
             output: args.output,
@@ -361,8 +406,7 @@ async fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                     preserve_reload_state: !args.reset_on_reload,
                 },
                 json_mode,
-            )
-            .await?;
+            )?;
             return Ok(None);
         }
         Command::Inspect(args) => match args.command {

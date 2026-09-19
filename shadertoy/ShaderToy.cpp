@@ -6,6 +6,7 @@
 #include "shadertoy/ShaderToy.hpp"
 #include "shadertoy/Compiler.hpp"
 #include "shadertoy/ShaderToyContext.hpp"
+#include "shadertoy/Support.hpp"
 
 #include <memory>
 #include <utility>
@@ -169,7 +170,9 @@ Result<std::vector<float>> Runtime::snapshotPassRgba32f(const std::string_view p
 Result<void> Runtime::overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
                                         const std::vector<uint8_t>& rgba) {
     try {
-        if(rgba.size() != static_cast<std::size_t>(width) * height * 4U)
+        if(width == 0 || height == 0)
+            throw Error("Pass override dimensions must be positive");
+        if(rgba.size() != checkedSizeProduct({ width, height, 4U }, "Pass override"))
             throw Error("Pass override must contain width * height * 4 RGBA8 bytes");
         mImpl->context.overridePassRgba8(passName, width, height, rgba.data());
         return {};
@@ -183,7 +186,9 @@ Result<void> Runtime::overridePassRgba8(const std::string_view passName, const u
 Result<void> Runtime::restorePassRgba32f(const std::string_view passName, const uint32_t width, const uint32_t height,
                                          const std::vector<float>& rgba) {
     try {
-        if(rgba.size() != static_cast<std::size_t>(width) * height * 4U)
+        if(width == 0 || height == 0)
+            throw Error("Pass restore dimensions must be positive");
+        if(rgba.size() != checkedSizeProduct({ width, height, 4U }, "Pass restore"))
             throw Error("Pass restore must contain width * height * 4 RGBA32F values");
         mImpl->context.restorePassRgba32f(passName, width, height, rgba.data());
         return {};

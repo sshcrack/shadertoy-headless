@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -140,6 +141,8 @@ namespace {
         int width = 0;
         int height = 0;
         int channels = 0;
+        if(body.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+            throw Error("ShaderToy texture payload is too large to decode");
         const auto* bytes = reinterpret_cast<const stbi_uc*>(body.data());
         auto* ptr = stbi_load_from_memory(bytes, static_cast<int>(body.size()), &width, &height, &channels, 4);
         if(!ptr)
@@ -152,8 +155,11 @@ namespace {
 
         widthOut = static_cast<uint32_t>(width);
         heightOut = static_cast<uint32_t>(height);
-        const auto* begin = reinterpret_cast<const uint32_t*>(ptr);
-        return { begin, begin + static_cast<std::ptrdiff_t>(width) * height };
+        const auto pixelCount =
+            checkedSizeProduct({ static_cast<std::size_t>(width), static_cast<std::size_t>(height) }, "ShaderToy texture");
+        std::vector<uint32_t> pixels(pixelCount);
+        std::memcpy(pixels.data(), ptr, checkedSizeProduct({ pixelCount, sizeof(uint32_t) }, "ShaderToy texture payload"));
+        return pixels;
     }
 
 }  // namespace
@@ -345,8 +351,11 @@ Result<ShaderDocument> importFromShaderToyResponse(const std::string_view shader
             if(volumeMetadata.layout != 0 || volumeMetadata.format != 0)
                 throw Error("Unsupported ShaderToy volume layout/format");
 
-            const auto pointBytes = static_cast<std::size_t>(x) * x * x * static_cast<std::size_t>(volumeMetadata.channels);
-            if(body.size() != 20 + pointBytes)
+            if(x == 0)
+                throw Error("ShaderToy volume size must be positive");
+            const auto pointBytes =
+                checkedSizeProduct({ x, x, x, static_cast<std::size_t>(volumeMetadata.channels) }, "ShaderToy volume");
+            if(body.size() != checkedSizeSum({ 20U, pointBytes }, "ShaderToy volume payload"))
                 throw Error("ShaderToy volume payload has an invalid size");
 
             const auto* begin = reinterpret_cast<const uint8_t*>(body.data() + 20);

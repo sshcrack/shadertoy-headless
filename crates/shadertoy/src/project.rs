@@ -1,4 +1,5 @@
 use crate::ffi::{check, filter_kind, input_kind, last_error, pass_kind, wrap_kind};
+use crate::types::checked_image_len;
 use crate::{Error, Filter, InputKind, PassKind, Result, Wrap};
 use shadertoy_sys as sys;
 use std::ffi::CString;
@@ -69,7 +70,7 @@ impl Project {
         height: u32,
         rgba: &[u8],
     ) -> Result<&mut Self> {
-        if rgba.len() != width as usize * height as usize * 4 {
+        if rgba.len() != checked_image_len(width, height, 4)? {
             return Err(Error::InvalidRgbaBuffer { width, height });
         }
         let name = CString::new(name)?;

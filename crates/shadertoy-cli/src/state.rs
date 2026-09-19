@@ -1,15 +1,14 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"STSTATE1";
 const STATE_FORMAT: u32 = 1;
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 const MAX_BUFFERS: usize = 64;
-const MAX_DIMENSION: u32 = 16384;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateHeader {
@@ -40,8 +39,11 @@ impl StateFile {
         buffers: BTreeMap<String, Vec<f32>>,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
-        if !fps.is_finite() || fps <= 0.0 {
-            bail!("state fps must be a positive finite number");
+        if !fps.is_finite() || fps <= 0.0 || fps > crate::manifest::MAX_RENDER_FPS {
+            bail!(
+                "state fps must be finite and in the range (0, {}]",
+                crate::manifest::MAX_RENDER_FPS
+            );
         }
         if !time.is_finite() || time < 0.0 {
             bail!("state time must be a finite non-negative number");
@@ -113,14 +115,18 @@ impl StateFile {
         Ok(())
     }
 
-    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn inspect_header(path: impl AsRef<Path>) -> Result<StateHeader> {
         let path = path.as_ref();
-        let bytes = fs::read(path)
-            .with_context(|| format!("failed to read state file {}", path.display()))?;
-        let mut cursor = Cursor::new(bytes.as_slice());
+        let file = fs::File::open(path)
+            .with_context(|| format!("failed to open state file {}", path.display()))?;
+        let file_len = file
+            .metadata()
+            .with_context(|| format!("failed to inspect state file {}", path.display()))?
+            .len();
+        let mut reader = BufReader::new(file);
 
         let mut magic = [0u8; 8];
-        cursor
+        reader
             .read_exact(&mut magic)
             .context("state file is truncated before its header")?;
         if &magic != MAGIC {
@@ -128,46 +134,77 @@ impl StateFile {
         }
 
         let mut header_len_bytes = [0u8; 4];
-        cursor.read_exact(&mut header_len_bytes)?;
+        reader.read_exact(&mut header_len_bytes)?;
         let header_len = u32::from_le_bytes(header_len_bytes) as usize;
         if header_len == 0 || header_len > MAX_HEADER_BYTES {
             bail!("invalid state header length {header_len}");
         }
 
         let mut header_bytes = vec![0u8; header_len];
-        cursor
+        reader
+            .read_exact(&mut header_bytes)
+            .context("state file is truncated in its JSON header")?;
+        let header: StateHeader =
+            serde_json::from_slice(&header_bytes).context("invalid state JSON header")?;
+        validate_header(&header)?;
+        validate_file_length(file_len, header_len, &header)?;
+        Ok(header)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let file = fs::File::open(path)
+            .with_context(|| format!("failed to open state file {}", path.display()))?;
+        let file_len = file
+            .metadata()
+            .with_context(|| format!("failed to inspect state file {}", path.display()))?
+            .len();
+        let mut reader = BufReader::new(file);
+
+        let mut magic = [0u8; 8];
+        reader
+            .read_exact(&mut magic)
+            .context("state file is truncated before its header")?;
+        if &magic != MAGIC {
+            bail!("{} is not a ShaderToy .ststate file", path.display());
+        }
+
+        let mut header_len_bytes = [0u8; 4];
+        reader.read_exact(&mut header_len_bytes)?;
+        let header_len = u32::from_le_bytes(header_len_bytes) as usize;
+        if header_len == 0 || header_len > MAX_HEADER_BYTES {
+            bail!("invalid state header length {header_len}");
+        }
+
+        let mut header_bytes = vec![0u8; header_len];
+        reader
             .read_exact(&mut header_bytes)
             .context("state file is truncated in its JSON header")?;
         let header: StateHeader =
             serde_json::from_slice(&header_bytes).context("invalid state JSON header")?;
         validate_header(&header)?;
 
-        let expected_values = pixel_value_count(header.width, header.height)?;
-        let expected_bytes_per_buffer = expected_values
-            .checked_mul(std::mem::size_of::<f32>())
-            .context("state buffer size overflow")?;
-        let remaining = bytes.len() - cursor.position() as usize;
-        let expected_remaining = expected_bytes_per_buffer
-            .checked_mul(header.buffers.len())
-            .context("state file size overflow")?;
-        if remaining != expected_remaining {
-            bail!(
-                "state payload has {remaining} bytes; expected {expected_remaining} for {} buffers",
-                header.buffers.len()
-            );
-        }
+        let expected_values = validate_file_length(file_len, header_len, &header)?;
 
         let mut buffers = BTreeMap::new();
         for name in &header.buffers {
-            let mut raw = vec![0u8; expected_bytes_per_buffer];
-            cursor.read_exact(&mut raw)?;
-            let mut values = Vec::with_capacity(expected_values);
-            for &chunk in raw.as_chunks::<4>().0 {
-                values.push(f32::from_le_bytes(chunk));
+            let mut values = Vec::new();
+            values
+                .try_reserve_exact(expected_values)
+                .with_context(|| format!("failed to allocate state buffer '{name}'"))?;
+
+            let mut remaining = expected_values;
+            let mut raw = [0u8; 64 * 1024];
+            while remaining > 0 {
+                let values_in_chunk = remaining.min(raw.len() / std::mem::size_of::<f32>());
+                let bytes_in_chunk = values_in_chunk * std::mem::size_of::<f32>();
+                reader.read_exact(&mut raw[..bytes_in_chunk])?;
+                for chunk in raw[..bytes_in_chunk].chunks_exact(4) {
+                    values.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+                }
+                remaining -= values_in_chunk;
             }
-            if buffers.insert(name.clone(), values).is_some() {
-                bail!("state contains duplicate buffer '{name}'");
-            }
+            buffers.insert(name.clone(), values);
         }
 
         let state = Self { header, buffers };
@@ -217,7 +254,7 @@ impl StateFile {
         if !self.buffers.contains_key(name) {
             bail!("state has no buffer named '{name}'");
         }
-        let expected_bytes = width as usize * height as usize * 4;
+        let expected_bytes = pixel_value_count(width, height)?;
         if rgba.len() != expected_bytes {
             bail!("replacement RGBA8 payload has the wrong size");
         }
@@ -229,6 +266,34 @@ impl StateFile {
         self.buffers.insert(name.to_string(), values);
         Ok(())
     }
+}
+
+fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) -> Result<usize> {
+    let expected_values = pixel_value_count(header.width, header.height)?;
+    let bytes_per_buffer = expected_values
+        .checked_mul(std::mem::size_of::<f32>())
+        .context("state buffer size overflow")?;
+    let payload_bytes = bytes_per_buffer
+        .checked_mul(header.buffers.len())
+        .context("state file size overflow")?;
+    let prefix_bytes = MAGIC
+        .len()
+        .checked_add(std::mem::size_of::<u32>())
+        .and_then(|bytes| bytes.checked_add(header_len))
+        .context("state file size overflow")?;
+    let expected_file_len = prefix_bytes
+        .checked_add(payload_bytes)
+        .context("state file size overflow")?;
+    let expected_file_len =
+        u64::try_from(expected_file_len).context("state file size exceeds u64")?;
+    if file_len != expected_file_len {
+        let actual_payload = file_len.saturating_sub(prefix_bytes as u64);
+        bail!(
+            "state payload has {actual_payload} bytes; expected {payload_bytes} for {} buffers",
+            header.buffers.len()
+        );
+    }
+    Ok(expected_values)
 }
 
 fn validate_header(header: &StateHeader) -> Result<()> {
@@ -243,8 +308,12 @@ fn validate_header(header: &StateHeader) -> Result<()> {
         bail!("state project name must not be empty");
     }
     validate_dimensions(header.width, header.height)?;
-    if !header.fps.is_finite() || header.fps <= 0.0 {
-        bail!("state fps must be a positive finite number");
+    if !header.fps.is_finite() || header.fps <= 0.0 || header.fps > crate::manifest::MAX_RENDER_FPS
+    {
+        bail!(
+            "state fps must be finite and in the range (0, {}]",
+            crate::manifest::MAX_RENDER_FPS
+        );
     }
     if !header.time.is_finite() || header.time < 0.0 {
         bail!("state time must be a finite non-negative number");
@@ -255,6 +324,15 @@ fn validate_header(header: &StateHeader) -> Result<()> {
     if header.buffers.len() > MAX_BUFFERS {
         bail!("state contains too many buffers");
     }
+    let mut names = HashSet::with_capacity(header.buffers.len());
+    for name in &header.buffers {
+        if name.trim().is_empty() {
+            bail!("state buffer name must not be empty");
+        }
+        if !names.insert(name.as_str()) {
+            bail!("state contains duplicate buffer '{name}'");
+        }
+    }
     Ok(())
 }
 
@@ -262,12 +340,14 @@ fn validate_dimensions(width: u32, height: u32) -> Result<()> {
     if width == 0 || height == 0 {
         bail!("state dimensions must be positive");
     }
-    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+    if width > crate::manifest::MAX_RENDER_DIMENSION
+        || height > crate::manifest::MAX_RENDER_DIMENSION
+    {
         bail!(
             "state dimensions {}x{} exceed the maximum {}",
             width,
             height,
-            MAX_DIMENSION
+            crate::manifest::MAX_RENDER_DIMENSION
         );
     }
     Ok(())
@@ -278,4 +358,35 @@ fn pixel_value_count(width: u32, height: u32) -> Result<usize> {
         .checked_mul(height as usize)
         .and_then(|pixels| pixels.checked_mul(4))
         .context("state dimensions overflow")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn header(buffers: Vec<String>) -> StateHeader {
+        StateHeader {
+            format: STATE_FORMAT,
+            project: "test".into(),
+            width: 1,
+            height: 1,
+            fps: 60.0,
+            time: 0.0,
+            frame: 0,
+            buffers,
+        }
+    }
+
+    #[test]
+    fn header_rejects_empty_and_duplicate_buffer_names() {
+        assert!(validate_header(&header(vec!["".into()])).is_err());
+        assert!(validate_header(&header(vec!["a".into(), "a".into()])).is_err());
+    }
+
+    #[test]
+    fn header_uses_render_fps_limit() {
+        let mut value = header(Vec::new());
+        value.fps = crate::manifest::MAX_RENDER_FPS + 1.0;
+        assert!(validate_header(&value).is_err());
+    }
 }

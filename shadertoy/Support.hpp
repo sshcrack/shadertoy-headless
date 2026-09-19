@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <exception>
+#include <initializer_list>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -35,6 +37,26 @@ auto scopeFail(F&& f) {
 }
 
 using Clock = std::chrono::steady_clock;
+
+inline std::size_t checkedSizeProduct(const std::initializer_list<std::size_t> factors, const std::string_view label) {
+    std::size_t result = 1;
+    for(const auto factor : factors) {
+        if(factor != 0 && result > std::numeric_limits<std::size_t>::max() / factor)
+            throw Error(std::string(label) + " size overflows addressable memory");
+        result *= factor;
+    }
+    return result;
+}
+
+inline std::size_t checkedSizeSum(const std::initializer_list<std::size_t> terms, const std::string_view label) {
+    std::size_t result = 0;
+    for(const auto term : terms) {
+        if(result > std::numeric_limits<std::size_t>::max() - term)
+            throw Error(std::string(label) + " size overflows addressable memory");
+        result += term;
+    }
+    return result;
+}
 
 #ifdef NDEBUG
 #if defined(__cpp_lib_unreachable)

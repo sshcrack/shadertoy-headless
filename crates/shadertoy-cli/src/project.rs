@@ -1,5 +1,8 @@
-use crate::manifest::{AssetKind, Filter, FrameRef, InputKind, LoadedManifest, PassKind, Wrap};
-use anyhow::{Context, Result};
+use crate::manifest::{
+    AssetKind, Filter, FrameRef, InputKind, LoadedManifest, PassKind, Wrap,
+    validate_project_relative_path,
+};
+use anyhow::{Context, Result, bail};
 use image::ImageReader;
 use shadertoy::{
     Filter as NativeFilter, InputKind as NativeInputKind, PassKind as NativePassKind, Project,
@@ -14,7 +17,7 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
     for asset in &loaded.manifest.assets {
         match asset.kind {
             AssetKind::Texture => {
-                let path = loaded.root.join(&asset.path);
+                let path = existing_project_file(&loaded.root, &asset.path, "asset", &asset.name)?;
                 let image = ImageReader::open(&path)
                     .with_context(|| format!("failed to open texture {}", path.display()))?
                     .decode()
@@ -27,7 +30,8 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
     }
 
     for pass in &loaded.manifest.passes {
-        let source_path = loaded.root.join(&pass.source);
+        let source_path =
+            existing_project_file(&loaded.root, &pass.source, "shader source", &pass.name)?;
         let source = fs::read_to_string(&source_path).with_context(|| {
             format!(
                 "failed to read source for pass '{}' at {}",
@@ -78,17 +82,35 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
 
 pub fn ensure_source_files_exist(loaded: &LoadedManifest) -> Result<()> {
     for pass in &loaded.manifest.passes {
-        ensure_file(&loaded.root.join(&pass.source), "shader source", &pass.name)?;
+        existing_project_file(&loaded.root, &pass.source, "shader source", &pass.name)?;
     }
     for asset in &loaded.manifest.assets {
-        ensure_file(&loaded.root.join(&asset.path), "asset", &asset.name)?;
+        existing_project_file(&loaded.root, &asset.path, "asset", &asset.name)?;
     }
     Ok(())
 }
 
-fn ensure_file(path: &Path, kind: &str, name: &str) -> Result<()> {
+fn existing_project_file(
+    root: &Path,
+    relative: &str,
+    kind: &str,
+    name: &str,
+) -> Result<std::path::PathBuf> {
+    validate_project_relative_path(relative, &format!("{kind} path for '{name}'"))?;
+    let path = root.join(relative);
     if !path.is_file() {
-        anyhow::bail!("{kind} '{name}' does not exist at {}", path.display());
+        bail!("{kind} '{name}' does not exist at {}", path.display());
     }
-    Ok(())
+
+    let canonical_root = fs::canonicalize(root)
+        .with_context(|| format!("failed to resolve project root {}", root.display()))?;
+    let canonical_path = fs::canonicalize(&path)
+        .with_context(|| format!("failed to resolve {kind} {}", path.display()))?;
+    if !canonical_path.starts_with(&canonical_root) {
+        bail!(
+            "{kind} '{name}' resolves outside the project root: {}",
+            path.display()
+        );
+    }
+    Ok(canonical_path)
 }

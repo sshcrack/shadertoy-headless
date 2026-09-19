@@ -1,3 +1,5 @@
+use crate::{Error, Result};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PassKind {
     Image,
@@ -37,11 +39,57 @@ pub struct RgbImage {
 
 impl RgbImage {
     pub fn new(width: u32, height: u32, pixels: Vec<u8>) -> Self {
-        debug_assert_eq!(pixels.len(), width as usize * height as usize * 3);
+        debug_assert_eq!(Some(pixels.len()), checked_image_len(width, height, 3).ok());
         Self {
             width,
             height,
             pixels,
         }
+    }
+}
+
+pub(crate) fn checked_image_len(width: u32, height: u32, channels: usize) -> Result<usize> {
+    if width == 0 || height == 0 {
+        return Err(Error::InvalidImageDimensions { width, height });
+    }
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(channels))
+        .ok_or(Error::ImageSizeOverflow {
+            width,
+            height,
+            channels,
+        })
+}
+
+pub(crate) fn zeroed_image_vec<T: Default>(
+    width: u32,
+    height: u32,
+    channels: usize,
+) -> Result<Vec<T>> {
+    let len = checked_image_len(width, height, channels)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(len)
+        .map_err(|_| Error::ImageAllocationFailed {
+            width,
+            height,
+            channels,
+        })?;
+    values.resize_with(len, T::default);
+    Ok(values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_image_len_rejects_invalid_dimensions_and_overflow() {
+        assert!(matches!(
+            checked_image_len(0, 1, 4),
+            Err(Error::InvalidImageDimensions { .. })
+        ));
+        assert!(checked_image_len(2, 1, usize::MAX).is_err());
     }
 }
