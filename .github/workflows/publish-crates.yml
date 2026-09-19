@@ -35,6 +35,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
         with:
           packages: >-
+            autoconf autoconf-archive automake libtool
             clang libclang-dev ninja-build mono-complete
             libgl-dev libglu1-mesa-dev libltdl-dev
             libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
