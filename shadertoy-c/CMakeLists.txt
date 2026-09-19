@@ -77,6 +77,7 @@ if(SHADERTOY_BUILD_C_API_STATIC)
             "framework=IOKit\n"
             "framework=CoreFoundation\n"
             "framework=QuartzCore\n"
+            "framework=Security\n"
         )
     else()
         string(APPEND SHADERTOY_RUST_SYSTEM_LINKS

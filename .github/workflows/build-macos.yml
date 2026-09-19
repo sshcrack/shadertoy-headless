@@ -1,9 +1,12 @@
 name: build-macos
 
-# Disabled for now: the macos-13 runner is retired and there is no macOS
-# coverage requirement at the moment. Kept manual-only so it can be
-# re-enabled once the runner labels are migrated.
+# macOS runners mirror release-cli.yml: macos-15-intel is the last Intel
+# image (macos-13 is retired), macos-15 covers arm64.
 on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 env:
@@ -11,7 +14,7 @@ env:
 
 jobs:
   build_x86_64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
     - uses: actions/checkout@v4
       with:
@@ -50,7 +53,7 @@ jobs:
         if-no-files-found: error
 
   build_arm64:
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
     - uses: actions/checkout@v4
       with:

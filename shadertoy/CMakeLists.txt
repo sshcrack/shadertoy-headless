@@ -48,6 +48,12 @@ target_link_libraries(shadertoy-lib
         nlohmann_json::nlohmann_json
 )
 
+if(APPLE)
+    # cpp-httplib TLS loads system certs via the macOS Security framework,
+    # which vcpkg's httplib config does not propagate to the link line.
+    target_link_libraries(shadertoy-lib PRIVATE "-framework Security")
+endif()
+
 if(MSVC)
     target_compile_options(shadertoy-lib PRIVATE
         /Wall /WX
