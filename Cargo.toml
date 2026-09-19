@@ -2,9 +2,12 @@
 name = "shadertoy-sys"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors = ["Yingwei Zheng <dtcxzyw@qq.com>", "Hendrik Lind <hendrik@sshcrack.me>"]
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation = "https://docs.rs/shadertoy-sys"
 description = "Raw generated Rust bindings for the ShaderToy renderer and stable C ABI"
 readme = "README.md"
 keywords = ["shadertoy", "shader", "opengl", "ffi", "graphics"]
@@ -41,6 +44,8 @@ resolver = "3"
 [workspace.package]
 version = "2.0.0"
 edition = "2024"
+rust-version = "1.85"
 license = "Apache-2.0"
+authors = ["Hendrik Lind <hendrik@sshcrack.me>"]
 repository = "https://github.com/sshcrack/shadertoy"
 homepage = "https://github.com/sshcrack/shadertoy"

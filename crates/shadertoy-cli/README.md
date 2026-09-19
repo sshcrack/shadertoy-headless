@@ -16,3 +16,5 @@ shadertoy preview
 The CLI embeds its project templates, JSON Schema, agent documentation, and preview web UI, so the installed executable does not need adjacent data files.
 
 See the repository README for project format, state/debugging workflows, and the underlying C++/Rust library architecture.
+
+The underlying C++ renderer was originally written by Yingwei Zheng ([dtcxzyw/shadertoy](https://github.com/dtcxzyw/shadertoy)), whose groundwork this CLI builds on.

@@ -2,9 +2,12 @@
 name = "shadertoy-native"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation = "https://docs.rs/shadertoy-native"
 description = "Safe Rust wrapper for the ShaderToy renderer runtime and project API"
 readme = "README.md"
 keywords = ["shadertoy", "shader", "opengl", "graphics", "rendering"]

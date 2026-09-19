@@ -6,6 +6,8 @@ The crate wraps `shadertoy-sys` and exposes native project construction, hidden 
 
 For the directory-project format and agent-oriented workflow, see the repository README and the `shadertoy-cli` crate.
 
+The underlying C++ renderer was originally written by Yingwei Zheng ([dtcxzyw/shadertoy](https://github.com/dtcxzyw/shadertoy)), whose groundwork this crate builds on.
+
 ```rust,no_run
 use shadertoy::{HeadlessContext, PassKind, Project, Runtime};
 
