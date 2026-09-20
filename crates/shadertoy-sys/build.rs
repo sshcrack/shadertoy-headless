@@ -111,13 +111,19 @@ fn main() {
 
     // The final link's CRT choice is owned by rustc. When it links the static
     // CRT (the Windows release build sets `-C target-feature=+crt-static` so
-    // the shipped exe needs no VC redist), our C++ objects must be compiled
-    // /MT as well, otherwise the link fails with LNK2019 on __imp_* CRT
-    // symbols (CMake defaults to /MD; vcpkg's x64-windows-static triplet
-    // already builds its ports /MT).
+    // the shipped exe needs no VC redist), the whole native graph must be
+    // static too: vcpkg ports (notably glfw3, otherwise shipped as glfw3.dll
+    // and killing startup with STATUS_DLL_NOT_FOUND) and our own C++ objects
+    // (otherwise the link fails with LNK2019 on __imp_* CRT symbols, since
+    // CMake defaults to /MD while the static triplet builds its ports /MT).
+    // NOTE: the triplet must be a CMake -D: vcpkg.cmake passes
+    // `--triplet ${VCPKG_TARGET_TRIPLET}` explicitly, so neither
+    // VCPKG_TARGET_TRIPLET nor VCPKG_DEFAULT_TRIPLET in the environment has
+    // any effect here.
     let target = env::var("TARGET").unwrap_or_default();
     let encoded_rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
     if target.contains("msvc") && encoded_rustflags.contains("+crt-static") {
+        config.define("VCPKG_TARGET_TRIPLET", "x64-windows-static");
         config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreaded");
     }
 

@@ -85,15 +85,12 @@ jobs:
         run: |
           # The release zip ships shadertoy.exe alone, and binstall installs
           # only the binary, so the exe must not load-time-link any DLL that
-          # is not part of stock Windows. The default x64-windows triplet
-          # builds glfw3 (see shadertoy-c/CMakeLists.txt) as glfw3.dll, which
-          # made every 2.1.x Windows download die with STATUS_DLL_NOT_FOUND
-          # (0xC0000135). The static triplet removes that dependency, and a
-          # static CRT removes the VC-redist (MSVCP140/VCRUNTIME140) one.
-          # NOTE: the triplet must go through VCPKG_DEFAULT_TRIPLET (the env
-          # var honored by the vcpkg tool in manifest mode); the toolchain
-          # file only reads VCPKG_TARGET_TRIPLET as a CMake variable.
-          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static" >> "$GITHUB_ENV"
+          # is not part of stock Windows. Setting RUSTFLAGS=+crt-static below
+          # is the single knob: crates/shadertoy-sys/build.rs detects it and
+          # switches the whole native graph to static (x64-windows-static
+          # triplet, so no glfw3.dll; /MT runtime, so no VC-redist
+          # MSVCP140/VCRUNTIME140 dependency). Without that, every 2.1.x
+          # Windows download died with STATUS_DLL_NOT_FOUND (0xC0000135).
           echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
 
       - name: Validate runner target
