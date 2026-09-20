@@ -46,7 +46,9 @@ jobs:
       - name: Cache Cargo dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: ${{ matrix.target }}
+          # Windows links everything statically (see below); keep its cache
+          # separate since RUSTFLAGS changes codegen for every crate.
+          key: ${{ matrix.target }}${{ matrix.target == 'x86_64-pc-windows-msvc' && '-static-crt' || '' }}
 
       - uses: actions/setup-python@v5
         with:
@@ -76,6 +78,21 @@ jobs:
         uses: ./.github/actions/configure-vcpkg-cache
         with:
           api-key: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Configure static Windows link
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # The release zip ships shadertoy.exe alone, and binstall installs
+          # only the binary, so the exe must not load-time-link any DLL that
+          # is not part of stock Windows. The default x64-windows triplet
+          # builds glfw3 (see shadertoy-c/CMakeLists.txt) as glfw3.dll, which
+          # made every 2.1.x Windows download die with STATUS_DLL_NOT_FOUND
+          # (0xC0000135). The static triplet removes that dependency, and a
+          # static CRT removes the VC-redist (MSVCP140/VCRUNTIME140) one.
+          # vcpkg.cmake picks VCPKG_TARGET_TRIPLET up from the environment.
+          echo "VCPKG_TARGET_TRIPLET=x64-windows-static" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
 
       - name: Validate runner target
         shell: bash

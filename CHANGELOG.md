@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.3
+
+- Fixed the Windows CLI dying on startup with a missing-DLL error (`STATUS_DLL_NOT_FOUND`): the release build now links vcpkg ports (notably `glfw3`) and the CRT statically (`x64-windows-static`, `+crt-static`), so the shipped `shadertoy.exe` needs no sidecar DLLs or VC redist.
+
 ## 2.1.2
 
 - Fixed `cargo binstall` on Windows: use an exact-target override (`x86_64-pc-windows-msvc`, `zip`) instead of a `cfg(target_os = "windows")` override, which `cargo-binstall` versions before ~1.17 silently ignore (they then probe for a nonexistent `.tgz` instead of the shipped `.zip`).
