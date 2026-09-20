@@ -15,12 +15,12 @@ categories = ["external-ffi-bindings", "graphics"]
 links = "shadertoy"
 build = "crates/shadertoy-sys/build.rs"
 include = [
-    "Cargo.toml",
-    "Cargo.lock",
-    "README.md",
-    "LICENSE",
-    "CMakeLists.txt",
-    "vcpkg.json",
+    "./Cargo.toml",
+    "./Cargo.lock",
+    "./README.md",
+    "./LICENSE",
+    "./CMakeLists.txt",
+    "./vcpkg.json",
     "crates/shadertoy-sys/build.rs",
     "crates/shadertoy-sys/src/**",
     "shadertoy/**",
