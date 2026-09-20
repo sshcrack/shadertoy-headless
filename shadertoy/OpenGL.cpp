@@ -43,6 +43,22 @@ namespace {
            height > static_cast<uint32_t>(std::numeric_limits<GLsizei>::max()))
             throw Error("Framebuffer dimensions are outside the OpenGL dimension range");
     }
+
+    class ScopedPixelStoreAlignment final {
+        GLenum mParameter;
+        GLint mPreviousAlignment = 0;
+
+    public:
+        ScopedPixelStoreAlignment(const GLenum parameter, const GLint alignment) : mParameter(parameter) {
+            glGetIntegerv(parameter, &mPreviousAlignment);
+            glPixelStorei(parameter, alignment);
+        }
+        ScopedPixelStoreAlignment(const ScopedPixelStoreAlignment&) = delete;
+        ScopedPixelStoreAlignment& operator=(const ScopedPixelStoreAlignment&) = delete;
+        ~ScopedPixelStoreAlignment() {
+            glPixelStorei(mParameter, mPreviousAlignment);
+        }
+    };
 }  // namespace
 
 static const char* const shaderVersionDirective = "#version 410 core\n";
@@ -251,6 +267,7 @@ public:
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
         std::vector<uint8_t> result(checkedSizeProduct({ mWidth, mHeight, 3U }, "Framebuffer RGB readback"));
+        const ScopedPixelStoreAlignment tightlyPacked(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, static_cast<GLsizei>(mWidth), static_cast<GLsizei>(mHeight), GL_RGB, GL_UNSIGNED_BYTE, result.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
         return result;
@@ -349,6 +366,7 @@ public:
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mFBO);
         std::vector<uint8_t> result(
             checkedSizeProduct({ cubeMapRenderTargetSize, cubeMapRenderTargetSize, 3U }, "Cubemap RGB readback"));
+        const ScopedPixelStoreAlignment tightlyPacked(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, static_cast<GLsizei>(cubeMapRenderTargetSize), static_cast<GLsizei>(cubeMapRenderTargetSize), GL_RGB,
                      GL_UNSIGNED_BYTE, result.data());
         glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
@@ -751,10 +769,10 @@ public:
         glGenTextures(1, &mTex);
         glBindTexture(GL_TEXTURE_CUBE_MAP, mTex);
         assert(data);
-        const auto offset = static_cast<ptrdiff_t>(size) * static_cast<ptrdiff_t>(size);
-        for(int32_t idx = 0; idx < 6; ++idx) {
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + idx, 0, GL_RGBA, static_cast<GLsizei>(size), static_cast<GLsizei>(size),
-                         0, GL_RGBA, GL_UNSIGNED_BYTE, data + idx * offset);  // R8G8B8A8
+        const auto facePixels = checkedSizeProduct({ size, size }, "Cubemap face");
+        for(std::size_t idx = 0; idx < 6; ++idx) {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + static_cast<GLenum>(idx), 0, GL_RGBA, static_cast<GLsizei>(size),
+                         static_cast<GLsizei>(size), 0, GL_RGBA, GL_UNSIGNED_BYTE, data + idx * facePixels);  // R8G8B8A8
         }
         glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
         glBindTexture(GL_TEXTURE_CUBE_MAP, GL_NONE);
@@ -792,6 +810,7 @@ public:
         glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(std::log2(size)));
         GLenum internalFormat = channels == 1 ? GL_R8 : GL_RGBA;
         GLenum format = channels == 1 ? GL_RED : GL_RGBA;
+        const ScopedPixelStoreAlignment tightlyPacked(GL_UNPACK_ALIGNMENT, 1);
         glTexImage3D(GL_TEXTURE_3D, 0, internalFormat, static_cast<GLsizei>(size), static_cast<GLsizei>(size),
                      static_cast<GLsizei>(size), 0, format, GL_UNSIGNED_BYTE, data);  // R8G8B8A8
         glGenerateMipmap(GL_TEXTURE_3D);
@@ -1020,6 +1039,7 @@ public:
 
         fb->bind(width, height);
         std::vector<uint8_t> buffer(checkedSizeProduct({ width, height, 3U }, "Render readback"));
+        const ScopedPixelStoreAlignment tightlyPacked(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
         fb->unbind();
         return buffer;

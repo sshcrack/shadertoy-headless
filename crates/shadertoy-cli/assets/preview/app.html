@@ -8,34 +8,64 @@
 <style>
 :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 * { box-sizing: border-box; }
-body { margin: 0; background: #101114; color: #e8e8ea; height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
-aside { padding: 16px; border-right: 1px solid #2c2e35; overflow: auto; }
+html, body { margin: 0; min-height: 100%; }
+body { background: #101114; color: #e8e8ea; height: 100vh; height: 100dvh; display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); overflow: hidden; }
+aside { padding: 16px; border-right: 1px solid #2c2e35; overflow: auto; overscroll-behavior: contain; }
 main { min-width: 0; display: grid; place-items: center; overflow: hidden; background: #08090b; }
-#frame { max-width: 100%; max-height: 100%; user-select: none; outline: none; display: block; }
+#frame { max-width: 100%; max-height: 100%; user-select: none; outline: none; display: block; touch-action: none; }
 h1 { font-size: 16px; margin: 0 0 16px; }
 label { display: block; font-size: 12px; color: #aaa; margin-top: 12px; }
-select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: #eee; border: 1px solid #343741; border-radius: 5px; padding: 7px; }
+select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: #eee; border: 1px solid #343741; border-radius: 5px; padding: 7px; min-height: 36px; }
+button { touch-action: manipulation; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.control + .control { margin-top: 8px; }
 .meta { margin-top: 14px; font-size: 11px; line-height: 1.65; color: #b7bac3; white-space: pre-line; }
-#error { margin-top: 14px; white-space: pre-wrap; color: #ff8e8e; font-size: 11px; }
+#error { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: #ff8e8e; font-size: 11px; }
+@media (max-width: 720px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  aside {
+    max-height: 44dvh;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid #2c2e35;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 10px;
+    align-content: start;
+  }
+  h1 { grid-column: 1 / -1; margin: 0; }
+  .control + .control { margin-top: 0; }
+  .control label { margin-top: 0; }
+  .meta, #error { grid-column: 1 / -1; margin-top: 0; }
+  select, input, button { min-height: 44px; font-size: 16px; }
+  main { min-height: 0; }
+}
 </style>
 </head>
 <body>
 <aside>
   <h1>ShaderToy native preview</h1>
-  <label>View<select id="view"></select></label>
-  <div class="row">
-    <button id="pause">Pause</button>
-    <button id="step">Step</button>
+  <div class="control">
+    <label>View<select id="view"></select></label>
   </div>
-  <button id="reset">Reset</button>
-  <label>Resolution</label>
-  <div class="row">
-    <input id="width" type="number" min="1" max="4096">
-    <input id="height" type="number" min="1" max="4096">
+  <div class="control">
+    <div class="row">
+      <button id="pause">Pause</button>
+      <button id="step">Step</button>
+    </div>
+    <button id="reset">Reset</button>
   </div>
-  <button id="resolution">Apply resolution</button>
-  <label>Time scale (log2)<input id="scale" type="range" min="-4" max="4" step="0.25" value="0"></label>
+  <div class="control">
+    <label>Resolution</label>
+    <div class="row">
+      <input id="width" aria-label="Preview width" inputmode="numeric" type="number" min="1" max="4096">
+      <input id="height" aria-label="Preview height" inputmode="numeric" type="number" min="1" max="4096">
+    </div>
+    <button id="resolution">Apply resolution</button>
+  </div>
+  <div class="control">
+    <label>Time scale (log2)<input id="scale" type="range" min="-4" max="4" step="0.25" value="0"></label>
+  </div>
   <div class="meta" id="meta"></div>
   <div id="error"></div>
 </aside>
@@ -124,7 +154,7 @@ document.getElementById("reset").onclick = () => send({type:"reset"});
 document.getElementById("resolution").onclick = () => send({type:"resolution", width:+width.value, height:+height.value});
 scale.oninput = () => send({type:"time-scale", value:+scale.value});
 
-function mouse(event, clicked=false) {
+function pointer(event, clicked=false) {
   if (!status || !frame.width || !frame.height) return;
   const rect = frame.getBoundingClientRect();
   const x = (event.clientX - rect.left) / rect.width * status.width;
@@ -132,9 +162,27 @@ function mouse(event, clicked=false) {
   const y = status.height - yTop;
   send({type:"mouse", x:x, y:y, down:down, clicked:clicked});
 }
-frame.addEventListener("mousedown", e => { down=true; frame.focus(); mouse(e,true); });
-window.addEventListener("mouseup", e => { if (down) { down=false; mouse(e,false); } });
-frame.addEventListener("mousemove", e => mouse(e,false));
+frame.addEventListener("pointerdown", e => {
+  down = true;
+  frame.focus();
+  frame.setPointerCapture(e.pointerId);
+  pointer(e, true);
+});
+frame.addEventListener("pointerup", e => {
+  if (!down) return;
+  down = false;
+  pointer(e, false);
+  if (frame.hasPointerCapture(e.pointerId)) frame.releasePointerCapture(e.pointerId);
+});
+frame.addEventListener("pointercancel", e => {
+  if (!down) return;
+  down = false;
+  pointer(e, false);
+});
+frame.addEventListener("pointermove", e => {
+  if (e.pointerType === "touch") e.preventDefault();
+  pointer(e, false);
+});
 
 function keyEvent(e, isDown) {
   if (["INPUT","SELECT","BUTTON"].includes(document.activeElement && document.activeElement.tagName)) return;

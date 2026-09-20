@@ -154,3 +154,44 @@ fn pass_add_rejects_dangling_file_symlink_escape() {
     assert!(!output.status.success());
     assert!(!outside.exists());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn render_supports_rgb_widths_that_are_not_four_pixel_aligned() {
+    let temp = TempRoot::new("odd-width-render");
+    let project = temp.path().join("demo");
+    let project_arg = project.to_string_lossy().into_owned();
+    let created = shadertoy(&["new", &project_arg, "--template", "multipass"]);
+    assert!(created.status.success(), "{created:?}");
+
+    for (width, pass) in [("641", None), ("643", Some("buffer-a"))] {
+        let output = temp
+            .path()
+            .join(format!("render-{width}-{}.png", pass.unwrap_or("image")));
+        let output_arg = output.to_string_lossy().into_owned();
+        let mut args = vec![
+            "render",
+            "--project",
+            &project_arg,
+            "--width",
+            width,
+            "--height",
+            "97",
+            "-o",
+            &output_arg,
+        ];
+        if let Some(pass) = pass {
+            args.extend(["--pass", pass]);
+        }
+
+        let rendered = shadertoy(&args);
+        assert!(
+            rendered.status.success(),
+            "odd-width render failed for width={width} pass={pass:?}: {rendered:?}"
+        );
+        let image = image::open(&output)
+            .unwrap_or_else(|error| panic!("open rendered image {}: {error}", output.display()));
+        assert_eq!(image.width(), width.parse::<u32>().unwrap());
+        assert_eq!(image.height(), 97);
+    }
+}

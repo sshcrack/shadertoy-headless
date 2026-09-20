@@ -22,6 +22,43 @@ int main(void) {
         st_context_destroy(context);
         return 7;
     }
+
+    st_project* odd_volume_project = st_project_create("odd-volume");
+    if(odd_volume_project == NULL) {
+        fputs("failed to create odd-volume project\n", stderr);
+        st_context_destroy(context);
+        return 10;
+    }
+    uint8_t odd_volume[27];
+    for(size_t index = 0; index < sizeof(odd_volume); ++index)
+        odd_volume[index] = (uint8_t)index;
+    if(st_project_add_volume_u8(odd_volume_project, "volume", 3, 1, odd_volume, sizeof(odd_volume)) != 0) {
+        const char* error = st_last_error();
+        fprintf(stderr, "failed to add tightly-packed 3x3x3 R8 volume: %s\n", error != NULL ? error : "unknown error");
+        st_project_destroy(odd_volume_project);
+        st_context_destroy(context);
+        return 11;
+    }
+    if(st_project_add_pass(odd_volume_project, "image", ST_PASS_IMAGE,
+                           "void mainImage(out vec4 color, in vec2 coord) { color = vec4(coord / iResolution.xy, 0.0, 1.0); }") !=
+       0) {
+        const char* error = st_last_error();
+        fprintf(stderr, "failed to add odd-volume smoke pass: %s\n", error != NULL ? error : "unknown error");
+        st_project_destroy(odd_volume_project);
+        st_context_destroy(context);
+        return 12;
+    }
+    st_runtime* odd_volume_runtime = st_runtime_create();
+    if(odd_volume_runtime == NULL || st_runtime_load_project(odd_volume_runtime, odd_volume_project) != 0) {
+        const char* error = st_last_error();
+        fprintf(stderr, "failed to load tightly-packed 3x3x3 R8 volume: %s\n", error != NULL ? error : "unknown error");
+        st_runtime_destroy(odd_volume_runtime);
+        st_project_destroy(odd_volume_project);
+        st_context_destroy(context);
+        return 13;
+    }
+    st_runtime_destroy(odd_volume_runtime);
+    st_project_destroy(odd_volume_project);
     st_context_destroy(context);
 #endif
 
