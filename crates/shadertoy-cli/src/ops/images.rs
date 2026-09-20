@@ -1,13 +1,30 @@
 use super::*;
 
+pub(super) struct BufferOverride {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 pub(super) fn load_overrides(
     assignments: &[String],
-    width: u32,
-    height: u32,
-) -> Result<Vec<(String, Vec<u8>)>> {
+    manifest: &crate::manifest::Manifest,
+    output_width: u32,
+    output_height: u32,
+) -> Result<Vec<BufferOverride>> {
     let mut result = Vec::new();
     for assignment in assignments {
         let (name, path) = split_assignment(assignment)?;
+        let pass = manifest
+            .passes
+            .iter()
+            .find(|pass| pass.name == name)
+            .with_context(|| format!("unknown buffer override pass '{name}'"))?;
+        if pass.kind != PassKind::Buffer {
+            bail!("buffer override '{}' is not a buffer pass", name);
+        }
+        let (width, height) = manifest.pass_dimensions(pass, output_width, output_height);
         let image = ImageReader::open(path)
             .with_context(|| format!("failed to open buffer override {}", path.display()))?
             .decode()
@@ -16,17 +33,23 @@ pub(super) fn load_overrides(
         let dimensions = image.dimensions();
         if dimensions != (width, height) {
             bail!(
-                "buffer override '{}' is {}x{} but render is {}x{}; use an exact-size image",
+                "buffer override '{}' is {}x{} but pass '{}' is {}x{}; use an exact-size image",
                 name,
                 dimensions.0,
                 dimensions.1,
+                name,
                 width,
                 height
             );
         }
         let mut rgba = image.into_raw();
         flip_rgba_rows(&mut rgba, width, height);
-        result.push((name.to_string(), rgba));
+        result.push(BufferOverride {
+            name: name.to_string(),
+            width,
+            height,
+            rgba,
+        });
     }
     Ok(result)
 }

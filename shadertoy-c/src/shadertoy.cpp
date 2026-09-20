@@ -463,7 +463,26 @@ int st_project_add_pass(st_project* project, const char* name, const st_pass_kin
             throw std::runtime_error("Pass name must not be empty");
         if(!source || !*source)
             throw std::runtime_error("Pass source must not be empty");
-        project->description.passes.push_back(ShaderToy::ProjectPass{ name, passKind(kind), source, {} });
+        project->description.passes.push_back(ShaderToy::ProjectPass{ name, passKind(kind), source, {}, 0, 0 });
+    });
+}
+
+int st_project_set_pass_resolution(st_project* project, const char* passName, const uint32_t width, const uint32_t height) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(width == 0 || height == 0)
+            throw std::runtime_error("Pass resolution must be positive");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        if(pass->kind != ShaderToy::ProjectPassKind::Buffer)
+            throw std::runtime_error("Fixed pass resolution is only supported for buffer passes");
+        pass->width = width;
+        pass->height = height;
     });
 }
 

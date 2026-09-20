@@ -48,10 +48,24 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                 case NodeClass::RenderOutput:
                     nodeValue = std::make_unique<RenderOutput>();
                     break;
-                case NodeClass::GLSLShader:
-                    nodeValue = std::make_unique<GLSLShader>(node.at("source").get<std::string>(),
-                                                             parseEnum<NodeType>(node.at("type"), "node type"));
+                case NodeClass::GLSLShader: {
+                    auto shader = std::make_unique<GLSLShader>(node.at("source").get<std::string>(),
+                                                               parseEnum<NodeType>(node.at("type"), "node type"));
+                    const auto hasWidth = node.contains("width");
+                    const auto hasHeight = node.contains("height");
+                    if(hasWidth != hasHeight)
+                        throw Error("Shader fixed resolution must specify both width and height");
+                    if(hasWidth) {
+                        shader->fixedWidth = node.at("width").get<uint32_t>();
+                        shader->fixedHeight = node.at("height").get<uint32_t>();
+                        if(shader->fixedWidth == 0 || shader->fixedHeight == 0)
+                            throw Error("Shader fixed resolution must be positive");
+                        if(shader->nodeType != NodeType::Image)
+                            throw Error("Fixed resolution is only supported for 2D image/buffer shaders");
+                    }
+                    nodeValue = std::move(shader);
                     break;
+                }
                 case NodeClass::Texture: {
                     const auto width = node.at("width").get<uint32_t>();
                     const auto height = node.at("height").get<uint32_t>();
@@ -178,6 +192,12 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
                     const auto& shader = dynamic_cast<const GLSLShader&>(*node);
                     jsonNode["source"] = shader.source;
                     jsonNode["type"] = magic_enum::enum_name(shader.nodeType);
+                    if(shader.fixedWidth != 0 || shader.fixedHeight != 0) {
+                        if(shader.fixedWidth == 0 || shader.fixedHeight == 0)
+                            throw Error("Cannot save shader with partial fixed resolution");
+                        jsonNode["width"] = shader.fixedWidth;
+                        jsonNode["height"] = shader.fixedHeight;
+                    }
                     break;
                 }
                 case NodeClass::Texture: {

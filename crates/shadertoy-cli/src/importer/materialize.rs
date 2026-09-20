@@ -219,6 +219,8 @@ impl<'a> ProjectBuilder<'a> {
                 name: pass.local_name.clone(),
                 kind: pass.kind,
                 source: source_path,
+                width: None,
+                height: None,
                 inputs: Vec::new(),
             });
         }
@@ -364,6 +366,8 @@ impl<'a> ProjectBuilder<'a> {
             name: name.clone(),
             kind,
             source: source_path,
+            width: None,
+            height: None,
             inputs: Vec::new(),
         });
         self.output_to_pass

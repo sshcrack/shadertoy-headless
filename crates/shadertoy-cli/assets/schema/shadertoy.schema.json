@@ -97,6 +97,7 @@
           "minimum": 0
         },
         "filter": {
+          "description": "Per-input texture interpolation/minification mode.\nnearest = exact texel sampling, linear = bilinear interpolation,\nmipmap = trilinear minification with linear magnification.",
           "$ref": "#/$defs/Filter",
           "default": "linear"
         },
@@ -120,6 +121,7 @@
           "type": "string"
         },
         "wrap": {
+          "description": "Per-input texture coordinate addressing mode.",
           "$ref": "#/$defs/Wrap",
           "default": "repeat"
         }
@@ -144,6 +146,15 @@
     "Pass": {
       "type": "object",
       "properties": {
+        "height": {
+          "description": "Optional fixed height for a buffer pass. Must be paired with width.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
         "input": {
           "type": "array",
           "items": {
@@ -160,6 +171,15 @@
         "source": {
           "description": "GLSL source path relative to the project root.",
           "type": "string"
+        },
+        "width": {
+          "description": "Optional fixed width for a buffer pass. Must be paired with height.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "additionalProperties": false,

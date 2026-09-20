@@ -26,7 +26,7 @@ pub use project::{build_project, check_project, init_project, new_project};
 pub use render::{render_frames_project, render_project};
 pub use state::{capture_state, inspect_state, set_state_buffers};
 
-use images::{flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
+use images::{BufferOverride, flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
 use render::{render_from_zero, resolve_target_frame, validate_dimensions, validate_fps};
 
 #[derive(Debug)]

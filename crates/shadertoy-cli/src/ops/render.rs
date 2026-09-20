@@ -29,7 +29,7 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
         fs::create_dir_all(parent)?;
     }
 
-    let overrides = load_overrides(&options.set_buffers, width, height)?;
+    let overrides = load_overrides(&options.set_buffers, &loaded.manifest, width, height)?;
 
     let context = HeadlessContext::new(64, 64)
         .context("failed to create headless OpenGL context for rendering")?;
@@ -58,15 +58,29 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
         Some(name) if name == loaded.manifest.final_pass().name => {
             final_image.context("render did not produce a final image")?
         }
-        Some(name) => runtime.snapshot_pass_rgb(name, width, height)?,
+        Some(name) => {
+            let pass = loaded
+                .manifest
+                .passes
+                .iter()
+                .find(|pass| pass.name == name)
+                .with_context(|| format!("unknown render pass '{name}'"))?;
+            if pass.kind == PassKind::Cubemap {
+                bail!("named renders only support the final image and 2D buffer passes");
+            }
+            let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
+            runtime.snapshot_pass_rgb(name, pass_width, pass_height)?
+        }
     };
     save_rgb_png(&image, &output)?;
+    let output_width = image.width;
+    let output_height = image.height;
 
     Ok(Output {
         human: format!(
             "Rendered {}x{} frame {} ({:.3}s){} -> {}",
-            width,
-            height,
+            output_width,
+            output_height,
             runtime.frame(),
             runtime.time(),
             requested_pass
@@ -78,8 +92,8 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
             "ok": true,
             "project": loaded.manifest.project.name,
             "output": output,
-            "width": width,
-            "height": height,
+            "width": output_width,
+            "height": output_height,
             "fps": fps,
             "frame": runtime.frame(),
             "time": runtime.time(),
@@ -96,7 +110,8 @@ pub(super) fn restore_state(runtime: &mut Runtime<'_>, state: &StateFile) -> Res
             .buffers
             .get(name)
             .with_context(|| format!("state is missing buffer '{name}'"))?;
-        runtime.restore_pass_rgba32f(name, state.header.width, state.header.height, values)?;
+        let dimensions = state.buffer_dimensions(name)?;
+        runtime.restore_pass_rgba32f(name, dimensions.width, dimensions.height, values)?;
     }
     Ok(())
 }
@@ -107,14 +122,14 @@ pub(super) fn render_from_zero(
     fps: f32,
     width: u32,
     height: u32,
-    overrides: &[(String, Vec<u8>)],
+    overrides: &[BufferOverride],
 ) -> Result<Option<RgbImage>> {
     if target_frame < 0 {
         bail!("target frame must be non-negative");
     }
 
     if target_frame == 0 {
-        apply_overrides(runtime, overrides, width, height)?;
+        apply_overrides(runtime, overrides)?;
         return Ok(Some(runtime.render(width, height)?));
     }
 
@@ -124,7 +139,7 @@ pub(super) fn render_from_zero(
         runtime.tick_fixed(1.0 / fps, fps)?;
         let _ = runtime.render(width, height)?;
     }
-    apply_overrides(runtime, overrides, width, height)?;
+    apply_overrides(runtime, overrides)?;
     runtime.tick_fixed(1.0 / fps, fps)?;
     Ok(Some(runtime.render(width, height)?))
 }
@@ -136,14 +151,14 @@ fn render_from_restored_state(
     fps: f32,
     width: u32,
     height: u32,
-    overrides: &[(String, Vec<u8>)],
+    overrides: &[BufferOverride],
 ) -> Result<Option<RgbImage>> {
     if target_frame < state_frame {
         bail!("requested frame {target_frame} precedes restored state frame {state_frame}");
     }
     if target_frame == state_frame {
         if !overrides.is_empty() {
-            apply_overrides(runtime, overrides, width, height)?;
+            apply_overrides(runtime, overrides)?;
         }
         return Ok(None);
     }
@@ -151,7 +166,7 @@ fn render_from_restored_state(
     let mut image = None;
     for frame in (state_frame + 1)..=target_frame {
         if frame == target_frame {
-            apply_overrides(runtime, overrides, width, height)?;
+            apply_overrides(runtime, overrides)?;
         }
         runtime.tick_fixed(1.0 / fps, fps)?;
         image = Some(runtime.render(width, height)?);
@@ -159,14 +174,9 @@ fn render_from_restored_state(
     Ok(image)
 }
 
-fn apply_overrides(
-    runtime: &mut Runtime<'_>,
-    overrides: &[(String, Vec<u8>)],
-    width: u32,
-    height: u32,
-) -> Result<()> {
-    for (name, rgba) in overrides {
-        runtime.override_pass_rgba8(name, width, height, rgba)?;
+fn apply_overrides(runtime: &mut Runtime<'_>, overrides: &[BufferOverride]) -> Result<()> {
+    for buffer in overrides {
+        runtime.override_pass_rgba8(&buffer.name, buffer.width, buffer.height, &buffer.rgba)?;
     }
     Ok(())
 }
@@ -178,25 +188,33 @@ fn resolve_dimensions(
     height: Option<u32>,
 ) -> Result<(u32, u32)> {
     if let Some(state) = state {
-        if let Some(width) = width
-            && width != state.header.width
-        {
-            bail!(
-                "resumable state is {} pixels wide; rendering it at {} would discard buffer state",
-                state.header.width,
-                width
-            );
+        let width = width.unwrap_or(state.header.width);
+        let height = height.unwrap_or(state.header.height);
+        validate_dimensions(width, height)?;
+        if (width, height) != (state.header.width, state.header.height) {
+            for name in &state.header.buffers {
+                let pass = loaded
+                    .manifest
+                    .passes
+                    .iter()
+                    .find(|pass| pass.name == *name)
+                    .with_context(|| format!("state references unknown buffer pass '{name}'"))?;
+                if pass.kind != PassKind::Buffer {
+                    bail!("state buffer '{name}' is no longer a buffer pass");
+                }
+                if pass.width.is_none() || pass.height.is_none() {
+                    bail!(
+                        "resumable state contains output-sized buffer '{}'; rendering at {}x{} instead of {}x{} would discard its feedback",
+                        name,
+                        width,
+                        height,
+                        state.header.width,
+                        state.header.height
+                    );
+                }
+            }
         }
-        if let Some(height) = height
-            && height != state.header.height
-        {
-            bail!(
-                "resumable state is {} pixels high; rendering it at {} would discard buffer state",
-                state.header.height,
-                height
-            );
-        }
-        return Ok((state.header.width, state.header.height));
+        return Ok((width, height));
     }
 
     let width = width.unwrap_or(loaded.manifest.render.width);
@@ -312,6 +330,8 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
         bail!("render-frames only supports the final image and 2D buffer passes");
     }
 
+    let (selected_width, selected_height) = loaded.manifest.pass_dimensions(pass, width, height);
+
     let output_dir = options
         .output_dir
         .clone()
@@ -322,7 +342,15 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
     let mut contact_sheet = options
         .contact_sheet
         .as_ref()
-        .map(|path| prepare_contact_sheet(path, frames.len(), options.columns, width, height))
+        .map(|path| {
+            prepare_contact_sheet(
+                path,
+                frames.len(),
+                options.columns,
+                selected_width,
+                selected_height,
+            )
+        })
         .transpose()?;
 
     let context = HeadlessContext::new(64, 64)
@@ -351,7 +379,7 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
         let image = if selected_pass == final_pass {
             final_image
         } else {
-            runtime.snapshot_pass_rgb(selected_pass, width, height)?
+            runtime.snapshot_pass_rgb(selected_pass, selected_width, selected_height)?
         };
         let path = output_dir.join(format!("frame-{frame:06}.png"));
         save_rgb_png(&image, &path)?;
@@ -379,8 +407,8 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
     Ok(Output {
         human: format!(
             "Rendered {}x{} frames [{}]{} -> {}{}",
-            width,
-            height,
+            selected_width,
+            selected_height,
             frame_list,
             options
                 .pass
@@ -399,8 +427,8 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
             "output_dir": output_dir,
             "outputs": outputs,
             "contact_sheet": contact_sheet_output,
-            "width": width,
-            "height": height,
+            "width": selected_width,
+            "height": selected_height,
             "fps": fps,
             "frames": frames,
             "pass": selected_pass,

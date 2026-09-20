@@ -62,6 +62,8 @@ ST_NATIVE_EXPORT void st_context_destroy(st_context* context);
 ST_NATIVE_EXPORT st_project* st_project_create(const char* name);
 ST_NATIVE_EXPORT void st_project_destroy(st_project* project);
 ST_NATIVE_EXPORT int st_project_add_pass(st_project* project, const char* name, st_pass_kind kind, const char* source);
+ST_NATIVE_EXPORT int st_project_set_pass_resolution(st_project* project, const char* pass_name, uint32_t width,
+                                                    uint32_t height);
 ST_NATIVE_EXPORT int st_project_add_input(st_project* project, const char* pass_name, uint32_t channel, st_input_kind kind,
                                           const char* source, int previous_frame, st_filter filter, st_wrap wrap);
 ST_NATIVE_EXPORT int st_project_add_texture_rgba8(st_project* project, const char* name, uint32_t width, uint32_t height,

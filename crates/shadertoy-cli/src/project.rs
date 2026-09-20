@@ -98,6 +98,9 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
             },
             &source,
         )?;
+        if let (Some(width), Some(height)) = (pass.width, pass.height) {
+            project.set_pass_resolution(&pass.name, width, height)?;
+        }
     }
 
     for pass in &loaded.manifest.passes {

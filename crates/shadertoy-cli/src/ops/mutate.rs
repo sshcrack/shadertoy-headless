@@ -51,6 +51,8 @@ pub fn add_pass(
             name: name.to_string(),
             kind,
             source: source_text,
+            width: None,
+            height: None,
             inputs: Vec::new(),
         },
     );

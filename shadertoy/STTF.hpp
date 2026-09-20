@@ -64,6 +64,8 @@ public:
 struct GLSLShader final : Node {
     std::string source;
     NodeType nodeType;
+    uint32_t fixedWidth{};
+    uint32_t fixedHeight{};
 
     GLSLShader(std::string src, const NodeType type) : source{ std::move(src) }, nodeType{ type } {}
     [[nodiscard]] NodeClass getNodeClass() const noexcept override {

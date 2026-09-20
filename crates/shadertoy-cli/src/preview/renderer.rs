@@ -126,10 +126,25 @@ pub(super) fn render_loop(
                         if view == project.manifest.final_pass().name {
                             Some(final_image)
                         } else {
-                            match runtime.snapshot_pass_rgb(&view, width, height) {
-                                Ok(image) => Some(image),
-                                Err(error) => {
-                                    set_error(&shared, error.to_string());
+                            let dimensions = project
+                                .manifest
+                                .passes
+                                .iter()
+                                .find(|pass| pass.name == view)
+                                .map(|pass| project.manifest.pass_dimensions(pass, width, height));
+                            match dimensions {
+                                Some((pass_width, pass_height)) => {
+                                    match runtime.snapshot_pass_rgb(&view, pass_width, pass_height)
+                                    {
+                                        Ok(image) => Some(image),
+                                        Err(error) => {
+                                            set_error(&shared, error.to_string());
+                                            None
+                                        }
+                                    }
+                                }
+                                None => {
+                                    set_error(&shared, format!("unknown preview pass '{view}'"));
                                     None
                                 }
                             }
@@ -298,14 +313,11 @@ fn handle_control(
             } else {
                 *width = new_width;
                 *height = new_height;
-                match reload(root, runtime, loaded, width, height, fps, view, false) {
-                    Ok(()) => {
-                        *fresh = true;
-                        *force_render = true;
-                        clear_error(shared);
-                    }
-                    Err(error) => set_error(shared, error.to_string()),
-                }
+                // Keep the active runtime so fixed-size offscreen targets and their
+                // feedback history survive output-resolution changes. Dynamic
+                // output-sized buffers will resize on their next render.
+                *force_render = true;
+                clear_error(shared);
             }
         }
         Control::TimeScale(value) => {

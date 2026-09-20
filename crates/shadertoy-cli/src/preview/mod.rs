@@ -157,7 +157,7 @@ struct SavedRuntimeState {
     time: f32,
     frame: i32,
     fps: f32,
-    buffers: BTreeMap<String, Vec<f32>>,
+    buffers: BTreeMap<String, (crate::state::BufferDimensions, Vec<f32>)>,
 }
 const MAX_PREVIEW_DIMENSION: u32 = 4096;
 

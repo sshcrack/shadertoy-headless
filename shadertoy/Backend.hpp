@@ -121,7 +121,7 @@ public:
     virtual FrameBuffer* createFrameBuffer() = 0;
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
     virtual void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
-                         std::vector<Channel> channels, bool clampOutput) = 0;
+                         std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput) = 0;
     virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size, const ShaderToyUniform& uniform) = 0;
 
     virtual TextureId createTexture(uint32_t width, uint32_t height, const uint32_t* data) = 0;

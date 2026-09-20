@@ -26,13 +26,22 @@ pub fn capture_state(
     let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[])?;
 
     let mut buffers = BTreeMap::new();
+    let mut buffer_dimensions = BTreeMap::new();
     for pass in &loaded.manifest.passes {
         if pass.kind != PassKind::Buffer {
             continue;
         }
-        match runtime.snapshot_pass_rgba32f(&pass.name, width, height) {
+        let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
+        match runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height) {
             Ok(data) => {
                 buffers.insert(pass.name.clone(), data);
+                buffer_dimensions.insert(
+                    pass.name.clone(),
+                    crate::state::BufferDimensions {
+                        width: pass_width,
+                        height: pass_height,
+                    },
+                );
             }
             Err(error) => {
                 // Unreachable/unused passes are not compiled into the execution pipeline.
@@ -49,6 +58,7 @@ pub fn capture_state(
         runtime.time(),
         runtime.frame(),
         buffers,
+        buffer_dimensions,
     )?;
     state.save(output)?;
 

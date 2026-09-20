@@ -129,6 +129,31 @@ ShaderToy import uses a Camoufox browser session rather than direct HTTP, then m
 
 The multipass template intentionally demonstrates Buffer A previous-frame feedback and wiring the current Buffer A result into Image through iChannel0.
 
+Buffer passes can also use a fixed render target independent of the output size, which is useful for FFT/simulation grids:
+
+~~~toml
+[[pass]]
+name = "spectrum"
+kind = "buffer"
+source = "shaders/spectrum.frag"
+width = 256
+height = 256
+~~~
+
+Omitting width/height preserves the existing output-sized behavior. Fixed buffers report their own dimensions through iResolution, consumers see the real input dimensions through iChannelResolution, and their feedback survives preview/output resolution changes.
+
+Inputs also expose independent sampler controls. Numerical grids such as FFT stages normally use exact texel sampling:
+
+~~~toml
+[[pass.input]]
+channel = 0
+source = "spectrum"
+filter = "nearest" # nearest | linear | mipmap
+wrap = "repeat"    # repeat | clamp
+~~~
+
+Sampler state is per iChannel, so the same source can be bound more than once with different interpolation or wrap behavior. Omitting the sampler fields preserves the existing linear/repeat defaults. The equivalent mutation command is `shadertoy channel set image 0 spectrum --filter nearest --wrap repeat`.
+
 The common agent loop is deliberately small:
 
 ~~~bash

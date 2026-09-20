@@ -6,9 +6,16 @@ use std::io::{BufReader, Read, Write};
 use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"STSTATE1";
-const STATE_FORMAT: u32 = 1;
+const LEGACY_STATE_FORMAT: u32 = 1;
+const STATE_FORMAT: u32 = 2;
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 const MAX_BUFFERS: usize = 64;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BufferDimensions {
+    pub width: u32,
+    pub height: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateHeader {
@@ -20,6 +27,8 @@ pub struct StateHeader {
     pub time: f32,
     pub frame: i32,
     pub buffers: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub buffer_dimensions: BTreeMap<String, BufferDimensions>,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +38,7 @@ pub struct StateFile {
 }
 
 impl StateFile {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         project: String,
         width: u32,
@@ -37,6 +47,7 @@ impl StateFile {
         time: f32,
         frame: i32,
         buffers: BTreeMap<String, Vec<f32>>,
+        buffer_dimensions: BTreeMap<String, BufferDimensions>,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         if !fps.is_finite() || fps <= 0.0 || fps > crate::manifest::MAX_RENDER_FPS {
@@ -54,18 +65,30 @@ impl StateFile {
         if buffers.len() > MAX_BUFFERS {
             bail!("state contains too many buffers");
         }
-        let expected = pixel_value_count(width, height)?;
         for (name, data) in &buffers {
             if name.is_empty() {
                 bail!("state buffer name must not be empty");
             }
+            let dimensions = buffer_dimensions
+                .get(name)
+                .copied()
+                .unwrap_or(BufferDimensions { width, height });
+            validate_dimensions(dimensions.width, dimensions.height)?;
+            let expected = pixel_value_count(dimensions.width, dimensions.height)?;
             if data.len() != expected {
                 bail!(
-                    "state buffer '{}' has {} values; expected {}",
+                    "state buffer '{}' has {} values; expected {} for {}x{}",
                     name,
                     data.len(),
-                    expected
+                    expected,
+                    dimensions.width,
+                    dimensions.height
                 );
+            }
+        }
+        for name in buffer_dimensions.keys() {
+            if !buffers.contains_key(name) {
+                bail!("state buffer dimensions reference unknown buffer '{name}'");
             }
         }
         let names = buffers.keys().cloned().collect();
@@ -79,6 +102,7 @@ impl StateFile {
                 time,
                 frame,
                 buffers: names,
+                buffer_dimensions,
             },
             buffers,
         })
@@ -184,10 +208,20 @@ impl StateFile {
             serde_json::from_slice(&header_bytes).context("invalid state JSON header")?;
         validate_header(&header)?;
 
-        let expected_values = validate_file_length(file_len, header_len, &header)?;
+        validate_file_length(file_len, header_len, &header)?;
 
         let mut buffers = BTreeMap::new();
         for name in &header.buffers {
+            let dimensions =
+                header
+                    .buffer_dimensions
+                    .get(name)
+                    .copied()
+                    .unwrap_or(BufferDimensions {
+                        width: header.width,
+                        height: header.height,
+                    });
+            let expected_values = pixel_value_count(dimensions.width, dimensions.height)?;
             let mut values = Vec::new();
             values
                 .try_reserve_exact(expected_values)
@@ -214,7 +248,6 @@ impl StateFile {
 
     pub fn validate(&self) -> Result<()> {
         validate_header(&self.header)?;
-        let expected = pixel_value_count(self.header.width, self.header.height)?;
         if self.buffers.len() != self.header.buffers.len() {
             bail!("state buffer table does not match its header");
         }
@@ -223,16 +256,43 @@ impl StateFile {
                 .buffers
                 .get(name)
                 .with_context(|| format!("state header references missing buffer '{name}'"))?;
+            let dimensions =
+                self.header
+                    .buffer_dimensions
+                    .get(name)
+                    .copied()
+                    .unwrap_or(BufferDimensions {
+                        width: self.header.width,
+                        height: self.header.height,
+                    });
+            let expected = pixel_value_count(dimensions.width, dimensions.height)?;
             if values.len() != expected {
                 bail!(
-                    "state buffer '{}' has {} values; expected {}",
+                    "state buffer '{}' has {} values; expected {} for {}x{}",
                     name,
                     values.len(),
-                    expected
+                    expected,
+                    dimensions.width,
+                    dimensions.height
                 );
             }
         }
         Ok(())
+    }
+
+    pub fn buffer_dimensions(&self, name: &str) -> Result<BufferDimensions> {
+        if !self.buffers.contains_key(name) {
+            bail!("state has no buffer named '{name}'");
+        }
+        Ok(self
+            .header
+            .buffer_dimensions
+            .get(name)
+            .copied()
+            .unwrap_or(BufferDimensions {
+                width: self.header.width,
+                height: self.header.height,
+            }))
     }
 
     pub fn replace_buffer_rgba8(
@@ -242,17 +302,27 @@ impl StateFile {
         height: u32,
         rgba: &[u8],
     ) -> Result<()> {
-        if width != self.header.width || height != self.header.height {
-            bail!(
-                "replacement image is {}x{} but state is {}x{}",
-                width,
-                height,
-                self.header.width,
-                self.header.height
-            );
-        }
         if !self.buffers.contains_key(name) {
             bail!("state has no buffer named '{name}'");
+        }
+        let dimensions =
+            self.header
+                .buffer_dimensions
+                .get(name)
+                .copied()
+                .unwrap_or(BufferDimensions {
+                    width: self.header.width,
+                    height: self.header.height,
+                });
+        if width != dimensions.width || height != dimensions.height {
+            bail!(
+                "replacement image is {}x{} but state buffer '{}' is {}x{}",
+                width,
+                height,
+                name,
+                dimensions.width,
+                dimensions.height
+            );
         }
         let expected_bytes = pixel_value_count(width, height)?;
         if rgba.len() != expected_bytes {
@@ -268,14 +338,25 @@ impl StateFile {
     }
 }
 
-fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) -> Result<usize> {
-    let expected_values = pixel_value_count(header.width, header.height)?;
-    let bytes_per_buffer = expected_values
-        .checked_mul(std::mem::size_of::<f32>())
-        .context("state buffer size overflow")?;
-    let payload_bytes = bytes_per_buffer
-        .checked_mul(header.buffers.len())
-        .context("state file size overflow")?;
+fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) -> Result<()> {
+    let mut payload_bytes = 0usize;
+    for name in &header.buffers {
+        let dimensions = header
+            .buffer_dimensions
+            .get(name)
+            .copied()
+            .unwrap_or(BufferDimensions {
+                width: header.width,
+                height: header.height,
+            });
+        let values = pixel_value_count(dimensions.width, dimensions.height)?;
+        let bytes = values
+            .checked_mul(std::mem::size_of::<f32>())
+            .context("state buffer size overflow")?;
+        payload_bytes = payload_bytes
+            .checked_add(bytes)
+            .context("state file size overflow")?;
+    }
     let prefix_bytes = MAGIC
         .len()
         .checked_add(std::mem::size_of::<u32>())
@@ -293,16 +374,20 @@ fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) 
             header.buffers.len()
         );
     }
-    Ok(expected_values)
+    Ok(())
 }
 
 fn validate_header(header: &StateHeader) -> Result<()> {
-    if header.format != STATE_FORMAT {
+    if header.format != LEGACY_STATE_FORMAT && header.format != STATE_FORMAT {
         bail!(
-            "unsupported .ststate format {}; supported format is {}",
+            "unsupported .ststate format {}; supported formats are {} and {}",
             header.format,
+            LEGACY_STATE_FORMAT,
             STATE_FORMAT
         );
+    }
+    if header.format == LEGACY_STATE_FORMAT && !header.buffer_dimensions.is_empty() {
+        bail!("legacy .ststate format cannot contain per-buffer dimensions");
     }
     if header.project.trim().is_empty() {
         bail!("state project name must not be empty");
@@ -332,6 +417,12 @@ fn validate_header(header: &StateHeader) -> Result<()> {
         if !names.insert(name.as_str()) {
             bail!("state contains duplicate buffer '{name}'");
         }
+    }
+    for (name, dimensions) in &header.buffer_dimensions {
+        if !names.contains(name.as_str()) {
+            bail!("state has dimensions for unknown buffer '{name}'");
+        }
+        validate_dimensions(dimensions.width, dimensions.height)?;
     }
     Ok(())
 }
@@ -374,6 +465,7 @@ mod tests {
             time: 0.0,
             frame: 0,
             buffers,
+            buffer_dimensions: BTreeMap::new(),
         }
     }
 
@@ -387,6 +479,22 @@ mod tests {
     fn header_uses_render_fps_limit() {
         let mut value = header(Vec::new());
         value.fps = crate::manifest::MAX_RENDER_FPS + 1.0;
+        assert!(validate_header(&value).is_err());
+    }
+
+    #[test]
+    fn legacy_v1_header_without_per_buffer_dimensions_remains_valid() {
+        let mut value = header(vec!["buffer-a".into()]);
+        value.format = LEGACY_STATE_FORMAT;
+        assert!(validate_header(&value).is_ok());
+
+        value.buffer_dimensions.insert(
+            "buffer-a".into(),
+            BufferDimensions {
+                width: 1,
+                height: 1,
+            },
+        );
         assert!(validate_header(&value).is_err());
     }
 }

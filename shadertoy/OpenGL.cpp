@@ -404,11 +404,14 @@ class RenderPass final {
     GLint mLocationChannel[4]{};
     GLint mLocationChannelResolution[4]{};
     std::vector<Channel> mChannels;
+    std::array<GLuint, 4> mSamplers{};
+    std::optional<Vec2> mFixedResolution;
 
 public:
     RenderPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer,
-               std::vector<Channel> channels, bool clampOutput)
-        : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) } {
+               std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput)
+        : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) },
+          mFixedResolution{ fixedResolution } {
         std::string vertexSrc = shaderVersionDirective;
         std::string pixelSrc = shaderVersionDirective;
         if(type == NodeType::CubeMap) {
@@ -490,12 +493,55 @@ public:
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[2]);
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[3]);
 #undef SHADERTOY_GET_UNIFORM_LOCATION
+
+        for(const auto& channel : mChannels) {
+            const GLint wrapMode = [&] {
+                switch(channel.wrapMode) {
+                    case Wrap::Clamp:
+                        return GL_CLAMP_TO_EDGE;
+                    case Wrap::Repeat:
+                        return GL_REPEAT;
+                }
+                SHADERTOY_UNREACHABLE();
+            }();
+            const GLint minFilter = [&] {
+                switch(channel.filter) {
+                    case Filter::Mipmap:
+                        return GL_LINEAR_MIPMAP_LINEAR;
+                    case Filter::Nearest:
+                        return GL_NEAREST;
+                    case Filter::Linear:
+                        return GL_LINEAR;
+                }
+                SHADERTOY_UNREACHABLE();
+            }();
+            const GLint magFilter = [&] {
+                switch(channel.filter) {
+                    case Filter::Nearest:
+                        return GL_NEAREST;
+                    case Filter::Mipmap:
+                        [[fallthrough]];
+                    case Filter::Linear:
+                        return GL_LINEAR;
+                }
+                SHADERTOY_UNREACHABLE();
+            }();
+
+            auto& sampler = mSamplers[channel.slot];
+            glGenSamplers(1, &sampler);
+            glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, wrapMode);
+            glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, wrapMode);
+            glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, wrapMode);
+            glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, minFilter);
+            glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, magFilter);
+        }
     }
     RenderPass(const RenderPass&) = delete;
     RenderPass(RenderPass&&) = delete;
     RenderPass& operator=(const RenderPass&) = delete;
     RenderPass& operator=(RenderPass&&) = delete;
     ~RenderPass() {
+        glDeleteSamplers(static_cast<GLsizei>(mSamplers.size()), mSamplers.data());
         glDeleteProgram(mProgram);
     }
     [[nodiscard]] NodeType getType() const noexcept {
@@ -526,6 +572,9 @@ public:
             throw Error("Only image/buffer passes can be overridden with a 2D image");
         if(!hasOffscreenTarget())
             throw Error("The final image pass cannot be used as a persistent buffer override");
+        if(mFixedResolution &&
+           (width != static_cast<uint32_t>(mFixedResolution->x) || height != static_cast<uint32_t>(mFixedResolution->y)))
+            throw Error("Pass override dimensions do not match the pass fixed resolution");
         auto* first = mBuffers.front().t1;
         auto* second = mBuffers.front().t2;
         first->writeRgba8(width, height, data);
@@ -537,6 +586,9 @@ public:
             throw Error("Only image/buffer passes can restore RGBA32F state");
         if(!hasOffscreenTarget())
             throw Error("The final image pass has no persistent buffer state");
+        if(mFixedResolution &&
+           (width != static_cast<uint32_t>(mFixedResolution->x) || height != static_cast<uint32_t>(mFixedResolution->y)))
+            throw Error("Pass restore dimensions do not match the pass fixed resolution");
         auto* first = mBuffers.front().t1;
         auto* second = mBuffers.front().t2;
         first->writeRgba32f(width, height, data);
@@ -555,9 +607,9 @@ public:
             Vec2 size, base, fbSize, uniformSize;
             if(buffer) {
                 base = { 0, 0 };
-                size = mType == NodeType::CubeMap ? cubeMapSize : screenSize;
+                size = mType == NodeType::CubeMap ? cubeMapSize : mFixedResolution.value_or(screenSize);
                 fbSize = size;
-                uniformSize = mType == NodeType::CubeMap ? cubeMapSize : canvasSize;
+                uniformSize = mType == NodeType::CubeMap ? cubeMapSize : mFixedResolution.value_or(canvasSize);
                 glViewport(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y));
                 glDisable(GL_SCISSOR_TEST);
                 buffer->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
@@ -621,7 +673,8 @@ public:
                 if(mLocationChannelResolution[channel.slot] == -1)
                     continue;
                 if(channel.tex.type != TexType::Tex3D) {
-                    const auto texSize = channel.size.value_or(channel.tex.type == TexType::CubeMap ? cubeMapSize : size);
+                    const auto texSize =
+                        channel.size.value_or(channel.tex.type == TexType::CubeMap ? cubeMapSize : canvasSize);
                     glUniform3f(mLocationChannelResolution[channel.slot], texSize.x, texSize.y, 1.0f);
                 } else {
                     const auto x = channel.size->x;
@@ -640,46 +693,9 @@ public:
                 // updating
                 if(glGetError() != GL_NO_ERROR)
                     continue;
-                const GLint wrapMode = [&] {
-                    switch(channel.wrapMode) {
-                        case Wrap::Clamp:
-                            return GL_CLAMP_TO_EDGE;
-                        case Wrap::Repeat:
-                            return GL_REPEAT;
-                    }
-                    SHADERTOY_UNREACHABLE();
-                }();
-                const GLint minFilter = [&] {
-                    switch(channel.filter) {
-                        case Filter::Mipmap:
-                            return GL_LINEAR_MIPMAP_LINEAR;
-                        case Filter::Nearest:
-                            return GL_NEAREST;
-                        case Filter::Linear:
-                            return GL_LINEAR;
-                    }
-                    SHADERTOY_UNREACHABLE();
-                }();
-                const GLint magFilter = [&] {
-                    switch(channel.filter) {
-                        case Filter::Nearest:
-                            return GL_NEAREST;
-                        case Filter::Mipmap:
-                            [[fallthrough]];
-                        case Filter::Linear:
-                            return GL_LINEAR;
-                    }
-                    SHADERTOY_UNREACHABLE();
-                }();
                 if(channel.filter == Filter::Mipmap)
                     glGenerateMipmap(type);
-                if(channel.tex.type == TexType::Tex3D)
-                    glTexParameteri(type, GL_TEXTURE_WRAP_R, wrapMode);
-
-                glTexParameteri(type, GL_TEXTURE_WRAP_S, wrapMode);
-                glTexParameteri(type, GL_TEXTURE_WRAP_T, wrapMode);
-                glTexParameteri(type, GL_TEXTURE_MIN_FILTER, minFilter);
-                glTexParameteri(type, GL_TEXTURE_MAG_FILTER, magFilter);
+                glBindSampler(channel.slot, mSamplers[channel.slot]);
             }
 
             // update uniform
@@ -721,6 +737,8 @@ public:
                 buffer->unbind();
         }
 
+        for(const auto& channel : mChannels)
+            glBindSampler(channel.slot, 0);
         glActiveTexture(GL_TEXTURE0);  // restore
     }
 };
@@ -950,9 +968,9 @@ public:
     }
 
     void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
-                 std::vector<Channel> channels, bool clampOutput) override {
-        mRenderPasses.push_back(
-            std::make_unique<RenderPass>(std::move(name), src, type, std::move(target), std::move(channels), clampOutput));
+                 std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput) override {
+        mRenderPasses.push_back(std::make_unique<RenderPass>(std::move(name), src, type, std::move(target),
+                                                             std::move(channels), fixedResolution, clampOutput));
     }
 
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,

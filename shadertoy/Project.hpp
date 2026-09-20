@@ -30,6 +30,8 @@ struct ProjectPass final {
     ProjectPassKind kind{ ProjectPassKind::Buffer };
     std::string source;
     std::vector<ProjectInput> inputs;
+    uint32_t width{};
+    uint32_t height{};
 };
 
 struct ProjectTexture final {

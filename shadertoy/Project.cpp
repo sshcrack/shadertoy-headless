@@ -98,9 +98,15 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 throw Error("Duplicate project source name: " + pass.name);
             if(pass.source.empty())
                 throw Error("Pass source must not be empty: " + pass.name);
+            if((pass.width == 0) != (pass.height == 0))
+                throw Error("Pass fixed resolution must specify both width and height: " + pass.name);
+            if((pass.width != 0 || pass.height != 0) && pass.kind != ProjectPassKind::Buffer)
+                throw Error("Fixed pass resolution is only supported for buffer passes: " + pass.name);
 
             auto node = std::make_unique<GLSLShader>(pass.source, passNodeType(pass.kind));
             node->name = pass.name;
+            node->fixedWidth = pass.width;
+            node->fixedHeight = pass.height;
             auto* shader = node.get();
             passes.emplace(pass.name, shader);
             sources.emplace(pass.name, shader);

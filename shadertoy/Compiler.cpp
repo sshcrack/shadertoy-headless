@@ -99,6 +99,15 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
             continue;
 
         if(node->getNodeType() == NodeType::Image) {
+            const auto& shader = dynamic_cast<const GLSLShader&>(*node);
+            if((shader.fixedWidth == 0) != (shader.fixedHeight == 0))
+                throw Error("Shader pass has a partial fixed resolution: " + node->name);
+            if(shader.fixedWidth != 0) {
+                if(node == directRenderNode)
+                    throw Error("The final image pass cannot have a fixed offscreen resolution");
+                textureSizeMap.emplace(
+                    node, Vec2{ static_cast<float>(shader.fixedWidth), static_cast<float>(shader.fixedHeight) });
+            }
             DoubleBufferedFB target{ nullptr };
             if(requiredDoubleBuffer.contains(node)) {
                 target = DoubleBufferedFB{ pipeline->createFrameBuffer(), pipeline->createFrameBuffer() };
@@ -152,7 +161,10 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
 
                 const auto& shader = dynamic_cast<const GLSLShader&>(*node);
                 try {
-                    pipeline->addPass(node->name, shader.source, shader.nodeType, targets, std::move(channels),
+                    std::optional<Vec2> fixedResolution;
+                    if(shader.fixedWidth != 0)
+                        fixedResolution = Vec2{ static_cast<float>(shader.fixedWidth), static_cast<float>(shader.fixedHeight) };
+                    pipeline->addPass(node->name, shader.source, shader.nodeType, targets, std::move(channels), fixedResolution,
                                       node == directRenderNode);
                 } catch(const std::exception& error) {
                     throw Error("Pass '" + node->name + "': " + error.what());
@@ -174,6 +186,8 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                                    DoubleBufferedTex{ target.t2->getTexture(), target.t1->getTexture(),
                                                       lastFrame.refNode->getNodeType() == NodeType::CubeMap ? TexType::CubeMap :
                                                                                                               TexType::Tex2D });
+                if(const auto knownSize = textureSizeMap.find(lastFrame.refNode); knownSize != textureSizeMap.end())
+                    textureSizeMap.emplace(node, knownSize->second);
                 break;
             }
             case NodeClass::RenderOutput:

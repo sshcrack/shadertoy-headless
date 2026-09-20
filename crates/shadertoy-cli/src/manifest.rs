@@ -84,6 +84,12 @@ pub struct Pass {
     pub kind: PassKind,
     /// GLSL source path relative to the project root.
     pub source: String,
+    /// Optional fixed width for a buffer pass. Must be paired with height.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Optional fixed height for a buffer pass. Must be paired with width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
     #[serde(default, rename = "input", skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<Input>,
 }
@@ -136,8 +142,12 @@ pub struct Input {
     pub kind: Option<InputKind>,
     #[serde(default)]
     pub frame: FrameRef,
+    /// Per-input texture interpolation/minification mode.
+    /// nearest = exact texel sampling, linear = bilinear interpolation,
+    /// mipmap = trilinear minification with linear magnification.
     #[serde(default)]
     pub filter: Filter,
+    /// Per-input texture coordinate addressing mode.
     #[serde(default)]
     pub wrap: Wrap,
 }
@@ -183,6 +193,8 @@ impl Manifest {
                 name: "image".into(),
                 kind: PassKind::Image,
                 source: "shaders/image.frag".into(),
+                width: None,
+                height: None,
                 inputs: Vec::new(),
             }],
         }
@@ -205,6 +217,8 @@ impl Manifest {
                     name: "buffer-a".into(),
                     kind: PassKind::Buffer,
                     source: "shaders/buffer-a.frag".into(),
+                    width: None,
+                    height: None,
                     inputs: vec![Input {
                         channel: 0,
                         source: "buffer-a".into(),
@@ -218,6 +232,8 @@ impl Manifest {
                     name: "image".into(),
                     kind: PassKind::Image,
                     source: "shaders/image.frag".into(),
+                    width: None,
+                    height: None,
                     inputs: vec![Input {
                         channel: 0,
                         source: "buffer-a".into(),
@@ -277,6 +293,31 @@ impl Manifest {
             )?;
             if !names.insert(pass.name.as_str()) {
                 bail!("duplicate pass/asset name '{}'", pass.name);
+            }
+            match (pass.width, pass.height) {
+                (None, None) => {}
+                (Some(width), Some(height)) => {
+                    if pass.kind != PassKind::Buffer {
+                        bail!(
+                            "fixed width/height are only supported for buffer passes ('{}')",
+                            pass.name
+                        );
+                    }
+                    if width == 0 || height == 0 {
+                        bail!("fixed pass dimensions must be positive ('{}')", pass.name);
+                    }
+                    if width > MAX_RENDER_DIMENSION || height > MAX_RENDER_DIMENSION {
+                        bail!(
+                            "fixed pass dimensions for '{}' exceed the {} pixel safety limit",
+                            pass.name,
+                            MAX_RENDER_DIMENSION
+                        );
+                    }
+                }
+                _ => bail!(
+                    "pass '{}' must specify both width and height or neither",
+                    pass.name
+                ),
             }
             if pass.kind == PassKind::Image {
                 image_count += 1;
@@ -422,6 +463,18 @@ impl Manifest {
             "cannot infer input kind for unknown source '{}'",
             input.source
         )
+    }
+
+    pub fn pass_dimensions(
+        &self,
+        pass: &Pass,
+        output_width: u32,
+        output_height: u32,
+    ) -> (u32, u32) {
+        match (pass.width, pass.height) {
+            (Some(width), Some(height)) => (width, height),
+            _ => (output_width, output_height),
+        }
     }
 
     pub fn final_pass(&self) -> &Pass {

@@ -33,14 +33,18 @@ pub(super) fn reload(
 
     if let Some(saved) = saved {
         runtime.set_fixed_state(saved.time, saved.frame, saved.fps)?;
-        for (name, data) in saved.buffers {
-            if candidate
+        for (name, (saved_dimensions, data)) in saved.buffers {
+            if let Some(pass) = candidate
                 .manifest
                 .passes
                 .iter()
-                .any(|pass| pass.name == name && pass.kind == PassKind::Buffer)
+                .find(|pass| pass.name == name && pass.kind == PassKind::Buffer)
             {
-                let _ = runtime.restore_pass_rgba32f(&name, *width, *height, &data);
+                let (pass_width, pass_height) =
+                    candidate.manifest.pass_dimensions(pass, *width, *height);
+                if (pass_width, pass_height) == (saved_dimensions.width, saved_dimensions.height) {
+                    let _ = runtime.restore_pass_rgba32f(&name, pass_width, pass_height, &data);
+                }
             }
         }
     }
@@ -67,10 +71,21 @@ fn save_runtime_state(
 ) -> Result<SavedRuntimeState> {
     let mut buffers = BTreeMap::new();
     for pass in &loaded.manifest.passes {
-        if pass.kind == PassKind::Buffer
-            && let Ok(data) = runtime.snapshot_pass_rgba32f(&pass.name, width, height)
-        {
-            buffers.insert(pass.name.clone(), data);
+        if pass.kind != PassKind::Buffer {
+            continue;
+        }
+        let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
+        if let Ok(data) = runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height) {
+            buffers.insert(
+                pass.name.clone(),
+                (
+                    crate::state::BufferDimensions {
+                        width: pass_width,
+                        height: pass_height,
+                    },
+                    data,
+                ),
+            );
         }
     }
     Ok(SavedRuntimeState {

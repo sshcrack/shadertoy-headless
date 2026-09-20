@@ -51,3 +51,19 @@ fn built_in_input_kind_requires_canonical_source_name() {
     });
     assert!(manifest.validate_structure().is_err());
 }
+
+#[test]
+fn fixed_dimensions_require_complete_buffer_pair() {
+    let mut manifest = Manifest::multipass("fixed");
+    manifest.passes[0].width = Some(256);
+    assert!(manifest.validate_structure().is_err());
+
+    manifest.passes[0].height = Some(256);
+    manifest
+        .validate_structure()
+        .expect("buffer pass should accept fixed dimensions");
+
+    manifest.passes[1].width = Some(256);
+    manifest.passes[1].height = Some(256);
+    assert!(manifest.validate_structure().is_err());
+}

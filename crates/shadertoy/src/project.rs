@@ -34,6 +34,20 @@ impl Project {
         Ok(self)
     }
 
+    pub fn set_pass_resolution(
+        &mut self,
+        pass: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        // SAFETY: project handle is valid and the C string lives across the call.
+        check(unsafe {
+            sys::st_project_set_pass_resolution(self.handle.as_ptr(), pass.as_ptr(), width, height)
+        })?;
+        Ok(self)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_input(
         &mut self,
