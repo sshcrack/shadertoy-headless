@@ -4,6 +4,14 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.7
+
+- Added RGBA32F buffer inspection with per-channel statistics, NaN/Inf detection, pixel probing, and diagnostic visualizations.
+- Added per-pass GPU timer-query profiling, CPU render-call timing, and persistent-buffer VRAM estimates.
+- Added project-local GLSL include support with dependency-aware transactional hot reload that preserves feedback buffers.
+- Added deterministic manifest-driven visual/numeric regression tests with baseline updates and diff artifacts.
+- Added preview input recording and deterministic replay with exact ShaderToy timing state, SHA-256 project fingerprints, and invalidation when project files change.
+
 ## 2.1.6
 
 - Added fixed per-buffer render resolutions for stable simulation/FFT grids while preserving output-sized behavior by default.
