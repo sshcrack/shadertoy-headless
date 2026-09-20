@@ -1,4 +1,5 @@
 use crate::manifest::Manifest;
+use crate::project_schema;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
@@ -48,11 +49,7 @@ pub fn create_project(
     fs::create_dir_all(root.join(".shadertoy"))?;
 
     write_manifest(root, &manifest)?;
-    fs::write(
-        root.join(".shadertoy/shadertoy.schema.json"),
-        crate::include_file!("schema/shadertoy.schema.json"),
-    )
-    .context("failed to write project-local manifest schema")?;
+    project_schema::write_current(root)?;
 
     let taplo = root.join(".taplo.toml");
     if !taplo.exists() {

@@ -6,6 +6,7 @@ mod manifest;
 mod ops;
 mod preview;
 mod project;
+mod project_schema;
 mod replay;
 mod scaffold;
 mod source;

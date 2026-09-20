@@ -816,6 +816,7 @@ impl LoadedManifest {
         let manifest: Manifest = toml::from_str(&source)
             .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
         manifest.validate_structure()?;
+        crate::project_schema::refresh_existing(&root)?;
         Ok(Self { root, manifest })
     }
 }

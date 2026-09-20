@@ -611,10 +611,7 @@ fn prepare_passes(render_passes: &[RenderPass]) -> Result<(String, Vec<ImportedP
 }
 
 fn write_support_files(root: &Path, name: &str) -> Result<()> {
-    fs::write(
-        root.join(".shadertoy/shadertoy.schema.json"),
-        crate::include_file!("schema/shadertoy.schema.json"),
-    )?;
+    crate::project_schema::write_current(root)?;
     fs::write(
         root.join(".taplo.toml"),
         crate::include_file!("templates/project/.taplo.toml"),

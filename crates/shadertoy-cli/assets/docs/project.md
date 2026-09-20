@@ -12,6 +12,10 @@ Typical layout:
 The manifest describes passes and iChannel wiring. Shader source stays in separate
 files so agents, editors, diffs, and hot reload can operate on it directly.
 
+For CLI-created projects, the generated .shadertoy/shadertoy.schema.json is
+refreshed automatically on project load when a newer installed CLI embeds a
+different schema.
+
 Create examples with:
 
   shadertoy new hello

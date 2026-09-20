@@ -216,7 +216,7 @@ Use shadertoy docs agent for the concise workflow embedded in the executable. Ot
 
 The canonical JSON Schema is checked in at crates/shadertoy-cli/assets/schema/shadertoy.schema.json and generated from the same Rust types that parse the manifest. A test prevents the checked-in schema from drifting from those types.
 
-New projects receive a local .shadertoy/shadertoy.schema.json, a #:schema directive in ShaderToy.toml, and a .taplo.toml association. Editors with Taplo / compatible TOML schema support can therefore validate keys and types and provide completion. Agents can print the exact same schema with:
+New projects receive a local .shadertoy/shadertoy.schema.json, a #:schema directive in ShaderToy.toml, and a .taplo.toml association. Editors with Taplo / compatible TOML schema support can therefore validate keys and types and provide completion. Whenever a project with that generated local schema is loaded, the CLI compares it with the schema embedded in the installed CLI and automatically refreshes the file if it is stale. Projects without a local schema are left unchanged. Agents can print the exact same schema with:
 
 ~~~bash
 shadertoy docs manifest --schema

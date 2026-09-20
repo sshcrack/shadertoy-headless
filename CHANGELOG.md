@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.1
+
+- Automatically refresh an existing project-local .shadertoy/shadertoy.schema.json when the installed CLI embeds a newer schema, while leaving projects without a local schema untouched.
+
 ## 2.2.0
 
 - Added first-class OpenGL 4.3 compute passes with fixed dispatch dimensions, configurable local workgroups, writable typed image outputs, and repeated per-frame dispatch through iIteration.
