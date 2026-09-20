@@ -198,3 +198,68 @@ fn compute_local_size_z_must_be_one_for_2d_entrypoint() {
     assert!(error.to_string().contains("z"), "{error}");
     assert!(error.to_string().contains("1"), "{error}");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn all_compute_render_formats_have_expected_channel_semantics() {
+    let _egl_guard = EGL_TEST_LOCK.lock().expect("lock EGL test context");
+    let context = HeadlessContext::new(64, 64).expect("create OpenGL context");
+
+    let cases = [
+        (RenderFormat::R32f, [0.125_f32, 0.0, 0.0, 1.0]),
+        (RenderFormat::Rg32f, [0.125_f32, 0.25, 0.0, 1.0]),
+        (RenderFormat::Rgba16f, [0.125_f32, 0.25, 0.5, 0.75]),
+        (RenderFormat::Rgba32f, [0.125_f32, 0.25, 0.5, 0.75]),
+    ];
+
+    for (format, expected) in cases {
+        let mut project = Project::new("typed-format-matrix").expect("create project");
+        project
+            .add_pass(
+                "simulation",
+                PassKind::Compute,
+                "void mainCompute(ivec2 coord) { imageStore(iOutput, coord, vec4(0.125, 0.25, 0.5, 0.75)); }",
+            )
+            .expect("add compute pass")
+            .set_pass_resolution("simulation", 1, 1)
+            .expect("set dimensions")
+            .set_pass_format("simulation", format)
+            .expect("set format")
+            .set_compute_local_size("simulation", 1, 1, 1)
+            .expect("set local size")
+            .add_pass(
+                "image",
+                PassKind::Image,
+                "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, vec2(0.5)); }",
+            )
+            .expect("add image")
+            .add_input(
+                "image",
+                0,
+                InputKind::Pass,
+                "simulation",
+                false,
+                Filter::Nearest,
+                Wrap::Clamp,
+            )
+            .expect("wire compute output");
+
+        let mut runtime = Runtime::new(&context).expect("create runtime");
+        runtime.load_project(&project).expect("load project");
+        runtime.render(1, 1).expect("render");
+        let state = runtime
+            .snapshot_pass_rgba32f("simulation", 1, 1)
+            .expect("snapshot typed output");
+        for (actual, expected) in state.iter().zip(expected) {
+            let tolerance = if format == RenderFormat::Rgba16f {
+                1e-3
+            } else {
+                1e-6
+            };
+            assert!(
+                (*actual - expected).abs() <= tolerance,
+                "format={format:?} actual={state:?} expected={expected:?}"
+            );
+        }
+    }
+}

@@ -415,3 +415,151 @@ wrap = "clamp"
         "{stderr}"
     );
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn cli_supports_all_typed_compute_formats() {
+    let temp = TempRoot::new();
+    let project = temp.0.join("format-matrix");
+    std::fs::create_dir_all(project.join("shaders")).expect("create shaders");
+
+    std::fs::write(
+        project.join("ShaderToy.toml"),
+        r#"format = 1
+
+[project]
+name = "typed-format-matrix"
+
+[render]
+width = 1
+height = 1
+fps = 60.0
+preview_time = 0.0
+
+[[pass]]
+name = "r"
+kind = "compute"
+source = "shaders/value.comp"
+width = 1
+height = 1
+format = "r32f"
+local_size = [1, 1, 1]
+
+[[pass]]
+name = "rg"
+kind = "compute"
+source = "shaders/value.comp"
+width = 1
+height = 1
+format = "rg32f"
+local_size = [1, 1, 1]
+
+[[pass]]
+name = "half"
+kind = "compute"
+source = "shaders/value.comp"
+width = 1
+height = 1
+format = "rgba16f"
+local_size = [1, 1, 1]
+
+[[pass]]
+name = "full"
+kind = "compute"
+source = "shaders/value.comp"
+width = 1
+height = 1
+format = "rgba32f"
+local_size = [1, 1, 1]
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[pass.input]]
+channel = 0
+source = "r"
+filter = "nearest"
+wrap = "clamp"
+
+[[pass.input]]
+channel = 1
+source = "rg"
+filter = "nearest"
+wrap = "clamp"
+
+[[pass.input]]
+channel = 2
+source = "half"
+filter = "nearest"
+wrap = "clamp"
+
+[[pass.input]]
+channel = 3
+source = "full"
+filter = "nearest"
+wrap = "clamp"
+"#,
+    )
+    .expect("write manifest");
+    std::fs::write(
+        project.join("shaders/value.comp"),
+        "void mainCompute(ivec2 coord) { imageStore(iOutput, coord, vec4(0.125, 0.25, 0.5, 0.75)); }",
+    )
+    .expect("write compute shader");
+    std::fs::write(
+        project.join("shaders/image.frag"),
+        r#"void mainImage(out vec4 color, in vec2 fragCoord) {
+    vec4 r = texture(iChannel0, vec2(0.5));
+    vec4 rg = texture(iChannel1, vec2(0.5));
+    vec4 halfValue = texture(iChannel2, vec2(0.5));
+    vec4 fullValue = texture(iChannel3, vec2(0.5));
+    color = vec4(r.r, rg.g, halfValue.b * 0.5 + fullValue.r * 0.5, 1.0);
+}
+"#,
+    )
+    .expect("write image shader");
+
+    let project_arg = project.to_string_lossy().into_owned();
+    let checked = shadertoy(&["check", "--project", &project_arg]);
+    assert!(checked.status.success(), "{checked:?}");
+
+    let expected = [
+        ("r", "r32f", [0.125_f64, 0.0, 0.0, 1.0]),
+        ("rg", "rg32f", [0.125_f64, 0.25, 0.0, 1.0]),
+        ("half", "rgba16f", [0.125_f64, 0.25, 0.5, 0.75]),
+        ("full", "rgba32f", [0.125_f64, 0.25, 0.5, 0.75]),
+    ];
+    for (pass, format, rgba) in expected {
+        let inspected = shadertoy(&[
+            "--json",
+            "inspect",
+            "--project",
+            &project_arg,
+            "buffer",
+            pass,
+            "--frame",
+            "0",
+            "--pixel",
+            "0,0",
+        ]);
+        assert!(inspected.status.success(), "{inspected:?}");
+        let value: serde_json::Value =
+            serde_json::from_slice(&inspected.stdout).expect("parse inspect json");
+        assert_eq!(value["format"], format);
+        let actual = value["pixel"]["rgba"]
+            .as_array()
+            .expect("rgba array")
+            .iter()
+            .map(|component| component.as_f64().expect("numeric component"))
+            .collect::<Vec<_>>();
+        for (actual, expected) in actual.iter().zip(rgba) {
+            let tolerance = if format == "rgba16f" { 1e-3 } else { 1e-6 };
+            assert!(
+                (*actual - expected).abs() <= tolerance,
+                "pass={pass} format={format} actual={actual:?} expected={rgba:?}"
+            );
+        }
+    }
+}

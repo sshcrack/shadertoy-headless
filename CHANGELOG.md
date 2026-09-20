@@ -4,6 +4,11 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.2
+
+- Re-verified the complete v2.2 advanced GPU pipeline on the applied release branch, including compute passes, typed render targets, MRT routing, persistent/shared SSBOs, fixed-size passes, state capture/restore, sampler controls, and headless EGL rendering.
+- Added native and CLI regression matrices covering all four typed compute formats (`r32f`, `rg32f`, `rgba16f`, and `rgba32f`).
+
 ## 2.2.1
 
 - Automatically refresh an existing project-local .shadertoy/shadertoy.schema.json when the installed CLI embeds a newer schema, while leaving projects without a local schema untouched.
