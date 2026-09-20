@@ -134,6 +134,8 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 const uint64_t invocations = static_cast<uint64_t>(pass.localSizeX) * pass.localSizeY * pass.localSizeZ;
                 if(invocations > 1024)
                     throw Error("Compute local workgroup size exceeds 1024 invocations: " + pass.name);
+                if(pass.localSizeZ != 1)
+                    throw Error("Compute local workgroup Z size must be 1 for the 2D mainCompute entrypoint: " + pass.name);
             }
             std::unordered_set<uint32_t> usedStorageBindings;
             for(const auto& storage : pass.storageBuffers) {

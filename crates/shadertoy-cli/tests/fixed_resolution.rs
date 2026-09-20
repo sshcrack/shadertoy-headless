@@ -205,7 +205,7 @@ fn fixed_pass_state_and_overrides_use_pass_dimensions() {
     assert!(inspected.status.success(), "{inspected:?}");
     let inspection: serde_json::Value =
         serde_json::from_slice(&inspected.stdout).expect("parse state inspection");
-    assert_eq!(inspection["header"]["format"], 2);
+    assert_eq!(inspection["header"]["format"], 3);
     assert_eq!(
         inspection["header"]["buffer_dimensions"]["spectrum"]["width"],
         2

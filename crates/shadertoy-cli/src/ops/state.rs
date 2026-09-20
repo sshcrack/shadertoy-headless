@@ -27,6 +27,7 @@ pub fn capture_state(
 
     let mut buffers = BTreeMap::new();
     let mut buffer_dimensions = BTreeMap::new();
+    let mut buffer_formats = BTreeMap::new();
     for pass in &loaded.manifest.passes {
         if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
             continue;
@@ -42,6 +43,7 @@ pub fn capture_state(
                         height: pass_height,
                     },
                 );
+                buffer_formats.insert(pass.name.clone(), pass.format);
             }
             Err(error) => {
                 // Unreachable/unused passes are not compiled into the execution pipeline.
@@ -59,6 +61,7 @@ pub fn capture_state(
         runtime.frame(),
         buffers,
         buffer_dimensions,
+        buffer_formats,
     )?;
     state.save(output)?;
 

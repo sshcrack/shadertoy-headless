@@ -199,7 +199,7 @@
           "$ref": "#/$defs/PassKind"
         },
         "local_size": {
-          "description": "Compute local workgroup dimensions. Defaults to [8, 8, 1].",
+          "description": "Compute local workgroup dimensions. Defaults to [8, 8, 1]; Z must be 1 for the 2D mainCompute entrypoint.",
           "type": [
             "array",
             "null"

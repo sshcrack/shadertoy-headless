@@ -585,6 +585,8 @@ int st_project_set_compute_local_size(st_project* project, const char* passName,
             throw std::runtime_error("Pass name must not be empty");
         if(x == 0 || y == 0 || z == 0 || static_cast<uint64_t>(x) * y * z > 1024)
             throw std::runtime_error("Compute local workgroup size must be positive and at most 1024 invocations");
+        if(z != 1)
+            throw std::runtime_error("Compute local workgroup Z size must be 1 for the 2D mainCompute entrypoint");
         const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
                                        [&](const auto& value) { return value.name == passName; });
         if(pass == project->description.passes.end())

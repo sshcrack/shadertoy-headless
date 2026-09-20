@@ -177,3 +177,24 @@ void mainCompute(ivec2 coord) {
         image.pixels
     );
 }
+
+#[test]
+fn compute_local_size_z_must_be_one_for_2d_entrypoint() {
+    let mut project = Project::new("compute-local-z").expect("create project");
+    project
+        .add_pass(
+            "simulation",
+            PassKind::Compute,
+            "void mainCompute(ivec2 coord) { imageStore(iOutput, coord, vec4(1.0)); }",
+        )
+        .expect("add compute pass")
+        .set_pass_resolution("simulation", 1, 1)
+        .expect("set compute dimensions");
+
+    let error = match project.set_compute_local_size("simulation", 1, 1, 2) {
+        Ok(_) => panic!("2D compute entrypoints must reject multiple local Z lanes"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("z"), "{error}");
+    assert!(error.to_string().contains("1"), "{error}");
+}

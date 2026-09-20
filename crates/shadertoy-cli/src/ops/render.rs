@@ -202,6 +202,17 @@ pub(super) fn resolve_dimensions(
                 bail!("state buffer '{name}' is no longer a 2D buffer/compute pass");
             }
 
+            if let Some(saved_format) = state.header.buffer_formats.get(name)
+                && *saved_format != pass.format
+            {
+                bail!(
+                    "state buffer '{}' render format was {:?} but the current pass uses {:?}; restoring it would discard or reinterpret channels",
+                    name,
+                    saved_format,
+                    pass.format
+                );
+            }
+
             let saved = state.buffer_dimensions(name)?;
             let expected = loaded.manifest.pass_dimensions(pass, width, height);
             if (saved.width, saved.height) != expected {

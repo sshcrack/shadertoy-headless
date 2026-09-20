@@ -910,6 +910,8 @@ public:
         }
 
         const auto renderTargetCount = useMrt ? 1U : static_cast<uint32_t>(mBuffers.size());
+        for(const auto& [binding, id] : mStorageBuffers)
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, static_cast<GLuint>(id));
         for(uint32_t idx = 0; idx < renderTargetCount; ++idx) {
             const auto buffer = useMrt ? mrtOutputs.front() : mBuffers[idx].get();
             Vec2 size, base, fbSize, uniformSize;
@@ -1059,6 +1061,8 @@ public:
                             uniform.audioMeta.w);
 
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            if(!mStorageBuffers.empty())
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             if(buffer) {
                 if(useMrt)
                     glBindFramebuffer(GL_FRAMEBUFFER, GL_NONE);
@@ -1067,6 +1071,10 @@ public:
             }
         }
 
+        for(const auto& [binding, id] : mStorageBuffers) {
+            SHADERTOY_UNUSED(id);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, 0);
+        }
         for(const auto& channel : mChannels)
             glBindSampler(channel.slot, 0);
         glActiveTexture(GL_TEXTURE0);  // restore

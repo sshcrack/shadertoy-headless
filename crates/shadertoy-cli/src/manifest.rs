@@ -182,7 +182,7 @@ pub struct Pass {
         skip_serializing_if = "is_default_iterations"
     )]
     pub iterations: u32,
-    /// Compute local workgroup dimensions. Defaults to [8, 8, 1].
+    /// Compute local workgroup dimensions. Defaults to [8, 8, 1]; Z must be 1 for the 2D mainCompute entrypoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_size: Option<[u32; 3]>,
     /// Persistent shader-storage buffers bound for this pass.
@@ -486,6 +486,12 @@ impl Manifest {
                 if x == 0 || y == 0 || z == 0 || u64::from(x) * u64::from(y) * u64::from(z) > 1024 {
                     bail!(
                         "pass '{}' local_size must be positive and at most 1024 total invocations",
+                        pass.name
+                    );
+                }
+                if z != 1 {
+                    bail!(
+                        "pass '{}' local_size z must be 1 because mainCompute receives 2D coordinates",
                         pass.name
                     );
                 }

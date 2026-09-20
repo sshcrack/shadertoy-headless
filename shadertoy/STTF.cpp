@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "shadertoy/SuppressWarningPush.hpp"
 #include <cpp-base64/base64.h>
@@ -85,8 +86,11 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                         const uint64_t invocations = static_cast<uint64_t>(shader->localSizeX) * shader->localSizeY * shader->localSizeZ;
                         if(invocations > 1024)
                             throw Error("Compute local workgroup size exceeds 1024 invocations");
+                        if(shader->localSizeZ != 1)
+                            throw Error("Compute local workgroup Z size must be 1 for the 2D mainCompute entrypoint");
                     }
                     if(node.contains("storageBuffers")) {
+                        std::unordered_set<uint32_t> usedStorageBindings;
                         for(const auto& storage : node.at("storageBuffers")) {
                             StorageBufferBinding binding;
                             binding.name = storage.at("name").get<std::string>();
@@ -94,6 +98,8 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                             binding.size = storage.at("size").get<uint64_t>();
                             if(binding.name.empty() || binding.size == 0)
                                 throw Error("Storage buffers require a name and positive size");
+                            if(!usedStorageBindings.emplace(binding.binding).second)
+                                throw Error("Duplicate storage buffer binding " + std::to_string(binding.binding));
                             shader->storageBuffers.push_back(std::move(binding));
                         }
                     }

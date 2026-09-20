@@ -14,6 +14,7 @@ The host provides iResolution, iTime, iTimeDelta, iFrameRate, iFrame, iMouse,
 iDate, iChannelResolution, configured iChannel samplers, iIteration, and a
 writable image2D named iOutput. The wrapper bounds-checks global invocation
 coordinates, so local workgroups do not need to divide the pass dimensions.
+Because mainCompute receives 2D coordinates, local_size Z must be 1.
 
 Inspect one pass:
 
@@ -107,8 +108,15 @@ Declare the matching block in GLSL:
 Storage with the same name and size is shared across passes even when each pass
 uses a different binding index. New storage is zero-initialized. OpenGL 4.3
 image load/store, SSBO operations, and atomics are therefore available to
-advanced pipelines. A pass using compute or storage buffers requires OpenGL
-4.3; ordinary projects continue to work on the existing OpenGL 4.1 path.
+advanced pipelines. Sharing an SSBO does not create an execution dependency;
+when one pass must observe another pass's writes in the same frame, add an
+explicit current-frame pass input to order them. A pass using compute or storage
+buffers requires OpenGL 4.3; ordinary projects continue to work on the existing
+OpenGL 4.1 path.
+
+.ststate snapshots persistent 2D pass textures, not SSBO byte contents. Keep any
+state that must survive state capture in a resumable pass texture, or rebuild the
+SSBO deterministically after resume.
 
 Each pass input has independent sampler state. For an FFT/simulation grid,
 bind the fixed grid with exact texel sampling:

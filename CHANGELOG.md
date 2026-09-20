@@ -7,6 +7,10 @@ All notable changes to the Rust library and CLI are recorded here.
 ## 2.2.1
 
 - Automatically refresh an existing project-local .shadertoy/shadertoy.schema.json when the installed CLI embeds a newer schema, while leaving projects without a local schema untouched.
+- Fixed fragment/image/buffer/cubemap SSBO binding and shader-storage barriers so named storage is actually shared across fragment and compute passes and remains visible across frames.
+- Reject compute local workgroup Z sizes other than 1 because the public compute entrypoint is two-dimensional (`mainCompute(ivec2)`) and larger Z sizes duplicated writes/atomics to the same pixel.
+- Harden raw STTF loading/compilation against duplicate SSBO binding points and document SSBO pass-ordering and state-capture semantics.
+- State format 3 records each persistent pass's render-target format and rejects incompatible typed-buffer restores instead of silently dropping or reinterpreting channels; state formats 1 and 2 remain readable.
 
 ## 2.2.0
 

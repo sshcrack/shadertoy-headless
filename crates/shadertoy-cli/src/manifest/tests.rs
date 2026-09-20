@@ -103,3 +103,30 @@ fn input_output_index_must_exist_and_previous_feedback_uses_primary_output() {
         "non-primary MRT feedback is intentionally not resumable"
     );
 }
+
+#[test]
+fn compute_local_size_rejects_multiple_z_lanes() {
+    let mut manifest = Manifest::minimal("compute-z");
+    manifest.passes.insert(
+        0,
+        Pass {
+            name: "simulation".into(),
+            kind: PassKind::Compute,
+            source: "shaders/simulation.comp".into(),
+            width: Some(1),
+            height: Some(1),
+            format: RenderFormat::Rgba32f,
+            extra_outputs: Vec::new(),
+            iterations: 1,
+            local_size: Some([1, 1, 2]),
+            storage: Vec::new(),
+            inputs: Vec::new(),
+        },
+    );
+
+    let error = manifest
+        .validate_structure()
+        .expect_err("2D compute entrypoints must reject multiple local Z lanes");
+    assert!(error.to_string().contains("z"), "{error}");
+    assert!(error.to_string().contains("1"), "{error}");
+}

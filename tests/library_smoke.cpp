@@ -84,6 +84,38 @@ int main() {
     if(!require(rejectedChannels, "unsupported STTF volume channels were not rejected"))
         return 1;
 
+    const auto duplicateStoragePath =
+        std::filesystem::temp_directory_path() / "shadertoy-library-duplicate-storage-binding.sttf";
+    {
+        std::ofstream file(duplicateStoragePath);
+        file << R"json({
+          "metadata": {},
+          "nodes": [
+            {
+              "class": "GLSLShader",
+              "name": "Image",
+              "type": "Image",
+              "source": "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.0); }",
+              "storageBuffers": [
+                { "name": "first", "binding": 2, "size": 16 },
+                { "name": "second", "binding": 2, "size": 16 }
+              ]
+            }
+          ],
+          "links": []
+        })json";
+    }
+    bool rejectedDuplicateStorageBinding = false;
+    try {
+        ShaderToy::ShaderDocument malformed;
+        malformed.load(duplicateStoragePath.string());
+    } catch(const ShaderToy::Error&) {
+        rejectedDuplicateStorageBinding = true;
+    }
+    std::filesystem::remove(duplicateStoragePath);
+    if(!require(rejectedDuplicateStorageBinding, "duplicate STTF storage binding was not rejected"))
+        return 1;
+
     constexpr std::string_view Response = R"json([
       {
         "info": {

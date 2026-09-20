@@ -161,7 +161,7 @@ name = "particle-state"
 size = 4194304
 ~~~
 
-Compute sources implement mainCompute(ivec2 coord). The host supplies a writable image2D named iOutput plus the normal timing/input uniforms, iIteration, and configured iChannel samplers. Available target formats are r32f, rg32f, rgba16f, and rgba32f. Named SSBOs are persistent, zero-initialized, and shared across passes by name, so OpenGL 4.3 image load/store and atomics are available without packing structured state into RGBA textures. Ordinary shaders still run on the OpenGL 4.1 compatibility path when 4.3 is unavailable.
+Compute sources implement mainCompute(ivec2 coord). The host supplies a writable image2D named iOutput plus the normal timing/input uniforms, iIteration, and configured iChannel samplers. Local workgroups are two-dimensional, so local_size Z must be 1. Available target formats are r32f, rg32f, rgba16f, and rgba32f. Named SSBOs are persistent, zero-initialized, and shared across passes by name, so OpenGL 4.3 image load/store and atomics are available without packing structured state into RGBA textures. Ordinary shaders still run on the OpenGL 4.1 compatibility path when 4.3 is unavailable.
 
 Buffer and compute passes can also expose up to eight render targets with extra_outputs. Fragment shaders write locations 1..N with normal GLSL layout(location = N) outputs; compute shaders receive iOutput1, iOutput2, and so on. Consumers select a target with output = N on the pass input.
 

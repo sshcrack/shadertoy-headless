@@ -1,3 +1,4 @@
+use crate::manifest::RenderFormat;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -7,7 +8,8 @@ use std::path::Path;
 
 const MAGIC: &[u8; 8] = b"STSTATE1";
 const LEGACY_STATE_FORMAT: u32 = 1;
-const STATE_FORMAT: u32 = 2;
+const DIMENSION_STATE_FORMAT: u32 = 2;
+const STATE_FORMAT: u32 = 3;
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 const MAX_BUFFERS: usize = 64;
 
@@ -29,6 +31,8 @@ pub struct StateHeader {
     pub buffers: Vec<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub buffer_dimensions: BTreeMap<String, BufferDimensions>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub buffer_formats: BTreeMap<String, RenderFormat>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +52,7 @@ impl StateFile {
         frame: i32,
         buffers: BTreeMap<String, Vec<f32>>,
         buffer_dimensions: BTreeMap<String, BufferDimensions>,
+        buffer_formats: BTreeMap<String, RenderFormat>,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         if !fps.is_finite() || fps <= 0.0 || fps > crate::manifest::MAX_RENDER_FPS {
@@ -91,6 +96,16 @@ impl StateFile {
                 bail!("state buffer dimensions reference unknown buffer '{name}'");
             }
         }
+        for name in buffer_formats.keys() {
+            if !buffers.contains_key(name) {
+                bail!("state buffer formats reference unknown buffer '{name}'");
+            }
+        }
+        for name in buffers.keys() {
+            if !buffer_formats.contains_key(name) {
+                bail!("state buffer '{name}' is missing its render format");
+            }
+        }
         let names = buffers.keys().cloned().collect();
         Ok(Self {
             header: StateHeader {
@@ -103,6 +118,7 @@ impl StateFile {
                 frame,
                 buffers: names,
                 buffer_dimensions,
+                buffer_formats,
             },
             buffers,
         })
@@ -378,16 +394,23 @@ fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) 
 }
 
 fn validate_header(header: &StateHeader) -> Result<()> {
-    if header.format != LEGACY_STATE_FORMAT && header.format != STATE_FORMAT {
+    if !matches!(
+        header.format,
+        LEGACY_STATE_FORMAT | DIMENSION_STATE_FORMAT | STATE_FORMAT
+    ) {
         bail!(
-            "unsupported .ststate format {}; supported formats are {} and {}",
+            "unsupported .ststate format {}; supported formats are {}, {}, and {}",
             header.format,
             LEGACY_STATE_FORMAT,
+            DIMENSION_STATE_FORMAT,
             STATE_FORMAT
         );
     }
     if header.format == LEGACY_STATE_FORMAT && !header.buffer_dimensions.is_empty() {
         bail!("legacy .ststate format cannot contain per-buffer dimensions");
+    }
+    if header.format < STATE_FORMAT && !header.buffer_formats.is_empty() {
+        bail!("legacy .ststate formats cannot contain per-buffer render formats");
     }
     if header.project.trim().is_empty() {
         bail!("state project name must not be empty");
@@ -423,6 +446,18 @@ fn validate_header(header: &StateHeader) -> Result<()> {
             bail!("state has dimensions for unknown buffer '{name}'");
         }
         validate_dimensions(dimensions.width, dimensions.height)?;
+    }
+    for name in header.buffer_formats.keys() {
+        if !names.contains(name.as_str()) {
+            bail!("state has a render format for unknown buffer '{name}'");
+        }
+    }
+    if header.format == STATE_FORMAT {
+        for name in &header.buffers {
+            if !header.buffer_formats.contains_key(name) {
+                bail!("state buffer '{name}' is missing its render format");
+            }
+        }
     }
     Ok(())
 }
@@ -466,6 +501,7 @@ mod tests {
             frame: 0,
             buffers,
             buffer_dimensions: BTreeMap::new(),
+            buffer_formats: BTreeMap::new(),
         }
     }
 
@@ -496,5 +532,28 @@ mod tests {
             },
         );
         assert!(validate_header(&value).is_err());
+    }
+    #[test]
+    fn legacy_v2_header_without_render_formats_remains_valid() {
+        let mut value = header(vec!["buffer-a".into()]);
+        value.format = DIMENSION_STATE_FORMAT;
+        value.buffer_dimensions.insert(
+            "buffer-a".into(),
+            BufferDimensions {
+                width: 1,
+                height: 1,
+            },
+        );
+        assert!(validate_header(&value).is_ok());
+    }
+
+    #[test]
+    fn current_header_requires_render_format_for_every_buffer() {
+        let mut value = header(vec!["buffer-a".into()]);
+        assert!(validate_header(&value).is_err());
+        value
+            .buffer_formats
+            .insert("buffer-a".into(), RenderFormat::Rg32f);
+        assert!(validate_header(&value).is_ok());
     }
 }

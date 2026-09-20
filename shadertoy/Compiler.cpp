@@ -123,6 +123,8 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                 static_cast<uint64_t>(shader.localSizeX) * shader.localSizeY * shader.localSizeZ;
             if(invocations > 1024)
                 throw Error("Compute local workgroup size exceeds 1024 invocations: " + node->name);
+            if(shader.localSizeZ != 1)
+                throw Error("Compute local workgroup Z size must be 1 for the 2D mainCompute entrypoint: " + node->name);
         }
         if(node->getNodeType() == NodeType::CubeMap) {
             if(!shader.extraRenderFormats.empty())
@@ -215,7 +217,13 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                 const auto& shader = dynamic_cast<const GLSLShader&>(*node);
                 std::vector<std::pair<uint32_t, BufferId>> storageBuffers;
                 storageBuffers.reserve(shader.storageBuffers.size());
+                std::unordered_set<uint32_t> usedStorageBindings;
                 for(const auto& storage : shader.storageBuffers) {
+                    if(storage.name.empty() || storage.size == 0)
+                        throw Error("Storage buffers require a name and positive size: " + node->name);
+                    if(!usedStorageBindings.emplace(storage.binding).second)
+                        throw Error("Duplicate storage buffer binding " + std::to_string(storage.binding) +
+                                    " in pass " + node->name);
                     auto found = storageBufferMap.find(storage.name);
                     if(found == storageBufferMap.end()) {
                         const auto id = pipeline->createStorageBuffer(storage.size);
