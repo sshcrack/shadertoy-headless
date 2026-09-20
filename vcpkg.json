@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "shadertoy",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "dependencies": [
     "fmt",
     {
