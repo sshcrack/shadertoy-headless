@@ -4,6 +4,12 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.6
+
+- Added fixed per-buffer render resolutions for stable simulation/FFT grids while preserving output-sized behavior by default.
+- Added per-channel sampler controls for nearest/linear/mipmap filtering and clamp/repeat wrapping, including independent sampler state when the same source is bound multiple times.
+- Hardened fixed-buffer state restore, mixed-resolution channel reporting, native dimension validation, and raw shader channel-slot validation.
+
 ## 2.1.5
 
 - Fixed the Windows release triplet selection: the static triplet must be passed via `VCPKG_DEFAULT_TRIPLET` (the env var the vcpkg tool honors in manifest mode), not `VCPKG_TARGET_TRIPLET` (only read as a CMake variable, so 2.1.3/2.1.4 silently built the dynamic triplet again).
