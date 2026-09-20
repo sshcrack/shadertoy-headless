@@ -95,9 +95,10 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
     if(!pipeline)
         throw Error("Failed to create the OpenGL pipeline");
 
-    std::unordered_map<const Node*, DoubleBufferedTex> textureMap;
+    std::unordered_map<const Node*, std::vector<DoubleBufferedTex>> textureMap;
     std::unordered_map<const Node*, Vec2> textureSizeMap;
     std::unordered_map<const Node*, std::vector<DoubleBufferedFB>> frameBufferMap;
+    std::unordered_map<std::string, std::pair<uint64_t, BufferId>> storageBufferMap;
 
     // Allocate render targets first so LastFrame nodes can refer to a pass that
     // appears later in execution order.
@@ -105,10 +106,38 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
         if(node->getNodeClass() != NodeClass::GLSLShader)
             continue;
 
-        if(node->getNodeType() == NodeType::Image) {
-            const auto& shader = dynamic_cast<const GLSLShader&>(*node);
+        const auto& shader = dynamic_cast<const GLSLShader&>(*node);
+        if(shader.extraRenderFormats.size() > 7)
+            throw Error("A shader pass may expose at most 8 render targets: " + node->name);
+        if(shader.iterations == 0 || shader.iterations > 4096)
+            throw Error("Shader pass iterations must be in the range 1..4096: " + node->name);
+        if(node->getNodeType() != NodeType::Compute && shader.iterations != 1)
+            throw Error("Pass iterations are only supported for compute shaders: " + node->name);
+        if(node->getNodeType() != NodeType::Compute &&
+           (shader.localSizeX != 8 || shader.localSizeY != 8 || shader.localSizeZ != 1))
+            throw Error("Compute local size is only supported for compute shaders: " + node->name);
+        if(node->getNodeType() == NodeType::Compute) {
+            if(shader.localSizeX == 0 || shader.localSizeY == 0 || shader.localSizeZ == 0)
+                throw Error("Compute local sizes must be positive: " + node->name);
+            const uint64_t invocations =
+                static_cast<uint64_t>(shader.localSizeX) * shader.localSizeY * shader.localSizeZ;
+            if(invocations > 1024)
+                throw Error("Compute local workgroup size exceeds 1024 invocations: " + node->name);
+        }
+        if(node->getNodeType() == NodeType::CubeMap) {
+            if(!shader.extraRenderFormats.empty())
+                throw Error("Cubemap shaders cannot expose extra render targets: " + node->name);
+            if(shader.renderFormat != RenderFormat::RGBA32F)
+                throw Error("Cubemap shaders do not support explicit render formats: " + node->name);
+        }
+        if(node == directRenderNode && shader.renderFormat != RenderFormat::RGBA32F)
+            throw Error("The final image pass cannot use an explicit offscreen render format");
+
+        if(node->getNodeType() == NodeType::Image || node->getNodeType() == NodeType::Compute) {
             if((shader.fixedWidth == 0) != (shader.fixedHeight == 0))
                 throw Error("Shader pass has a partial fixed resolution: " + node->name);
+            if(node->getNodeType() == NodeType::Compute && shader.fixedWidth == 0)
+                throw Error("Compute pass requires a fixed resolution: " + node->name);
             if(shader.fixedWidth != 0) {
                 if(node == directRenderNode)
                     throw Error("The final image pass cannot have a fixed offscreen resolution");
@@ -118,13 +147,24 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                 textureSizeMap.emplace(
                     node, Vec2{ static_cast<float>(shader.fixedWidth), static_cast<float>(shader.fixedHeight) });
             }
-            DoubleBufferedFB target{ nullptr };
-            if(requiredDoubleBuffer.contains(node)) {
-                target = DoubleBufferedFB{ pipeline->createFrameBuffer(), pipeline->createFrameBuffer() };
-            } else if(node != directRenderNode) {
-                target = DoubleBufferedFB{ pipeline->createFrameBuffer() };
+            if(node == directRenderNode && !shader.extraRenderFormats.empty())
+                throw Error("The final image pass cannot expose extra render targets");
+            std::vector<DoubleBufferedFB> targets;
+            std::vector<RenderFormat> formats;
+            formats.reserve(1 + shader.extraRenderFormats.size());
+            formats.push_back(shader.renderFormat);
+            formats.insert(formats.end(), shader.extraRenderFormats.begin(), shader.extraRenderFormats.end());
+            targets.reserve(formats.size());
+            for(const auto format : formats) {
+                if(requiredDoubleBuffer.contains(node)) {
+                    targets.emplace_back(pipeline->createFrameBuffer(format), pipeline->createFrameBuffer(format));
+                } else if(node != directRenderNode) {
+                    targets.emplace_back(pipeline->createFrameBuffer(format));
+                } else {
+                    targets.emplace_back(nullptr);
+                }
             }
-            frameBufferMap.emplace(node, std::vector<DoubleBufferedFB>{ target });
+            frameBufferMap.emplace(node, std::move(targets));
         } else if(node->getNodeType() == NodeType::CubeMap) {
             if(node == directRenderNode)
                 throw Error("A cubemap pass cannot be the final image output");
@@ -162,40 +202,67 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                         const auto texture = textureMap.find(link->start);
                         if(texture == textureMap.end())
                             throw Error("Shader input was not prepared before its consumer");
+                        if(link->sourceOutput >= texture->second.size())
+                            throw Error("Shader input render-target index is out of range");
                         std::optional<Vec2> size;
                         if(const auto knownSize = textureSizeMap.find(link->start); knownSize != textureSizeMap.end())
                             size = knownSize->second;
-                        channels.push_back(Channel{ link->slot, texture->second, link->filter, link->wrapMode, size });
+                        channels.push_back(
+                            Channel{ link->slot, texture->second[link->sourceOutput], link->filter, link->wrapMode, size });
                     }
                 }
 
                 const auto& shader = dynamic_cast<const GLSLShader&>(*node);
+                std::vector<std::pair<uint32_t, BufferId>> storageBuffers;
+                storageBuffers.reserve(shader.storageBuffers.size());
+                for(const auto& storage : shader.storageBuffers) {
+                    auto found = storageBufferMap.find(storage.name);
+                    if(found == storageBufferMap.end()) {
+                        const auto id = pipeline->createStorageBuffer(storage.size);
+                        found = storageBufferMap.emplace(storage.name, std::pair<uint64_t, BufferId>{ storage.size, id }).first;
+                    } else if(found->second.first != storage.size) {
+                        throw Error("Storage buffer '" + storage.name + "' uses inconsistent sizes");
+                    }
+                    storageBuffers.emplace_back(storage.binding, found->second.second);
+                }
                 try {
                     std::optional<Vec2> fixedResolution;
                     if(shader.fixedWidth != 0)
                         fixedResolution = Vec2{ static_cast<float>(shader.fixedWidth), static_cast<float>(shader.fixedHeight) };
                     pipeline->addPass(node->name, shader.source, shader.nodeType, targets, std::move(channels), fixedResolution,
-                                      node == directRenderNode);
+                                      node == directRenderNode, shader.renderFormat, shader.extraRenderFormats,
+                                      shader.iterations, shader.localSizeX, shader.localSizeY, shader.localSizeZ,
+                                      std::move(storageBuffers));
                 } catch(const std::exception& error) {
                     throw Error("Pass '" + node->name + "': " + error.what());
                 }
 
                 if(targets.front().t1) {
                     const auto texType = shader.nodeType == NodeType::CubeMap ? TexType::CubeMap : TexType::Tex2D;
-                    textureMap.emplace(
-                        node, DoubleBufferedTex{ targets.front().t1->getTexture(), targets.front().t2->getTexture(), texType });
+                    std::vector<DoubleBufferedTex> textures;
+                    if(shader.nodeType == NodeType::CubeMap) {
+                        textures.emplace_back(targets.front().t1->getTexture(), targets.front().t2->getTexture(), texType);
+                    } else {
+                        textures.reserve(targets.size());
+                        for(const auto& target : targets)
+                            textures.emplace_back(target.t1->getTexture(), target.t2->getTexture(), texType);
+                    }
+                    textureMap.emplace(node, std::move(textures));
                 }
                 break;
             }
             case NodeClass::LastFrame: {
                 const auto& lastFrame = dynamic_cast<const LastFrame&>(*node);
-                const auto target = frameBufferMap.at(lastFrame.refNode).front();
+                const auto& refTargets = frameBufferMap.at(lastFrame.refNode);
+                if(lastFrame.refOutput >= refTargets.size())
+                    throw Error("LastFrame render-target index is out of range");
+                const auto target = refTargets[lastFrame.refOutput];
                 if(!target.t1 || !target.t2)
                     throw Error("LastFrame source is not double buffered");
-                textureMap.emplace(node,
-                                   DoubleBufferedTex{ target.t2->getTexture(), target.t1->getTexture(),
-                                                      lastFrame.refNode->getNodeType() == NodeType::CubeMap ? TexType::CubeMap :
-                                                                                                              TexType::Tex2D });
+                textureMap.emplace(
+                    node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{
+                              target.t2->getTexture(), target.t1->getTexture(),
+                              lastFrame.refNode->getNodeType() == NodeType::CubeMap ? TexType::CubeMap : TexType::Tex2D } });
                 if(const auto knownSize = textureSizeMap.find(lastFrame.refNode); knownSize != textureSizeMap.end())
                     textureSizeMap.emplace(node, knownSize->second);
                 break;
@@ -212,7 +279,7 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                     throw Error("Texture node has an invalid pixel payload");
                 const auto id = pipeline->createTexture(texture.width, texture.height, texture.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(texture.width), static_cast<float>(texture.height) });
-                textureMap.emplace(node, DoubleBufferedTex{ id, TexType::Tex2D });
+                textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::Tex2D } });
                 break;
             }
             case NodeClass::CubeMap: {
@@ -223,7 +290,7 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                     throw Error("Cubemap node has an invalid pixel payload");
                 const auto id = pipeline->createCubeMap(texture.size, texture.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(texture.size), static_cast<float>(texture.size) });
-                textureMap.emplace(node, DoubleBufferedTex{ id, TexType::CubeMap });
+                textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::CubeMap } });
                 break;
             }
             case NodeClass::Volume: {
@@ -237,21 +304,21 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                     throw Error("Volume node has an invalid voxel payload");
                 const auto id = pipeline->createVolume(volume.size, volume.channels, volume.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(volume.size), static_cast<float>(volume.size) });
-                textureMap.emplace(node, DoubleBufferedTex{ id, TexType::Tex3D });
+                textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::Tex3D } });
                 break;
             }
             case NodeClass::Keyboard: {
                 const auto id = pipeline->createKeyboardTexture();
                 textureSizeMap.emplace(
                     node, Vec2{ static_cast<float>(KeyboardInput::KeyCount), static_cast<float>(KeyboardInput::Rows) });
-                textureMap.emplace(node, DoubleBufferedTex{ id, TexType::Tex2D });
+                textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::Tex2D } });
                 break;
             }
             case NodeClass::Music: {
                 const auto id = pipeline->createAudioTexture();
                 textureSizeMap.emplace(
                     node, Vec2{ static_cast<float>(AudioInput::TextureWidth), static_cast<float>(AudioInput::TextureHeight) });
-                textureMap.emplace(node, DoubleBufferedTex{ id, TexType::Tex2D });
+                textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::Tex2D } });
                 break;
             }
             case NodeClass::SoundOutput:

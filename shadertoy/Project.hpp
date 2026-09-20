@@ -13,7 +13,7 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
-enum class ProjectPassKind { Image, Buffer, CubeMap };
+enum class ProjectPassKind { Image, Buffer, CubeMap, Compute };
 enum class ProjectInputKind { Pass, Texture, CubeMap, Volume, Keyboard, Music };
 
 struct ProjectInput final {
@@ -23,6 +23,7 @@ struct ProjectInput final {
     bool previousFrame{};
     Filter filter{ Filter::Linear };
     Wrap wrap{ Wrap::Repeat };
+    uint32_t sourceOutput{};
 };
 
 struct ProjectPass final {
@@ -32,6 +33,13 @@ struct ProjectPass final {
     std::vector<ProjectInput> inputs;
     uint32_t width{};
     uint32_t height{};
+    RenderFormat renderFormat{ RenderFormat::RGBA32F };
+    uint32_t iterations{ 1 };
+    uint32_t localSizeX{ 8 };
+    uint32_t localSizeY{ 8 };
+    uint32_t localSizeZ{ 1 };
+    std::vector<StorageBufferBinding> storageBuffers;
+    std::vector<RenderFormat> extraRenderFormats;
 };
 
 struct ProjectTexture final {

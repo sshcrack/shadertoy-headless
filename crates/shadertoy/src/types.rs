@@ -5,6 +5,16 @@ pub enum PassKind {
     Image,
     Buffer,
     Cubemap,
+    Compute,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderFormat {
+    R32f,
+    Rg32f,
+    Rgba16f,
+    #[default]
+    Rgba32f,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use image::ImageReader;
 use shadertoy::{
     Filter as NativeFilter, InputKind as NativeInputKind, PassKind as NativePassKind, Project,
-    Wrap as NativeWrap,
+    RenderFormat as NativeRenderFormat, Wrap as NativeWrap,
 };
 use std::fs;
 use std::path::Path;
@@ -98,18 +98,56 @@ pub fn build_native_project_with_sources(
                 PassKind::Image => NativePassKind::Image,
                 PassKind::Buffer => NativePassKind::Buffer,
                 PassKind::Cubemap => NativePassKind::Cubemap,
+                PassKind::Compute => NativePassKind::Compute,
             },
             source,
         )?;
         if let (Some(width), Some(height)) = (pass.width, pass.height) {
             project.set_pass_resolution(&pass.name, width, height)?;
         }
+        if matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
+            project.set_pass_format(
+                &pass.name,
+                match pass.format {
+                    crate::manifest::RenderFormat::R32f => NativeRenderFormat::R32f,
+                    crate::manifest::RenderFormat::Rg32f => NativeRenderFormat::Rg32f,
+                    crate::manifest::RenderFormat::Rgba16f => NativeRenderFormat::Rgba16f,
+                    crate::manifest::RenderFormat::Rgba32f => NativeRenderFormat::Rgba32f,
+                },
+            )?;
+        }
+        for format in &pass.extra_outputs {
+            project.add_pass_output(
+                &pass.name,
+                match format {
+                    crate::manifest::RenderFormat::R32f => NativeRenderFormat::R32f,
+                    crate::manifest::RenderFormat::Rg32f => NativeRenderFormat::Rg32f,
+                    crate::manifest::RenderFormat::Rgba16f => NativeRenderFormat::Rgba16f,
+                    crate::manifest::RenderFormat::Rgba32f => NativeRenderFormat::Rgba32f,
+                },
+            )?;
+        }
+        if pass.iterations != 1 {
+            project.set_pass_iterations(&pass.name, pass.iterations)?;
+        }
+        if pass.kind == PassKind::Compute {
+            let [x, y, z] = pass.local_size.unwrap_or([8, 8, 1]);
+            project.set_compute_local_size(&pass.name, x, y, z)?;
+        }
+        for storage in &pass.storage {
+            project.bind_storage_buffer(
+                &pass.name,
+                storage.binding,
+                &storage.name,
+                storage.size,
+            )?;
+        }
     }
 
     for pass in &loaded.manifest.passes {
         for input in &pass.inputs {
             let kind = loaded.manifest.infer_input_kind(input)?;
-            project.add_input(
+            project.add_input_output(
                 &pass.name,
                 input.channel.into(),
                 match kind {
@@ -121,6 +159,7 @@ pub fn build_native_project_with_sources(
                     InputKind::Music => NativeInputKind::Music,
                 },
                 &input.source,
+                input.output.into(),
                 input.frame == FrameRef::Previous,
                 match input.filter {
                     Filter::Mipmap => NativeFilter::Mipmap,

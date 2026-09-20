@@ -40,7 +40,7 @@ enum Command {
     Check(ProjectPathArgs),
     /// Build the project into an STTF artifact.
     Build(BuildArgs),
-    /// Deterministically render the final image or a named 2D buffer pass.
+    /// Deterministically render the final image or a named 2D buffer/compute pass.
     Render(RenderArgs),
     /// Render multiple deterministic frames in one runtime, optionally as a contact sheet.
     RenderFrames(RenderFramesArgs),
@@ -147,7 +147,7 @@ struct RenderArgs {
     /// Resume from a previously captured .ststate artifact.
     #[arg(long)]
     state: Option<PathBuf>,
-    /// Override a persistent buffer immediately before the target frame, e.g. buffer-a=fixture.png.
+    /// Override a persistent 2D pass immediately before the target frame, e.g. buffer-a=fixture.png.
     #[arg(long = "set-buffer")]
     set_buffers: Vec<String>,
 }
@@ -273,7 +273,7 @@ enum InspectCommand {
     Pass { name: String },
     /// Inspect one pass's iChannel bindings.
     Channels { name: String },
-    /// Render and inspect a 2D buffer's floating-point contents.
+    /// Render and inspect a 2D buffer/compute pass's floating-point contents.
     Buffer(InspectBufferArgs),
     /// Inspect a .ststate artifact.
     State { path: PathBuf },
@@ -356,7 +356,7 @@ struct PassArgs {
 
 #[derive(Debug, Subcommand)]
 enum PassCommand {
-    /// Add an offscreen buffer/cubemap pass and create a source stub if needed.
+    /// Add an offscreen buffer/cubemap/compute pass and create a source stub if needed.
     Add {
         name: String,
         #[arg(long, value_enum, default_value_t = PassKindArg::Buffer)]
@@ -391,6 +391,9 @@ enum ChannelCommand {
         source: String,
         #[arg(long, value_enum)]
         kind: Option<InputKindArg>,
+        /// Render-target index when the source is a multi-output pass.
+        #[arg(long, default_value_t = 0)]
+        output: u8,
         #[arg(long)]
         previous: bool,
         #[arg(long, value_enum, default_value_t = FilterArg::Linear)]
@@ -457,6 +460,7 @@ enum PassKindArg {
     #[default]
     Buffer,
     Cubemap,
+    Compute,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -667,6 +671,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 channel,
                 source,
                 kind,
+                output,
                 previous,
                 filter,
                 wrap,
@@ -677,6 +682,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                     channel,
                     source,
                     kind: kind.map(Into::into),
+                    output,
                     previous,
                     filter: filter.into(),
                     wrap: wrap.into(),

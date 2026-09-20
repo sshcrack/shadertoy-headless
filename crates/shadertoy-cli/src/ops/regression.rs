@@ -151,9 +151,9 @@ fn run_case_inner(
 
     let numeric_requested = test.assert_no_nan || test.assert_no_inf || test.mean_range.is_some();
     let numeric = if numeric_requested {
-        if pass.kind != PassKind::Buffer {
+        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
             bail!(
-                "numeric assertions require a buffer pass; '{}' is {:?}",
+                "numeric assertions require a buffer/compute pass; '{}' is {:?}",
                 pass.name,
                 pass.kind
             );

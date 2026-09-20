@@ -33,7 +33,7 @@ pub fn add_pass(
                 .replace('\\', "/");
             PathBuf::from(value)
         }
-        None => default_pass_source(&loaded, name),
+        None => default_pass_source(&loaded, name, kind),
     };
     let source_text = source_rel
         .to_str()
@@ -51,8 +51,21 @@ pub fn add_pass(
             name: name.to_string(),
             kind,
             source: source_text,
-            width: None,
-            height: None,
+            width: if kind == PassKind::Compute {
+                Some(256)
+            } else {
+                None
+            },
+            height: if kind == PassKind::Compute {
+                Some(256)
+            } else {
+                None
+            },
+            format: crate::manifest::RenderFormat::default(),
+            extra_outputs: Vec::new(),
+            iterations: 1,
+            local_size: None,
+            storage: Vec::new(),
             inputs: Vec::new(),
         },
     );
@@ -146,6 +159,7 @@ pub struct ChannelSetOptions {
     pub channel: u8,
     pub source: String,
     pub kind: Option<crate::manifest::InputKind>,
+    pub output: u8,
     pub previous: bool,
     pub filter: crate::manifest::Filter,
     pub wrap: crate::manifest::Wrap,
@@ -156,6 +170,7 @@ pub fn set_channel(project_path: &Path, options: &ChannelSetOptions) -> Result<O
     let channel = options.channel;
     let source = options.source.as_str();
     let kind = options.kind;
+    let output = options.output;
     let previous = options.previous;
     let filter = options.filter;
     let wrap = options.wrap;
@@ -176,6 +191,7 @@ pub fn set_channel(project_path: &Path, options: &ChannelSetOptions) -> Result<O
         channel,
         source: source.to_string(),
         kind,
+        output: options.output,
         frame: if previous {
             FrameRef::Previous
         } else {
@@ -205,6 +221,7 @@ pub fn set_channel(project_path: &Path, options: &ChannelSetOptions) -> Result<O
             "pass": pass_name,
             "channel": channel,
             "source": source,
+            "output": output,
             "previous": previous,
             "filter": format!("{filter:?}").to_lowercase(),
             "wrap": format!("{wrap:?}").to_lowercase(),
@@ -243,7 +260,7 @@ pub fn remove_channel(project_path: &Path, pass_name: &str, channel: u8) -> Resu
     })
 }
 
-fn default_pass_source(loaded: &LoadedManifest, name: &str) -> PathBuf {
+fn default_pass_source(loaded: &LoadedManifest, name: &str, kind: PassKind) -> PathBuf {
     let base = slug(name);
     for suffix in 1usize.. {
         let stem = if suffix == 1 {
@@ -251,7 +268,12 @@ fn default_pass_source(loaded: &LoadedManifest, name: &str) -> PathBuf {
         } else {
             format!("{base}-{suffix}")
         };
-        let candidate = PathBuf::from(format!("shaders/{stem}.frag"));
+        let extension = if kind == PassKind::Compute {
+            "comp"
+        } else {
+            "frag"
+        };
+        let candidate = PathBuf::from(format!("shaders/{stem}.{extension}"));
         let serialized = candidate.to_string_lossy();
         if !loaded
             .manifest
@@ -323,5 +345,6 @@ fn pass_stub(kind: PassKind) -> &'static str {
     match kind {
         PassKind::Buffer | PassKind::Image => crate::include_file!("templates/pass/buffer.frag"),
         PassKind::Cubemap => crate::include_file!("templates/pass/cubemap.frag"),
+        PassKind::Compute => crate::include_file!("templates/pass/compute.comp"),
     }
 }

@@ -20,6 +20,7 @@
 SHADERTOY_NAMESPACE_BEGIN
 
 using TextureId = uintptr_t;
+using BufferId = uintptr_t;
 
 enum class TexType {
     Tex2D,
@@ -125,10 +126,14 @@ public:
     Pipeline& operator=(Pipeline&&) = delete;
     virtual ~Pipeline() = default;
 
-    virtual FrameBuffer* createFrameBuffer() = 0;
+    virtual FrameBuffer* createFrameBuffer(RenderFormat format = RenderFormat::RGBA32F) = 0;
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
+    virtual BufferId createStorageBuffer(uint64_t size) = 0;
     virtual void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
-                         std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput) = 0;
+                         std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput,
+                         RenderFormat format, std::vector<RenderFormat> extraFormats, uint32_t iterations,
+                         uint32_t localSizeX, uint32_t localSizeY, uint32_t localSizeZ,
+                         std::vector<std::pair<uint32_t, BufferId>> storageBuffers) = 0;
     virtual void reloadPassSource(std::string_view passName, const std::string& src) = 0;
     virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size, const ShaderToyUniform& uniform) = 0;
     virtual void setProfilingEnabled(bool enabled) = 0;

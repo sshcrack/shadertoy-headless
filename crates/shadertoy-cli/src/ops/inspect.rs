@@ -145,8 +145,8 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
         .iter()
         .find(|pass| pass.name == options.pass)
         .with_context(|| format!("unknown pass '{}'", options.pass))?;
-    if pass.kind != PassKind::Buffer {
-        bail!("runtime buffer inspection requires a 2D buffer pass");
+    if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
+        bail!("runtime buffer inspection requires a 2D buffer/compute pass");
     }
 
     let (width, height) =
@@ -234,7 +234,7 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
             "ok": true,
             "project": loaded.manifest.project.name,
             "pass": pass.name,
-            "format": "rgba32f",
+            "format": format!("{:?}", pass.format).to_lowercase(),
             "width": pass_width,
             "height": pass_height,
             "frame": runtime.frame(),

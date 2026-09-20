@@ -206,8 +206,24 @@ namespace {
                 return ShaderToy::ProjectPassKind::Buffer;
             case ST_PASS_CUBEMAP:
                 return ShaderToy::ProjectPassKind::CubeMap;
+            case ST_PASS_COMPUTE:
+                return ShaderToy::ProjectPassKind::Compute;
         }
         throw std::runtime_error("Unknown pass kind");
+    }
+
+    ShaderToy::RenderFormat renderFormat(const st_render_format format) {
+        switch(format) {
+            case ST_RENDER_R32F:
+                return ShaderToy::RenderFormat::R32F;
+            case ST_RENDER_RG32F:
+                return ShaderToy::RenderFormat::RG32F;
+            case ST_RENDER_RGBA16F:
+                return ShaderToy::RenderFormat::RGBA16F;
+            case ST_RENDER_RGBA32F:
+                return ShaderToy::RenderFormat::RGBA32F;
+        }
+        throw std::runtime_error("Unknown render format");
     }
 
     ShaderToy::ProjectInputKind inputKind(const st_input_kind kind) {
@@ -322,15 +338,23 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
             if(egl().chooseConfig(display, configAttributes, &config, 1, &configCount) != EGL_TRUE || configCount < 1)
                 throw std::runtime_error(eglFailure("Failed to choose EGL OpenGL config"));
 
-            constexpr EGLint contextAttributes[] = {
+            constexpr EGLint context43Attributes[] = {
+                EGL_CONTEXT_MAJOR_VERSION_KHR, 4,
+                EGL_CONTEXT_MINOR_VERSION_KHR, 3,
+                EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
+                EGL_NONE,
+            };
+            constexpr EGLint context41Attributes[] = {
                 EGL_CONTEXT_MAJOR_VERSION_KHR, 4,
                 EGL_CONTEXT_MINOR_VERSION_KHR, 1,
                 EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR,
                 EGL_NONE,
             };
-            context = egl().createContext(display, config, EGL_NO_CONTEXT, contextAttributes);
+            context = egl().createContext(display, config, EGL_NO_CONTEXT, context43Attributes);
             if(context == EGL_NO_CONTEXT)
-                throw std::runtime_error(eglFailure("Failed to create EGL OpenGL 4.1 core context"));
+                context = egl().createContext(display, config, EGL_NO_CONTEXT, context41Attributes);
+            if(context == EGL_NO_CONTEXT)
+                throw std::runtime_error(eglFailure("Failed to create EGL OpenGL 4.3 or 4.1 core context"));
 
             const auto displayExtensions = egl().queryString(display, EGL_EXTENSIONS);
             if(!hasExtension(displayExtensions, "EGL_KHR_surfaceless_context")) {
@@ -373,17 +397,24 @@ st_context* st_context_create_hidden(const uint32_t width, const uint32_t height
 
         glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
         glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-#endif
         auto* window = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height), "shadertoy-cli", nullptr, nullptr);
+#else
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        auto* window = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height), "shadertoy-cli", nullptr, nullptr);
+        if(!window) {
+            glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+            window = glfwCreateWindow(static_cast<int>(width), static_cast<int>(height), "shadertoy-cli", nullptr, nullptr);
+        }
+#endif
         if(!window) {
             std::scoped_lock lock(glfwMutex);
             if(--glfwUsers == 0)
                 glfwTerminate();
-            throw std::runtime_error(lastError.empty() ? "Failed to create hidden OpenGL context" : lastError);
+            throw std::runtime_error(lastError.empty() ? "Failed to create hidden OpenGL 4.3 or 4.1 context" : lastError);
         }
         glfwMakeContextCurrent(window);
         lastError.clear();
@@ -463,7 +494,11 @@ int st_project_add_pass(st_project* project, const char* name, const st_pass_kin
             throw std::runtime_error("Pass name must not be empty");
         if(!source || !*source)
             throw std::runtime_error("Pass source must not be empty");
-        project->description.passes.push_back(ShaderToy::ProjectPass{ name, passKind(kind), source, {}, 0, 0 });
+        ShaderToy::ProjectPass pass;
+        pass.name = name;
+        pass.kind = passKind(kind);
+        pass.source = source;
+        project->description.passes.push_back(std::move(pass));
     });
 }
 
@@ -482,15 +517,109 @@ int st_project_set_pass_resolution(st_project* project, const char* passName, co
                                        [&](const auto& value) { return value.name == passName; });
         if(pass == project->description.passes.end())
             throw std::runtime_error("Unknown pass: " + std::string(passName));
-        if(pass->kind != ShaderToy::ProjectPassKind::Buffer)
-            throw std::runtime_error("Fixed pass resolution is only supported for buffer passes");
+        if(pass->kind != ShaderToy::ProjectPassKind::Buffer && pass->kind != ShaderToy::ProjectPassKind::Compute)
+            throw std::runtime_error("Fixed pass resolution is only supported for buffer/compute passes");
         pass->width = width;
         pass->height = height;
     });
 }
 
-int st_project_add_input(st_project* project, const char* passName, const uint32_t channel, const st_input_kind kind,
-                         const char* source, const int previousFrame, const st_filter filter, const st_wrap wrap) {
+int st_project_set_pass_format(st_project* project, const char* passName, const st_render_format format) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        if(pass->kind == ShaderToy::ProjectPassKind::Image || pass->kind == ShaderToy::ProjectPassKind::CubeMap)
+            throw std::runtime_error("Explicit render formats are only supported for buffer/compute passes");
+        pass->renderFormat = renderFormat(format);
+    });
+}
+
+int st_project_add_pass_output(st_project* project, const char* passName, const st_render_format format) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        if(pass->kind != ShaderToy::ProjectPassKind::Buffer && pass->kind != ShaderToy::ProjectPassKind::Compute)
+            throw std::runtime_error("Multiple render targets are only supported for buffer/compute passes");
+        if(pass->extraRenderFormats.size() >= 7)
+            throw std::runtime_error("A pass may expose at most 8 render targets");
+        pass->extraRenderFormats.push_back(renderFormat(format));
+    });
+}
+
+int st_project_set_pass_iterations(st_project* project, const char* passName, const uint32_t iterations) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(iterations == 0 || iterations > 4096)
+            throw std::runtime_error("Pass iterations must be in the range 1..4096");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        if(pass->kind != ShaderToy::ProjectPassKind::Compute)
+            throw std::runtime_error("Pass iterations are only valid for compute passes");
+        pass->iterations = iterations;
+    });
+}
+
+int st_project_set_compute_local_size(st_project* project, const char* passName, const uint32_t x, const uint32_t y,
+                                      const uint32_t z) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(x == 0 || y == 0 || z == 0 || static_cast<uint64_t>(x) * y * z > 1024)
+            throw std::runtime_error("Compute local workgroup size must be positive and at most 1024 invocations");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        if(pass->kind != ShaderToy::ProjectPassKind::Compute)
+            throw std::runtime_error("Local workgroup size is only valid for compute passes");
+        pass->localSizeX = x;
+        pass->localSizeY = y;
+        pass->localSizeZ = z;
+    });
+}
+
+int st_project_bind_storage_buffer(st_project* project, const char* passName, const uint32_t binding, const char* name,
+                                   const uint64_t size) {
+    return guard([&] {
+        if(!project)
+            throw std::runtime_error("Project is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(!name || !*name)
+            throw std::runtime_error("Storage buffer name must not be empty");
+        if(size == 0)
+            throw std::runtime_error("Storage buffer size must be positive");
+        const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
+                                       [&](const auto& value) { return value.name == passName; });
+        if(pass == project->description.passes.end())
+            throw std::runtime_error("Unknown pass: " + std::string(passName));
+        pass->storageBuffers.push_back(ShaderToy::StorageBufferBinding{ name, binding, size });
+    });
+}
+
+namespace {
+int addProjectInput(st_project* project, const char* passName, const uint32_t channel, const st_input_kind kind,
+                    const char* source, const uint32_t sourceOutput, const int previousFrame, const st_filter filter,
+                    const st_wrap wrap) {
     return guard([&] {
         if(!project)
             throw std::runtime_error("Project is null");
@@ -507,6 +636,8 @@ int st_project_add_input(st_project* project, const char* passName, const uint32
                 throw std::runtime_error("Pass/resource input source must not be empty");
             sourceName = source;
         }
+        if(kind != ST_INPUT_PASS && sourceOutput != 0)
+            throw std::runtime_error("Only pass inputs can select a nonzero render output");
 
         pass->inputs.push_back(ShaderToy::ProjectInput{
             channel,
@@ -515,8 +646,21 @@ int st_project_add_input(st_project* project, const char* passName, const uint32
             previousFrame != 0,
             filterKind(filter),
             wrapKind(wrap),
+            sourceOutput,
         });
     });
+}
+} // namespace
+
+int st_project_add_input(st_project* project, const char* passName, const uint32_t channel, const st_input_kind kind,
+                         const char* source, const int previousFrame, const st_filter filter, const st_wrap wrap) {
+    return addProjectInput(project, passName, channel, kind, source, 0, previousFrame, filter, wrap);
+}
+
+int st_project_add_input_output(st_project* project, const char* passName, const uint32_t channel, const st_input_kind kind,
+                                const char* source, const uint32_t sourceOutput, const int previousFrame,
+                                const st_filter filter, const st_wrap wrap) {
+    return addProjectInput(project, passName, channel, kind, source, sourceOutput, previousFrame, filter, wrap);
 }
 
 int st_project_add_texture_rgba8(st_project* project, const char* name, const uint32_t width, const uint32_t height,

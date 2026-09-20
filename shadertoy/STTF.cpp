@@ -60,8 +60,48 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                         shader->fixedHeight = node.at("height").get<uint32_t>();
                         if(shader->fixedWidth == 0 || shader->fixedHeight == 0)
                             throw Error("Shader fixed resolution must be positive");
-                        if(shader->nodeType != NodeType::Image)
-                            throw Error("Fixed resolution is only supported for 2D image/buffer shaders");
+                        if(shader->nodeType != NodeType::Image && shader->nodeType != NodeType::Compute)
+                            throw Error("Fixed resolution is only supported for 2D image/buffer or compute shaders");
+                    }
+                    if(shader->nodeType == NodeType::Compute && !hasWidth)
+                        throw Error("Compute shaders require a fixed resolution");
+                    if(node.contains("format"))
+                        shader->renderFormat = parseEnum<RenderFormat>(node.at("format"), "render format");
+                    if(node.contains("iterations"))
+                        shader->iterations = node.at("iterations").get<uint32_t>();
+                    if(shader->iterations == 0 || shader->iterations > 4096)
+                        throw Error("Shader iterations must be in the range 1..4096");
+                    if(node.contains("localSize")) {
+                        const auto& local = node.at("localSize");
+                        if(!local.is_array() || local.size() != 3)
+                            throw Error("Compute localSize must contain exactly three integers");
+                        shader->localSizeX = local.at(0).get<uint32_t>();
+                        shader->localSizeY = local.at(1).get<uint32_t>();
+                        shader->localSizeZ = local.at(2).get<uint32_t>();
+                    }
+                    if(shader->nodeType == NodeType::Compute) {
+                        if(shader->localSizeX == 0 || shader->localSizeY == 0 || shader->localSizeZ == 0)
+                            throw Error("Compute local sizes must be positive");
+                        const uint64_t invocations = static_cast<uint64_t>(shader->localSizeX) * shader->localSizeY * shader->localSizeZ;
+                        if(invocations > 1024)
+                            throw Error("Compute local workgroup size exceeds 1024 invocations");
+                    }
+                    if(node.contains("storageBuffers")) {
+                        for(const auto& storage : node.at("storageBuffers")) {
+                            StorageBufferBinding binding;
+                            binding.name = storage.at("name").get<std::string>();
+                            binding.binding = storage.at("binding").get<uint32_t>();
+                            binding.size = storage.at("size").get<uint64_t>();
+                            if(binding.name.empty() || binding.size == 0)
+                                throw Error("Storage buffers require a name and positive size");
+                            shader->storageBuffers.push_back(std::move(binding));
+                        }
+                    }
+                    if(node.contains("extraRenderFormats")) {
+                        for(const auto& format : node.at("extraRenderFormats"))
+                            shader->extraRenderFormats.push_back(parseEnum<RenderFormat>(format, "render format"));
+                        if(shader->extraRenderFormats.size() > 7)
+                            throw Error("A shader may expose at most 8 render targets");
                     }
                     nodeValue = std::move(shader);
                     break;
@@ -114,7 +154,8 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                 }
                 case NodeClass::LastFrame:
                     nodeValue = std::make_unique<LastFrame>(node.at("ref").get<std::string>(),
-                                                            parseEnum<NodeType>(node.at("type"), "node type"));
+                                                            parseEnum<NodeType>(node.at("type"), "node type"),
+                                                            node.value("refOutput", 0U));
                     break;
                 case NodeClass::Keyboard:
                     nodeValue = std::make_unique<Keyboard>();
@@ -156,6 +197,7 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                 parseEnum<Filter>(link.at("filter"), "filter"),
                 parseEnum<Wrap>(link.at("wrapMode"), "wrap mode"),
                 link.at("slot").get<uint32_t>(),
+                link.value("sourceOutput", 0U),
             });
         }
 
@@ -198,6 +240,27 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
                         jsonNode["width"] = shader.fixedWidth;
                         jsonNode["height"] = shader.fixedHeight;
                     }
+                    if(shader.renderFormat != RenderFormat::RGBA32F)
+                        jsonNode["format"] = magic_enum::enum_name(shader.renderFormat);
+                    if(shader.iterations != 1)
+                        jsonNode["iterations"] = shader.iterations;
+                    if(shader.nodeType == NodeType::Compute)
+                        jsonNode["localSize"] = { shader.localSizeX, shader.localSizeY, shader.localSizeZ };
+                    if(!shader.storageBuffers.empty()) {
+                        auto& buffers = jsonNode["storageBuffers"];
+                        for(const auto& storage : shader.storageBuffers) {
+                            buffers.push_back({
+                                { "name", storage.name },
+                                { "binding", storage.binding },
+                                { "size", storage.size },
+                            });
+                        }
+                    }
+                    if(!shader.extraRenderFormats.empty()) {
+                        auto& formats = jsonNode["extraRenderFormats"];
+                        for(const auto format : shader.extraRenderFormats)
+                            formats.push_back(magic_enum::enum_name(format));
+                    }
                     break;
                 }
                 case NodeClass::Texture: {
@@ -227,6 +290,8 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
                     const auto& lastFrame = dynamic_cast<const LastFrame&>(*node);
                     jsonNode["ref"] = lastFrame.refNodeName;
                     jsonNode["type"] = magic_enum::enum_name(lastFrame.nodeType);
+                    if(lastFrame.refOutput != 0)
+                        jsonNode["refOutput"] = lastFrame.refOutput;
                     break;
                 }
                 case NodeClass::Unknown:
@@ -236,7 +301,7 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
         }
 
         auto& jsonLinks = json["links"];
-        for(const auto& [start, end, filter, wrapMode, slot] : links) {
+        for(const auto& [start, end, filter, wrapMode, slot, sourceOutput] : links) {
             if(!start || !end)
                 throw Error("Cannot save a link with a null endpoint");
             nlohmann::json jsonLink;
@@ -245,6 +310,8 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
             jsonLink["filter"] = magic_enum::enum_name(filter);
             jsonLink["wrapMode"] = magic_enum::enum_name(wrapMode);
             jsonLink["slot"] = slot;
+            if(sourceOutput != 0)
+                jsonLink["sourceOutput"] = sourceOutput;
             jsonLinks.push_back(std::move(jsonLink));
         }
 

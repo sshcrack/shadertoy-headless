@@ -23,7 +23,14 @@
 SHADERTOY_NAMESPACE_BEGIN
 
 enum class NodeClass { RenderOutput, SoundOutput, GLSLShader, Texture, CubeMap, LastFrame, Keyboard, Music, Volume, Unknown };
-enum class NodeType { Image, CubeMap, Volume, Sound };
+enum class NodeType { Image, CubeMap, Volume, Sound, Compute };
+enum class RenderFormat { R32F, RG32F, RGBA16F, RGBA32F };
+
+struct StorageBufferBinding final {
+    std::string name;
+    uint32_t binding{};
+    uint64_t size{};
+};
 enum class Filter { Mipmap, Linear, Nearest };
 enum class Wrap { Clamp, Repeat };
 
@@ -66,6 +73,13 @@ struct GLSLShader final : Node {
     NodeType nodeType;
     uint32_t fixedWidth{};
     uint32_t fixedHeight{};
+    RenderFormat renderFormat{ RenderFormat::RGBA32F };
+    uint32_t iterations{ 1 };
+    uint32_t localSizeX{ 8 };
+    uint32_t localSizeY{ 8 };
+    uint32_t localSizeZ{ 1 };
+    std::vector<StorageBufferBinding> storageBuffers;
+    std::vector<RenderFormat> extraRenderFormats;
 
     GLSLShader(std::string src, const NodeType type) : source{ std::move(src) }, nodeType{ type } {}
     [[nodiscard]] NodeClass getNodeClass() const noexcept override {
@@ -80,9 +94,10 @@ struct LastFrame final : Node {
     std::string refNodeName;
     Node* refNode = nullptr;
     NodeType nodeType;
+    uint32_t refOutput{};
 
-    LastFrame(std::string refNodeNameVal, const NodeType nodeTypeVal)
-        : refNodeName{ std::move(refNodeNameVal) }, nodeType{ nodeTypeVal } {}
+    LastFrame(std::string refNodeNameVal, const NodeType nodeTypeVal, const uint32_t refOutputVal = 0)
+        : refNodeName{ std::move(refNodeNameVal) }, nodeType{ nodeTypeVal }, refOutput{ refOutputVal } {}
     [[nodiscard]] NodeClass getNodeClass() const noexcept override {
         return NodeClass::LastFrame;
     }
@@ -157,6 +172,7 @@ struct Link final {
     Filter filter;
     Wrap wrapMode;
     uint32_t slot;
+    uint32_t sourceOutput{};
 };
 
 struct ShaderToyTransmissionFormat final {

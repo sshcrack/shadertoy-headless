@@ -62,6 +62,28 @@ namespace {
 }  // namespace
 
 static const char* const shaderVersionDirective = "#version 410 core\n";
+static const char* const computeShaderVersionDirective = "#version 430 core\n";
+
+struct GLRenderFormat final {
+    GLint internalFormat;
+    GLenum format;
+    GLenum uploadType;
+    const char* imageQualifier;
+};
+
+[[nodiscard]] constexpr GLRenderFormat renderFormatInfo(const RenderFormat format) {
+    switch(format) {
+        case RenderFormat::R32F:
+            return { GL_R32F, GL_RED, GL_FLOAT, "r32f" };
+        case RenderFormat::RG32F:
+            return { GL_RG32F, GL_RG, GL_FLOAT, "rg32f" };
+        case RenderFormat::RGBA16F:
+            return { GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT, "rgba16f" };
+        case RenderFormat::RGBA32F:
+            return { GL_RGBA32F, GL_RGBA, GL_FLOAT, "rgba32f" };
+    }
+    SHADERTOY_UNREACHABLE();
+}
 static const char* const shaderCubeMapDef = "#define INTERFACE_SHADERTOY_CUBE_MAP\n";
 static const char* const shaderVertexSrc = R"(
 layout (location = 0) in vec2 pos;
@@ -164,6 +186,68 @@ void main() {
 }
 )";
 
+static const char* const shaderComputeHeader = R"(
+uniform vec3      iResolution;
+uniform float     iTime;
+uniform float     iTimeDelta;
+uniform float     iFrameRate;
+uniform int       iFrame;
+uniform int       iIteration;
+uniform vec4      iMouse;
+uniform vec4      iDate;
+uniform vec3      iChannelResolution[4];
+
+uniform vec4 iMusicBands;
+uniform vec4 iMusicHits;
+uniform vec4 iMusicBeat;
+uniform vec4 iMusicStereo;
+uniform vec4 iMusicStructure;
+uniform vec4 iMusicMeta;
+
+#define iAudioLoudness          (iMusicBands.x)
+#define iAudioBass              (iMusicBands.y)
+#define iAudioMid               (iMusicBands.z)
+#define iAudioTreble            (iMusicBands.w)
+#define iAudioOnset             (iMusicHits.x)
+#define iAudioKick              (iMusicHits.y)
+#define iAudioSnare             (iMusicHits.z)
+#define iAudioHihat             (iMusicHits.w)
+#define iAudioBpm               (iMusicBeat.x)
+#define iAudioBeatPhase         (iMusicBeat.y)
+#define iAudioBeatConfidence    (iMusicBeat.z)
+#define iAudioBeatStrength      (iMusicBeat.w)
+#define iAudioStereoWidth       (iMusicStereo.x)
+#define iAudioStereoBalance     (iMusicStereo.y)
+#define iAudioStereoCorrelation (iMusicStereo.z)
+#define iAudioEnergyTrend       (iMusicStereo.w)
+#define iAudioDrop              (iMusicStructure.x)
+#define iAudioSectionChange     (iMusicStructure.y)
+#define iAudioSpectralCentroid  (iMusicStructure.z)
+#define iAudioSpectralFlux      (iMusicStructure.w)
+#define iAudioAvailable         (iMusicMeta.x)
+#define iAudioSilence           (iMusicMeta.y)
+#define iAudioSampleRate        (iMusicMeta.z)
+
+float sampleAudioSpectrum(sampler2D channel, float x) {
+    return texture(channel, vec2(clamp(x, 0.0, 1.0), 0.25)).r;
+}
+float sampleAudioWaveform(sampler2D channel, float x) {
+    return texture(channel, vec2(clamp(x, 0.0, 1.0), 0.75)).r * 2.0 - 1.0;
+}
+
+#define char char_
+)";
+
+static const char* const shaderComputeFooter = R"(
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if(any(greaterThanEqual(coord, ivec2(iResolution.xy))))
+        return;
+    mainCompute(coord);
+}
+)";
+
+
 struct Vertex final {
     Vec2 pos;
     Vec2 coord;
@@ -220,10 +304,21 @@ static void checkShaderCompileError(const GLuint shader, const std::string_view 
 class GLFrameBuffer final : public FrameBuffer {
     GLuint mFBO{};
     GLuint mTexture{};
+    RenderFormat mFormat{ RenderFormat::RGBA32F };
     uint32_t mWidth = 0, mHeight = 0;
 
+    void allocate(const uint32_t width, const uint32_t height, const GLenum type, const void* data) {
+        const auto info = renderFormatInfo(mFormat);
+        glBindTexture(GL_TEXTURE_2D, mTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, info.internalFormat, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0,
+                     GL_RGBA, type, data);
+        glBindTexture(GL_TEXTURE_2D, GL_NONE);
+        mWidth = width;
+        mHeight = height;
+    }
+
 public:
-    GLFrameBuffer() {
+    explicit GLFrameBuffer(const RenderFormat format = RenderFormat::RGBA32F) : mFormat{ format } {
         glGenFramebuffers(1, &mFBO);
         glGenTextures(1, &mTexture);
         glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
@@ -243,15 +338,17 @@ public:
     void bind(const uint32_t width, const uint32_t height) override {
         validateFramebufferDimensions(width, height);
         if(width != mWidth || height != mHeight) {
+            const auto info = renderFormatInfo(mFormat);
             glBindTexture(GL_TEXTURE_2D, mTexture);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
-                         GL_FLOAT, nullptr);
+            glTexImage2D(GL_TEXTURE_2D, 0, info.internalFormat, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0,
+                         info.format, info.uploadType, nullptr);
             glBindTexture(GL_TEXTURE_2D, GL_NONE);
             mWidth = width;
             mHeight = height;
         }
         glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-        assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            throw Error("Framebuffer is incomplete for the selected render format");
     }
     void unbind() override {
         glBindFramebuffer(GL_FRAMEBUFFER, GL_NONE);
@@ -285,24 +382,13 @@ public:
     }
     void writeRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) override {
         validateFramebufferDimensions(width, height);
-        glBindTexture(GL_TEXTURE_2D, mTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, data);
-        glBindTexture(GL_TEXTURE_2D, GL_NONE);
-        mWidth = width;
-        mHeight = height;
+        allocate(width, height, GL_UNSIGNED_BYTE, data);
     }
     void writeRgba32f(const uint32_t width, const uint32_t height, const float* data) override {
         validateFramebufferDimensions(width, height);
-        glBindTexture(GL_TEXTURE_2D, mTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0, GL_RGBA,
-                     GL_FLOAT, data);
-        glBindTexture(GL_TEXTURE_2D, GL_NONE);
-        mWidth = width;
-        mHeight = height;
+        allocate(width, height, GL_FLOAT, data);
     }
 };
-
 static constexpr uint32_t cubeMapRenderTargetSize = 1024;
 class GLCubeMapRenderTarget final {
     GLuint mTex{};
@@ -393,6 +479,7 @@ class RenderPass final {
     GLint mLocationTimeDelta{};
     GLint mLocationFrameRate{};
     GLint mLocationFrame{};
+    GLint mLocationIteration{};
     GLint mLocationMouse{};
     GLint mLocationDate{};
     GLint mLocationMusicBands{};
@@ -407,12 +494,69 @@ class RenderPass final {
     std::array<GLuint, 4> mSamplers{};
     std::optional<Vec2> mFixedResolution;
     bool mClampOutput{};
+    RenderFormat mFormat{ RenderFormat::RGBA32F };
+    std::vector<RenderFormat> mExtraFormats;
+    GLuint mMrtFBO{};
+    uint32_t mIterations{ 1 };
+    uint32_t mLocalSizeX{ 8 };
+    uint32_t mLocalSizeY{ 8 };
+    uint32_t mLocalSizeZ{ 1 };
+    std::vector<std::pair<uint32_t, BufferId>> mStorageBuffers;
     uint32_t mLastWidth{};
     uint32_t mLastHeight{};
 
     [[nodiscard]] GLuint compileProgram(const std::string& src) const {
-        std::string vertexSrc = shaderVersionDirective;
-        std::string pixelSrc = shaderVersionDirective;
+        if(mType == NodeType::Compute) {
+            if(!GLAD_GL_VERSION_4_3)
+                throw Error("Compute passes require OpenGL 4.3 or newer");
+            std::string computeSrc = computeShaderVersionDirective;
+            computeSrc += "layout(local_size_x = " + std::to_string(mLocalSizeX) + ", local_size_y = " +
+                std::to_string(mLocalSizeY) + ", local_size_z = " + std::to_string(mLocalSizeZ) + ") in;\n";
+            std::vector<RenderFormat> outputFormats;
+            outputFormats.reserve(1 + mExtraFormats.size());
+            outputFormats.push_back(mFormat);
+            outputFormats.insert(outputFormats.end(), mExtraFormats.begin(), mExtraFormats.end());
+            for(uint32_t output = 0; output < outputFormats.size(); ++output) {
+                computeSrc += "layout(";
+                computeSrc += renderFormatInfo(outputFormats[output]).imageQualifier;
+                computeSrc += ", binding = " + std::to_string(output) + ") uniform image2D iOutput";
+                if(output != 0)
+                    computeSrc += std::to_string(output);
+                computeSrc += ";\n";
+            }
+            computeSrc += shaderComputeHeader;
+            for(const auto& channel : mChannels) {
+                computeSrc += "uniform sampler";
+                computeSrc += channel.tex.type == TexType::CubeMap ? "Cube" : channel.tex.type == TexType::Tex2D ? "2D" : "3D";
+                computeSrc += " iChannel";
+                computeSrc += static_cast<char>(static_cast<uint32_t>('0') + channel.slot);
+                computeSrc += ";\n";
+            }
+            computeSrc += "#line 1\n";
+            computeSrc += src;
+            computeSrc += shaderComputeFooter;
+
+            const auto* computeSrcData = computeSrc.c_str();
+            const auto shaderCompute = glCreateShader(GL_COMPUTE_SHADER);
+            auto computeGuard = scopeExit([&] { glDeleteShader(shaderCompute); });
+            glShaderSource(shaderCompute, 1, &computeSrcData, nullptr);
+            glCompileShader(shaderCompute);
+            checkShaderCompileError(shaderCompute, "COMPUTE");
+
+            const auto program = glCreateProgram();
+            auto programGuard = scopeFail([&] { glDeleteProgram(program); });
+            glAttachShader(program, shaderCompute);
+            auto computeBindGuard = scopeExit([&] { glDetachShader(program, shaderCompute); });
+            glLinkProgram(program);
+            checkShaderCompileError(program, "PROGRAM");
+            return program;
+        }
+
+        if(!mStorageBuffers.empty() && !GLAD_GL_VERSION_4_3)
+            throw Error("Shader storage buffers require OpenGL 4.3 or newer");
+        const auto* graphicsVersion = mStorageBuffers.empty() ? shaderVersionDirective : computeShaderVersionDirective;
+        std::string vertexSrc = graphicsVersion;
+        std::string pixelSrc = graphicsVersion;
         if(mType == NodeType::CubeMap) {
             vertexSrc += shaderCubeMapDef;
             pixelSrc += shaderCubeMapDef;
@@ -458,7 +602,6 @@ class RenderPass final {
         checkShaderCompileError(program, "PROGRAM");
         return program;
     }
-
     void refreshUniformLocations() {
         auto& mLocationChannel0 = mLocationChannel[0];
         auto& mLocationChannel1 = mLocationChannel[1];
@@ -470,6 +613,7 @@ class RenderPass final {
         SHADERTOY_GET_UNIFORM_LOCATION(TimeDelta);
         SHADERTOY_GET_UNIFORM_LOCATION(FrameRate);
         SHADERTOY_GET_UNIFORM_LOCATION(Frame);
+        SHADERTOY_GET_UNIFORM_LOCATION(Iteration);
         SHADERTOY_GET_UNIFORM_LOCATION(Mouse);
         SHADERTOY_GET_UNIFORM_LOCATION(Date);
         SHADERTOY_GET_UNIFORM_LOCATION(MusicBands);
@@ -491,9 +635,25 @@ class RenderPass final {
 
 public:
     RenderPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer,
-               std::vector<Channel> channels, std::optional<Vec2> fixedResolution, const bool clampOutput)
+               std::vector<Channel> channels, std::optional<Vec2> fixedResolution, const bool clampOutput,
+               const RenderFormat format, std::vector<RenderFormat> extraFormats, const uint32_t iterations,
+               const uint32_t localSizeX, const uint32_t localSizeY, const uint32_t localSizeZ,
+               std::vector<std::pair<uint32_t, BufferId>> storageBuffers)
         : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) },
-          mFixedResolution{ fixedResolution }, mClampOutput{ clampOutput } {
+          mFixedResolution{ fixedResolution }, mClampOutput{ clampOutput }, mFormat{ format },
+          mExtraFormats{ std::move(extraFormats) }, mIterations{ iterations }, mLocalSizeX{ localSizeX },
+          mLocalSizeY{ localSizeY }, mLocalSizeZ{ localSizeZ }, mStorageBuffers{ std::move(storageBuffers) } {
+        if(mBuffers.size() != 1 + mExtraFormats.size() && mType != NodeType::CubeMap)
+            throw Error("Render target count does not match pass output formats");
+        if(mType == NodeType::Image && mBuffers.size() > 1) {
+            GLint maxDrawBuffers = 0;
+            GLint maxColorAttachments = 0;
+            glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+            glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maxColorAttachments);
+            if(mBuffers.size() > static_cast<size_t>(std::min(maxDrawBuffers, maxColorAttachments)))
+                throw Error("Pass render-target count exceeds the OpenGL MRT limit");
+            glGenFramebuffers(1, &mMrtFBO);
+        }
         mProgram = compileProgram(src);
         refreshUniformLocations();
 
@@ -559,6 +719,8 @@ public:
     RenderPass& operator=(const RenderPass&) = delete;
     RenderPass& operator=(RenderPass&&) = delete;
     ~RenderPass() {
+        if(mMrtFBO != 0)
+            glDeleteFramebuffers(1, &mMrtFBO);
         glDeleteSamplers(static_cast<GLsizei>(mSamplers.size()), mSamplers.data());
         glDeleteProgram(mProgram);
     }
@@ -572,22 +734,22 @@ public:
         return !mBuffers.empty() && mBuffers.front().t1 != nullptr;
     }
     [[nodiscard]] std::vector<uint8_t> readRgb() {
-        if(mType != NodeType::Image)
-            throw Error("Only image/buffer passes can be read as RGB");
+        if(mType != NodeType::Image && mType != NodeType::Compute)
+            throw Error("Only image/buffer/compute passes can be read as RGB");
         if(!hasOffscreenTarget())
             throw Error("Final image pass is rendered to the caller framebuffer");
         return mBuffers.front().t1->readRgb();
     }
     [[nodiscard]] std::vector<float> readRgba32f() {
-        if(mType != NodeType::Image)
-            throw Error("Only image/buffer passes can be snapshotted as RGBA32F");
+        if(mType != NodeType::Image && mType != NodeType::Compute)
+            throw Error("Only image/buffer/compute passes can be snapshotted as RGBA32F");
         if(!hasOffscreenTarget())
             throw Error("The final image pass has no persistent buffer state");
         return mBuffers.front().t1->readRgba32f();
     }
     void overrideRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) {
-        if(mType != NodeType::Image)
-            throw Error("Only image/buffer passes can be overridden with a 2D image");
+        if(mType != NodeType::Image && mType != NodeType::Compute)
+            throw Error("Only image/buffer/compute passes can be overridden with a 2D image");
         if(!hasOffscreenTarget())
             throw Error("The final image pass cannot be used as a persistent buffer override");
         if(mFixedResolution &&
@@ -600,8 +762,8 @@ public:
             second->writeRgba8(width, height, data);
     }
     void restoreRgba32f(const uint32_t width, const uint32_t height, const float* data) {
-        if(mType != NodeType::Image)
-            throw Error("Only image/buffer passes can restore RGBA32F state");
+        if(mType != NodeType::Image && mType != NodeType::Compute)
+            throw Error("Only image/buffer/compute passes can restore RGBA32F state");
         if(!hasOffscreenTarget())
             throw Error("The final image pass has no persistent buffer state");
         if(mFixedResolution &&
@@ -615,13 +777,141 @@ public:
     }
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, const Vec2 canvasSize,
                 const ShaderToyUniform& uniform, const GLuint vao, const GLuint vbo) {
+        if(mType == NodeType::Compute) {
+            if(!mFixedResolution || mBuffers.empty())
+                throw Error("Compute pass requires a fixed offscreen target");
+            const auto width = static_cast<uint32_t>(mFixedResolution->x);
+            const auto height = static_cast<uint32_t>(mFixedResolution->y);
+            mLastWidth = width;
+            mLastHeight = height;
+            std::vector<FrameBuffer*> outputs;
+            outputs.reserve(mBuffers.size());
+            for(auto& target : mBuffers) {
+                auto* buffer = target.get();
+                if(!buffer)
+                    throw Error("Compute pass has no output texture");
+                buffer->bind(width, height);
+                buffer->unbind();
+                outputs.push_back(buffer);
+            }
+
+            glUseProgram(mProgram);
+            const Vec2 computeSize{ static_cast<float>(width), static_cast<float>(height) };
+            for(auto& channel : mChannels) {
+                if(mLocationChannelResolution[channel.slot] != -1) {
+                    if(channel.tex.type != TexType::Tex3D) {
+                        const auto texSize =
+                            channel.size.value_or(channel.tex.type == TexType::CubeMap ?
+                                                     Vec2{ static_cast<float>(cubeMapRenderTargetSize),
+                                                           static_cast<float>(cubeMapRenderTargetSize) } :
+                                                     canvasSize);
+                        glUniform3f(mLocationChannelResolution[channel.slot], texSize.x, texSize.y, 1.0f);
+                    } else {
+                        const auto x = channel.size->x;
+                        glUniform3f(mLocationChannelResolution[channel.slot], x, x, x);
+                    }
+                }
+                if(mLocationChannel[channel.slot] == -1)
+                    continue;
+                glUniform1i(mLocationChannel[channel.slot], static_cast<GLint>(channel.slot));
+                glActiveTexture(GL_TEXTURE0 + channel.slot);
+                const auto type = channel.tex.type == TexType::CubeMap ? GL_TEXTURE_CUBE_MAP :
+                    channel.tex.type == TexType::Tex2D                 ? GL_TEXTURE_2D :
+                                                                         GL_TEXTURE_3D;
+                glBindTexture(type, static_cast<GLuint>(channel.tex.get()));
+                if(channel.filter == Filter::Mipmap)
+                    glGenerateMipmap(type);
+                glBindSampler(channel.slot, mSamplers[channel.slot]);
+            }
+
+            for(uint32_t output = 0; output < outputs.size(); ++output) {
+                const auto format = output == 0 ? mFormat : mExtraFormats[output - 1];
+                const auto info = renderFormatInfo(format);
+                glBindImageTexture(output, static_cast<GLuint>(outputs[output]->getTexture()), 0, GL_FALSE, 0, GL_READ_WRITE,
+                                   static_cast<GLenum>(info.internalFormat));
+            }
+            for(const auto& [binding, id] : mStorageBuffers)
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, static_cast<GLuint>(id));
+
+            if(mLocationResolution != -1)
+                glUniform3f(mLocationResolution, computeSize.x, computeSize.y, 0.0f);
+            if(mLocationTime != -1)
+                glUniform1f(mLocationTime, uniform.time);
+            if(mLocationTimeDelta != -1)
+                glUniform1f(mLocationTimeDelta, uniform.timeDelta);
+            if(mLocationFrameRate != -1)
+                glUniform1f(mLocationFrameRate, uniform.frameRate);
+            if(mLocationFrame != -1)
+                glUniform1i(mLocationFrame, uniform.frame);
+            if(mLocationIteration != -1)
+                glUniform1i(mLocationIteration, 0);
+            if(mLocationMouse != -1)
+                glUniform4f(mLocationMouse, uniform.mouse.x, uniform.mouse.y, uniform.mouse.z, uniform.mouse.w);
+            if(mLocationDate != -1)
+                glUniform4f(mLocationDate, uniform.date.x, uniform.date.y, uniform.date.z, uniform.date.w);
+            if(mLocationMusicBands != -1)
+                glUniform4f(mLocationMusicBands, uniform.audioBands.x, uniform.audioBands.y, uniform.audioBands.z,
+                            uniform.audioBands.w);
+            if(mLocationMusicHits != -1)
+                glUniform4f(mLocationMusicHits, uniform.audioHits.x, uniform.audioHits.y, uniform.audioHits.z,
+                            uniform.audioHits.w);
+            if(mLocationMusicBeat != -1)
+                glUniform4f(mLocationMusicBeat, uniform.audioBeat.x, uniform.audioBeat.y, uniform.audioBeat.z,
+                            uniform.audioBeat.w);
+            if(mLocationMusicStereo != -1)
+                glUniform4f(mLocationMusicStereo, uniform.audioStereo.x, uniform.audioStereo.y, uniform.audioStereo.z,
+                            uniform.audioStereo.w);
+            if(mLocationMusicStructure != -1)
+                glUniform4f(mLocationMusicStructure, uniform.audioStructure.x, uniform.audioStructure.y,
+                            uniform.audioStructure.z, uniform.audioStructure.w);
+            if(mLocationMusicMeta != -1)
+                glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z,
+                            uniform.audioMeta.w);
+
+            const auto groupsX = (width + mLocalSizeX - 1U) / mLocalSizeX;
+            const auto groupsY = (height + mLocalSizeY - 1U) / mLocalSizeY;
+            for(uint32_t iteration = 0; iteration < mIterations; ++iteration) {
+                if(mLocationIteration != -1)
+                    glUniform1i(mLocationIteration, static_cast<GLint>(iteration));
+                glDispatchCompute(groupsX, groupsY, 1);
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT |
+                                GL_TEXTURE_FETCH_BARRIER_BIT);
+            }
+
+            for(uint32_t output = 0; output < outputs.size(); ++output)
+                glBindImageTexture(output, 0, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+            for(const auto& [binding, id] : mStorageBuffers) {
+                SHADERTOY_UNUSED(id);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, 0);
+            }
+            for(const auto& channel : mChannels)
+                glBindSampler(channel.slot, 0);
+            glActiveTexture(GL_TEXTURE0);
+            return;
+        }
+
         glDisable(GL_BLEND);
         constexpr Vec2 cubeMapSize{ static_cast<float>(cubeMapRenderTargetSize), static_cast<float>(cubeMapRenderTargetSize) };
         const auto screenBase = clipMin;
         const auto screenSize = Vec2{ clipMax.x - clipMin.x, clipMax.y - clipMin.y };
+        const bool useMrt = mType == NodeType::Image && mBuffers.size() > 1;
+        std::vector<FrameBuffer*> mrtOutputs;
+        if(useMrt) {
+            const auto mrtSize = mFixedResolution.value_or(screenSize);
+            mrtOutputs.reserve(mBuffers.size());
+            for(auto& target : mBuffers) {
+                auto* output = target.get();
+                if(!output)
+                    throw Error("MRT pass requires offscreen render targets");
+                output->bind(static_cast<uint32_t>(mrtSize.x), static_cast<uint32_t>(mrtSize.y));
+                output->unbind();
+                mrtOutputs.push_back(output);
+            }
+        }
 
-        for(uint32_t idx = 0; idx < mBuffers.size(); ++idx) {
-            const auto buffer = mBuffers[idx].get();
+        const auto renderTargetCount = useMrt ? 1U : static_cast<uint32_t>(mBuffers.size());
+        for(uint32_t idx = 0; idx < renderTargetCount; ++idx) {
+            const auto buffer = useMrt ? mrtOutputs.front() : mBuffers[idx].get();
             Vec2 size, base, fbSize, uniformSize;
             if(buffer) {
                 base = { 0, 0 };
@@ -630,7 +920,21 @@ public:
                 uniformSize = mType == NodeType::CubeMap ? cubeMapSize : mFixedResolution.value_or(canvasSize);
                 glViewport(0, 0, static_cast<GLsizei>(size.x), static_cast<GLsizei>(size.y));
                 glDisable(GL_SCISSOR_TEST);
-                buffer->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+                if(useMrt) {
+                    glBindFramebuffer(GL_FRAMEBUFFER, mMrtFBO);
+                    std::array<GLenum, 8> drawBuffers{};
+                    for(uint32_t output = 0; output < mrtOutputs.size(); ++output) {
+                        const auto attachment = GL_COLOR_ATTACHMENT0 + output;
+                        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, GL_TEXTURE_2D,
+                                               static_cast<GLuint>(mrtOutputs[output]->getTexture()), 0);
+                        drawBuffers[output] = attachment;
+                    }
+                    glDrawBuffers(static_cast<GLsizei>(mrtOutputs.size()), drawBuffers.data());
+                    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                        throw Error("Multiple-render-target framebuffer is incomplete");
+                } else {
+                    buffer->bind(static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y));
+                }
             } else {
                 glViewport(0, 0, static_cast<GLsizei>(frameBufferSize.x), static_cast<GLsizei>(frameBufferSize.y));
                 glEnable(GL_SCISSOR_TEST);
@@ -729,6 +1033,8 @@ public:
                 glUniform1f(mLocationFrameRate, uniform.frameRate);
             if(mLocationFrame != -1)
                 glUniform1i(mLocationFrame, uniform.frame);
+            if(mLocationIteration != -1)
+                glUniform1i(mLocationIteration, 0);
             if(mLocationMouse != -1)
                 glUniform4f(mLocationMouse, uniform.mouse.x, uniform.mouse.y, uniform.mouse.z, uniform.mouse.w);
             if(mLocationDate != -1)
@@ -753,8 +1059,12 @@ public:
                             uniform.audioMeta.w);
 
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-            if(buffer)
-                buffer->unbind();
+            if(buffer) {
+                if(useMrt)
+                    glBindFramebuffer(GL_FRAMEBUFFER, GL_NONE);
+                else
+                    buffer->unbind();
+            }
         }
 
         for(const auto& channel : mChannels)
@@ -888,6 +1198,7 @@ class OpenGLPipeline final : public Pipeline {
     std::vector<std::unique_ptr<RenderPass>> mRenderPasses;
     std::vector<DynamicTexture> mDynamicTextures;
     std::vector<std::unique_ptr<TextureObject>> mTextures;
+    std::vector<GLuint> mStorageBuffers;
     AudioInput mAudioInput;
     KeyboardInput mKeyboardInput;
     bool mProfilingEnabled{};
@@ -990,13 +1301,15 @@ public:
     OpenGLPipeline& operator=(const OpenGLPipeline&) = delete;
     OpenGLPipeline& operator=(OpenGLPipeline&&) = delete;
     ~OpenGLPipeline() override {
+        if(!mStorageBuffers.empty())
+            glDeleteBuffers(static_cast<GLsizei>(mStorageBuffers.size()), mStorageBuffers.data());
         glDeleteVertexArrays(1, &mVAOImage);
         glDeleteVertexArrays(1, &mVAOCubeMap);
         glDeleteBuffers(1, &mVBO);
     }
 
-    FrameBuffer* createFrameBuffer() override {
-        mFrameBuffers.push_back(std::make_unique<GLFrameBuffer>());
+    FrameBuffer* createFrameBuffer(const RenderFormat format) override {
+        mFrameBuffers.push_back(std::make_unique<GLFrameBuffer>(format));
         return mFrameBuffers.back().get();
     }
     GLCubeMapRenderTarget* createCubeMapRenderTarget() {
@@ -1014,10 +1327,30 @@ public:
         return buffers;
     }
 
+    BufferId createStorageBuffer(const uint64_t size) override {
+        if(!GLAD_GL_VERSION_4_3)
+            throw Error("Shader storage buffers require OpenGL 4.3 or newer");
+        if(size == 0 || size > static_cast<uint64_t>(std::numeric_limits<GLsizeiptr>::max()))
+            throw Error("Storage buffer size is outside the OpenGL range");
+        GLuint buffer{};
+        glGenBuffers(1, &buffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_COPY);
+        const uint8_t zero = 0;
+        glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        mStorageBuffers.push_back(buffer);
+        return buffer;
+    }
+
     void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
-                 std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput) override {
-        mRenderPasses.push_back(std::make_unique<RenderPass>(std::move(name), src, type, std::move(target),
-                                                             std::move(channels), fixedResolution, clampOutput));
+                 std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput,
+                 const RenderFormat format, std::vector<RenderFormat> extraFormats, const uint32_t iterations,
+                 const uint32_t localSizeX, const uint32_t localSizeY, const uint32_t localSizeZ,
+                 std::vector<std::pair<uint32_t, BufferId>> storageBuffers) override {
+        mRenderPasses.push_back(std::make_unique<RenderPass>(
+            std::move(name), src, type, std::move(target), std::move(channels), fixedResolution, clampOutput, format,
+            std::move(extraFormats), iterations, localSizeX, localSizeY, localSizeZ, std::move(storageBuffers)));
     }
 
     void reloadPassSource(const std::string_view passName, const std::string& src) override {

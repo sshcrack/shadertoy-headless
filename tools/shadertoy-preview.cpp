@@ -108,9 +108,19 @@ int main(int argc, char **argv) {
     if (!glfwInit()) return 3;
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     GLFWwindow *window = glfwCreateWindow(width, height, "shadertoy-preview", nullptr, nullptr);
+#else
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    GLFWwindow *window = glfwCreateWindow(width, height, "shadertoy-preview", nullptr, nullptr);
+    if (!window) {
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        window = glfwCreateWindow(width, height, "shadertoy-preview", nullptr, nullptr);
+    }
+#endif
     if (!window) {
         glfwTerminate();
         return 3;

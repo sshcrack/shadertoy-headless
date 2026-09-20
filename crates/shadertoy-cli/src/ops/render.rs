@@ -198,8 +198,8 @@ pub(super) fn resolve_dimensions(
                 .iter()
                 .find(|pass| pass.name == *name)
                 .with_context(|| format!("state references unknown buffer pass '{name}'"))?;
-            if pass.kind != PassKind::Buffer {
-                bail!("state buffer '{name}' is no longer a buffer pass");
+            if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
+                bail!("state buffer '{name}' is no longer a 2D buffer/compute pass");
             }
 
             let saved = state.buffer_dimensions(name)?;

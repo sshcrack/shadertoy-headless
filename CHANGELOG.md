@@ -4,6 +4,14 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.0
+
+- Added first-class OpenGL 4.3 compute passes with fixed dispatch dimensions, configurable local workgroups, writable typed image outputs, and repeated per-frame dispatch through iIteration.
+- Added persistent zero-initialized named shader-storage buffers shared across passes, enabling structured GPU state and GLSL atomic operations without packing data into texture channels.
+- Added explicit r32f, rg32f, rgba16f, and rgba32f formats for 2D buffer/compute outputs; inspection, state capture, regression tests, preview, and VRAM profiling understand compute outputs and their actual storage cost.
+- Added up to eight render targets per buffer/compute pass, with fragment location outputs, compute iOutput1..iOutput7 images, and per-channel output selection for downstream passes.
+- Kept ordinary shader compatibility by preferring OpenGL 4.3 contexts and falling back to OpenGL 4.1 when advanced compute/SSBO features are not used.
+
 ## 2.1.8
 
 - Synchronized CLI help, repository/crate READMEs, built-in documentation references, and generated-project guidance with the current import, fixed-buffer/sampler, inspection/profiling, regression-test, and record/replay workflows.

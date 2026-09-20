@@ -35,12 +35,9 @@ pub(super) fn reload(
     if let Some(saved) = saved {
         runtime.set_fixed_state(saved.time, saved.frame, saved.fps)?;
         for (name, (saved_dimensions, data)) in saved.buffers {
-            if let Some(pass) = candidate
-                .manifest
-                .passes
-                .iter()
-                .find(|pass| pass.name == name && pass.kind == PassKind::Buffer)
-            {
+            if let Some(pass) = candidate.manifest.passes.iter().find(|pass| {
+                pass.name == name && matches!(pass.kind, PassKind::Buffer | PassKind::Compute)
+            }) {
                 let (pass_width, pass_height) =
                     candidate.manifest.pass_dimensions(pass, *width, *height);
                 if (pass_width, pass_height) == (saved_dimensions.width, saved_dimensions.height) {
@@ -95,7 +92,7 @@ pub(super) fn reload_changed_sources(
         let source_like = changed.iter().all(|path| {
             matches!(
                 path.extension().and_then(|extension| extension.to_str()),
-                Some("glsl" | "frag" | "vert")
+                Some("glsl" | "frag" | "vert" | "comp")
             )
         });
         return Ok(source_like);
@@ -138,7 +135,7 @@ fn save_runtime_state(
 ) -> Result<SavedRuntimeState> {
     let mut buffers = BTreeMap::new();
     for pass in &loaded.manifest.passes {
-        if pass.kind != PassKind::Buffer {
+        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
             continue;
         }
         let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);

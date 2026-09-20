@@ -85,7 +85,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         ));
     }
     human.push_str(&format!(
-        "GPU pass total (mean): {:.3} ms\nCPU render call (mean): {:.3} ms\nPersistent buffer VRAM estimate: {:.2} MiB",
+        "GPU pass total (mean): {:.3} ms\nCPU render call (mean): {:.3} ms\nPersistent GPU state VRAM estimate: {:.2} MiB",
         total_gpu_mean_ns / 1_000_000.0,
         cpu.mean_ns / 1_000_000.0,
         persistent_buffer_bytes as f64 / (1024.0 * 1024.0),
@@ -125,7 +125,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
                 "min_ms": cpu.min_ns as f64 / 1_000_000.0,
                 "max_ms": cpu.max_ns as f64 / 1_000_000.0,
             },
-            "estimated_persistent_buffer_vram_bytes": persistent_buffer_bytes,
+            "estimated_persistent_gpu_state_vram_bytes": persistent_buffer_bytes,
         }),
     })
 }
@@ -158,23 +158,60 @@ fn estimated_persistent_buffer_bytes(
     output_width: u32,
     output_height: u32,
 ) -> Result<u64> {
+    let feedback_sources = loaded
+        .manifest
+        .passes
+        .iter()
+        .flat_map(|pass| &pass.inputs)
+        .filter(|input| input.frame == crate::manifest::FrameRef::Previous)
+        .map(|input| input.source.as_str())
+        .collect::<std::collections::HashSet<_>>();
+
     let mut bytes = 0u64;
     for pass in &loaded.manifest.passes {
-        if pass.kind != PassKind::Buffer {
+        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
             continue;
         }
         let (width, height) = loaded
             .manifest
             .pass_dimensions(pass, output_width, output_height);
+        let bytes_per_pixel = |format| match format {
+            crate::manifest::RenderFormat::R32f => 4u64,
+            crate::manifest::RenderFormat::Rg32f | crate::manifest::RenderFormat::Rgba16f => 8,
+            crate::manifest::RenderFormat::Rgba32f => 16,
+        };
+        let target_bytes = std::iter::once(pass.format)
+            .chain(pass.extra_outputs.iter().copied())
+            .try_fold(0u64, |total, format| {
+                total
+                    .checked_add(bytes_per_pixel(format))
+                    .context("persistent MRT VRAM estimate overflow")
+            })?;
+        let copies = if feedback_sources.contains(pass.name.as_str()) {
+            2u64
+        } else {
+            1
+        };
         let pass_bytes = u64::from(width)
             .checked_mul(u64::from(height))
-            .and_then(|value| value.checked_mul(4))
-            .and_then(|value| value.checked_mul(4))
-            .and_then(|value| value.checked_mul(2))
+            .and_then(|value| value.checked_mul(target_bytes))
+            .and_then(|value| value.checked_mul(copies))
             .context("persistent buffer VRAM estimate overflow")?;
         bytes = bytes
             .checked_add(pass_bytes)
             .context("persistent buffer VRAM estimate overflow")?;
+    }
+
+    let mut storage = std::collections::HashMap::new();
+    for pass in &loaded.manifest.passes {
+        for buffer in &pass.storage {
+            storage.entry(buffer.name.as_str()).or_insert(buffer.size);
+        }
+    }
+    for size in storage.into_values() {
+        bytes = bytes
+            .checked_add(size)
+            .context("persistent storage VRAM estimate overflow")?;
     }
     Ok(bytes)
 }

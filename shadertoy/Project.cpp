@@ -23,6 +23,8 @@ namespace {
                 return NodeType::Image;
             case ProjectPassKind::CubeMap:
                 return NodeType::CubeMap;
+            case ProjectPassKind::Compute:
+                return NodeType::Compute;
         }
         throw Error("Unknown project pass kind");
     }
@@ -41,6 +43,7 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
         std::unordered_map<std::string, Node*> sources;
         std::unordered_map<std::string, GLSLShader*> passes;
         std::unordered_set<std::string> names;
+        std::unordered_map<std::string, uint64_t> storageBufferSizes;
         GLSLShader* finalImage = nullptr;
 
         for(const auto& texture : project.textures) {
@@ -102,16 +105,60 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 throw Error("Pass source must not be empty: " + pass.name);
             if((pass.width == 0) != (pass.height == 0))
                 throw Error("Pass fixed resolution must specify both width and height: " + pass.name);
-            if((pass.width != 0 || pass.height != 0) && pass.kind != ProjectPassKind::Buffer)
-                throw Error("Fixed pass resolution is only supported for buffer passes: " + pass.name);
+            if((pass.width != 0 || pass.height != 0) &&
+               pass.kind != ProjectPassKind::Buffer && pass.kind != ProjectPassKind::Compute)
+                throw Error("Fixed pass resolution is only supported for buffer/compute passes: " + pass.name);
+            if(pass.kind == ProjectPassKind::Compute && (pass.width == 0 || pass.height == 0))
+                throw Error("Compute passes require an explicit width and height: " + pass.name);
             if(pass.width > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
                pass.height > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))
                 throw Error("Pass fixed resolution exceeds the OpenGL dimension range: " + pass.name);
+            if(pass.kind != ProjectPassKind::Buffer && pass.kind != ProjectPassKind::Compute &&
+               pass.renderFormat != RenderFormat::RGBA32F)
+                throw Error("Explicit render formats are only supported for buffer/compute passes: " + pass.name);
+            if(!pass.extraRenderFormats.empty() && pass.kind != ProjectPassKind::Buffer &&
+               pass.kind != ProjectPassKind::Compute)
+                throw Error("Multiple render targets are only supported for buffer/compute passes: " + pass.name);
+            if(pass.extraRenderFormats.size() > 7)
+                throw Error("A pass may expose at most 8 render targets: " + pass.name);
+            if(pass.iterations == 0 || pass.iterations > 4096)
+                throw Error("Pass iterations must be in the range 1..4096: " + pass.name);
+            if(pass.kind != ProjectPassKind::Compute && pass.iterations != 1)
+                throw Error("Pass iterations are only supported for compute passes: " + pass.name);
+            if(pass.kind != ProjectPassKind::Compute &&
+               (pass.localSizeX != 8 || pass.localSizeY != 8 || pass.localSizeZ != 1))
+                throw Error("Compute local size is only supported for compute passes: " + pass.name);
+            if(pass.kind == ProjectPassKind::Compute) {
+                if(pass.localSizeX == 0 || pass.localSizeY == 0 || pass.localSizeZ == 0)
+                    throw Error("Compute local sizes must be positive: " + pass.name);
+                const uint64_t invocations = static_cast<uint64_t>(pass.localSizeX) * pass.localSizeY * pass.localSizeZ;
+                if(invocations > 1024)
+                    throw Error("Compute local workgroup size exceeds 1024 invocations: " + pass.name);
+            }
+            std::unordered_set<uint32_t> usedStorageBindings;
+            for(const auto& storage : pass.storageBuffers) {
+                if(storage.name.empty())
+                    throw Error("Storage buffer name must not be empty in pass " + pass.name);
+                if(storage.size == 0)
+                    throw Error("Storage buffer size must be positive: " + storage.name);
+                if(!usedStorageBindings.emplace(storage.binding).second)
+                    throw Error("Duplicate storage buffer binding " + std::to_string(storage.binding) + " in pass " + pass.name);
+                const auto [it, inserted] = storageBufferSizes.emplace(storage.name, storage.size);
+                if(!inserted && it->second != storage.size)
+                    throw Error("Storage buffer '" + storage.name + "' uses inconsistent sizes across passes");
+            }
 
             auto node = std::make_unique<GLSLShader>(pass.source, passNodeType(pass.kind));
             node->name = pass.name;
             node->fixedWidth = pass.width;
             node->fixedHeight = pass.height;
+            node->renderFormat = pass.renderFormat;
+            node->iterations = pass.iterations;
+            node->localSizeX = pass.localSizeX;
+            node->localSizeY = pass.localSizeY;
+            node->localSizeZ = pass.localSizeZ;
+            node->storageBuffers = pass.storageBuffers;
+            node->extraRenderFormats = pass.extraRenderFormats;
             auto* shader = node.get();
             passes.emplace(pass.name, shader);
             sources.emplace(pass.name, shader);
@@ -151,6 +198,13 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                         producer = found->second;
                         if(input.kind == ProjectInputKind::Pass && producer->getNodeClass() != NodeClass::GLSLShader)
                             throw Error("Input source is not a shader pass: " + input.source);
+                        if(input.kind == ProjectInputKind::Pass) {
+                            const auto* sourcePass = dynamic_cast<const GLSLShader*>(producer);
+                            if(!sourcePass || input.sourceOutput > sourcePass->extraRenderFormats.size())
+                                throw Error("Input source output index is out of range: " + input.source);
+                        } else if(input.sourceOutput != 0) {
+                            throw Error("Only shader pass inputs can select a nonzero output index");
+                        }
                         if(input.kind == ProjectInputKind::Texture && producer->getNodeClass() != NodeClass::Texture)
                             throw Error("Input source is not a texture: " + input.source);
                         if(input.kind == ProjectInputKind::CubeMap && producer->getNodeClass() != NodeClass::CubeMap)
@@ -160,6 +214,8 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                         break;
                     }
                     case ProjectInputKind::Keyboard:
+                        if(input.sourceOutput != 0)
+                            throw Error("Keyboard inputs cannot select a render output");
                         if(input.previousFrame)
                             throw Error("Keyboard inputs cannot use previous-frame semantics");
                         if(!keyboard) {
@@ -171,6 +227,8 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                         producer = keyboard;
                         break;
                     case ProjectInputKind::Music:
+                        if(input.sourceOutput != 0)
+                            throw Error("Music inputs cannot select a render output");
                         if(input.previousFrame)
                             throw Error("Music inputs cannot use previous-frame semantics");
                         if(!music) {
@@ -186,20 +244,23 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 if(input.previousFrame) {
                     if(input.kind != ProjectInputKind::Pass)
                         throw Error("Only shader pass inputs can use previous-frame semantics");
+                    if(input.sourceOutput != 0)
+                        throw Error("Previous-frame feedback is only supported for render output 0");
                     auto* sourcePass = dynamic_cast<GLSLShader*>(producer);
                     if(!sourcePass)
                         throw Error("Previous-frame source is not a shader pass: " + input.source);
                     if(sourcePass == finalImage)
                         throw Error("The final image pass cannot be used as a previous-frame source");
 
-                    auto last = std::make_unique<LastFrame>(sourcePass->name, sourcePass->nodeType);
+                    auto last = std::make_unique<LastFrame>(sourcePass->name, sourcePass->nodeType, input.sourceOutput);
                     last->name = "__feedback_" + std::to_string(feedbackIndex++);
                     last->refNode = sourcePass;
                     producer = last.get();
                     document.nodes.emplace_back(std::move(last));
                 }
 
-                document.links.push_back(Link{ producer, consumer, input.filter, input.wrap, input.channel });
+                document.links.push_back(Link{ producer, consumer, input.filter, input.wrap, input.channel,
+                                               input.previousFrame ? 0U : input.sourceOutput });
             }
         }
 

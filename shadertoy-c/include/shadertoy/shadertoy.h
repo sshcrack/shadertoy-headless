@@ -39,6 +39,13 @@ typedef uint32_t st_pass_kind;
 static const st_pass_kind ST_PASS_IMAGE = 0;
 static const st_pass_kind ST_PASS_BUFFER = 1;
 static const st_pass_kind ST_PASS_CUBEMAP = 2;
+static const st_pass_kind ST_PASS_COMPUTE = 3;
+
+typedef uint32_t st_render_format;
+static const st_render_format ST_RENDER_R32F = 0;
+static const st_render_format ST_RENDER_RG32F = 1;
+static const st_render_format ST_RENDER_RGBA16F = 2;
+static const st_render_format ST_RENDER_RGBA32F = 3;
 
 typedef uint32_t st_input_kind;
 static const st_input_kind ST_INPUT_PASS = 0;
@@ -70,8 +77,18 @@ ST_NATIVE_EXPORT void st_project_destroy(st_project* project);
 ST_NATIVE_EXPORT int st_project_add_pass(st_project* project, const char* name, st_pass_kind kind, const char* source);
 ST_NATIVE_EXPORT int st_project_set_pass_resolution(st_project* project, const char* pass_name, uint32_t width,
                                                     uint32_t height);
+ST_NATIVE_EXPORT int st_project_set_pass_format(st_project* project, const char* pass_name, st_render_format format);
+ST_NATIVE_EXPORT int st_project_add_pass_output(st_project* project, const char* pass_name, st_render_format format);
+ST_NATIVE_EXPORT int st_project_set_pass_iterations(st_project* project, const char* pass_name, uint32_t iterations);
+ST_NATIVE_EXPORT int st_project_set_compute_local_size(st_project* project, const char* pass_name, uint32_t x, uint32_t y,
+                                                       uint32_t z);
+ST_NATIVE_EXPORT int st_project_bind_storage_buffer(st_project* project, const char* pass_name, uint32_t binding,
+                                                    const char* name, uint64_t size);
 ST_NATIVE_EXPORT int st_project_add_input(st_project* project, const char* pass_name, uint32_t channel, st_input_kind kind,
                                           const char* source, int previous_frame, st_filter filter, st_wrap wrap);
+ST_NATIVE_EXPORT int st_project_add_input_output(st_project* project, const char* pass_name, uint32_t channel,
+                                                 st_input_kind kind, const char* source, uint32_t source_output,
+                                                 int previous_frame, st_filter filter, st_wrap wrap);
 ST_NATIVE_EXPORT int st_project_add_texture_rgba8(st_project* project, const char* name, uint32_t width, uint32_t height,
                                                   const uint8_t* rgba, size_t rgba_len);
 ST_NATIVE_EXPORT int st_project_add_cubemap_rgba8(st_project* project, const char* name, uint32_t size, const uint8_t* rgba,

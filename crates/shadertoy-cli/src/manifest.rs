@@ -116,6 +116,44 @@ pub enum PassKind {
     Image,
     Buffer,
     Cubemap,
+    Compute,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderFormat {
+    R32f,
+    Rg32f,
+    Rgba16f,
+    #[default]
+    Rgba32f,
+}
+
+fn default_iterations() -> u32 {
+    1
+}
+
+fn is_default_iterations(value: &u32) -> bool {
+    *value == 1
+}
+
+fn is_default_render_format(value: &RenderFormat) -> bool {
+    *value == RenderFormat::Rgba32f
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct StorageBuffer {
+    /// Shader storage binding index used by an explicit std430 binding.
+    pub binding: u32,
+    /// Shared resource name. Bindings with the same name share persistent GPU storage across passes.
+    pub name: String,
+    /// Persistent storage size in bytes.
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -126,12 +164,30 @@ pub struct Pass {
     pub kind: PassKind,
     /// GLSL source path relative to the project root.
     pub source: String,
-    /// Optional fixed width for a buffer pass. Must be paired with height.
+    /// Optional fixed width for a buffer/compute pass. Must be paired with height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<u32>,
-    /// Optional fixed height for a buffer pass. Must be paired with width.
+    /// Optional fixed height for a buffer/compute pass. Must be paired with width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    /// Floating-point render-target format for buffer/compute outputs.
+    #[serde(default, skip_serializing_if = "is_default_render_format")]
+    pub format: RenderFormat,
+    /// Additional render targets beyond output 0. Indices are 1-based after the primary format.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_outputs: Vec<RenderFormat>,
+    /// Number of compute dispatches per rendered frame. iIteration is 0-based.
+    #[serde(
+        default = "default_iterations",
+        skip_serializing_if = "is_default_iterations"
+    )]
+    pub iterations: u32,
+    /// Compute local workgroup dimensions. Defaults to [8, 8, 1].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_size: Option<[u32; 3]>,
+    /// Persistent shader-storage buffers bound for this pass.
+    #[serde(default, rename = "storage", skip_serializing_if = "Vec::is_empty")]
+    pub storage: Vec<StorageBuffer>,
     #[serde(default, rename = "input", skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<Input>,
 }
@@ -182,6 +238,9 @@ pub struct Input {
     /// Optional explicit source kind. Normally inferred from the source name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<InputKind>,
+    /// Render-target index when consuming another pass. Output 0 is the primary target.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub output: u8,
     #[serde(default)]
     pub frame: FrameRef,
     /// Per-input texture interpolation/minification mode.
@@ -238,6 +297,11 @@ impl Manifest {
                 source: "shaders/image.frag".into(),
                 width: None,
                 height: None,
+                format: RenderFormat::default(),
+                extra_outputs: Vec::new(),
+                iterations: 1,
+                local_size: None,
+                storage: Vec::new(),
                 inputs: Vec::new(),
             }],
             tests: Vec::new(),
@@ -264,10 +328,16 @@ impl Manifest {
                     source: "shaders/buffer-a.frag".into(),
                     width: None,
                     height: None,
+                    format: RenderFormat::default(),
+                    extra_outputs: Vec::new(),
+                    iterations: 1,
+                    local_size: None,
+                    storage: Vec::new(),
                     inputs: vec![Input {
                         channel: 0,
                         source: "buffer-a".into(),
                         kind: Some(InputKind::Pass),
+                        output: 0,
                         frame: FrameRef::Previous,
                         filter: Filter::Linear,
                         wrap: Wrap::Clamp,
@@ -279,10 +349,16 @@ impl Manifest {
                     source: "shaders/image.frag".into(),
                     width: None,
                     height: None,
+                    format: RenderFormat::default(),
+                    extra_outputs: Vec::new(),
+                    iterations: 1,
+                    local_size: None,
+                    storage: Vec::new(),
                     inputs: vec![Input {
                         channel: 0,
                         source: "buffer-a".into(),
                         kind: Some(InputKind::Pass),
+                        output: 0,
                         frame: FrameRef::Current,
                         filter: Filter::Linear,
                         wrap: Wrap::Clamp,
@@ -344,11 +420,15 @@ impl Manifest {
                 bail!("duplicate pass/asset name '{}'", pass.name);
             }
             match (pass.width, pass.height) {
-                (None, None) => {}
+                (None, None) => {
+                    if pass.kind == PassKind::Compute {
+                        bail!("compute pass '{}' must specify width and height", pass.name);
+                    }
+                }
                 (Some(width), Some(height)) => {
-                    if pass.kind != PassKind::Buffer {
+                    if pass.kind != PassKind::Buffer && pass.kind != PassKind::Compute {
                         bail!(
-                            "fixed width/height are only supported for buffer passes ('{}')",
+                            "fixed width/height are only supported for buffer/compute passes ('{}')",
                             pass.name
                         );
                     }
@@ -367,6 +447,71 @@ impl Manifest {
                     "pass '{}' must specify both width and height or neither",
                     pass.name
                 ),
+            }
+            if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute)
+                && pass.format != RenderFormat::Rgba32f
+            {
+                bail!(
+                    "pass '{}' can only set format on buffer/compute passes",
+                    pass.name
+                );
+            }
+            if !pass.extra_outputs.is_empty()
+                && !matches!(pass.kind, PassKind::Buffer | PassKind::Compute)
+            {
+                bail!(
+                    "pass '{}' extra_outputs are only valid for buffer/compute passes",
+                    pass.name
+                );
+            }
+            if pass.extra_outputs.len() > 7 {
+                bail!("pass '{}' may expose at most 8 render targets", pass.name);
+            }
+            if pass.iterations == 0 || pass.iterations > 4096 {
+                bail!("pass '{}' iterations must be in 1..=4096", pass.name);
+            }
+            if pass.kind != PassKind::Compute && pass.iterations != 1 {
+                bail!(
+                    "pass '{}' iterations are currently supported only for compute passes",
+                    pass.name
+                );
+            }
+            if let Some([x, y, z]) = pass.local_size {
+                if pass.kind != PassKind::Compute {
+                    bail!(
+                        "pass '{}' local_size is only valid for compute passes",
+                        pass.name
+                    );
+                }
+                if x == 0 || y == 0 || z == 0 || u64::from(x) * u64::from(y) * u64::from(z) > 1024 {
+                    bail!(
+                        "pass '{}' local_size must be positive and at most 1024 total invocations",
+                        pass.name
+                    );
+                }
+            }
+            let mut storage_bindings = HashSet::new();
+            for storage in &pass.storage {
+                if storage.name.trim().is_empty() {
+                    bail!(
+                        "pass '{}' has a storage buffer with an empty name",
+                        pass.name
+                    );
+                }
+                if storage.size == 0 {
+                    bail!(
+                        "pass '{}' storage buffer '{}' must have a positive size",
+                        pass.name,
+                        storage.name
+                    );
+                }
+                if !storage_bindings.insert(storage.binding) {
+                    bail!(
+                        "pass '{}' binds storage slot {} more than once",
+                        pass.name,
+                        storage.binding
+                    );
+                }
             }
             if pass.kind == PassKind::Image {
                 image_count += 1;
@@ -400,6 +545,22 @@ impl Manifest {
             bail!("project must contain exactly one image pass (found {image_count})");
         }
 
+        let mut storage_sizes = HashMap::new();
+        for pass in &self.passes {
+            for storage in &pass.storage {
+                if let Some(existing) = storage_sizes.insert(storage.name.as_str(), storage.size)
+                    && existing != storage.size
+                {
+                    bail!(
+                        "storage buffer '{}' uses inconsistent sizes ({} vs {})",
+                        storage.name,
+                        existing,
+                        storage.size
+                    );
+                }
+            }
+        }
+
         for pass in &self.passes {
             let mut channels = HashSet::new();
             for input in &pass.inputs {
@@ -418,11 +579,27 @@ impl Manifest {
                     );
                 }
                 let kind = self.infer_input_kind(input)?;
+                if kind != InputKind::Pass && input.output != 0 {
+                    bail!(
+                        "pass '{}' channel {} selects output {} on a non-pass input",
+                        pass.name,
+                        input.channel,
+                        input.output
+                    );
+                }
                 if input.frame == FrameRef::Previous && kind != InputKind::Pass {
                     bail!(
                         "pass '{}' channel {} uses previous frame on a non-pass input",
                         pass.name,
                         input.channel
+                    );
+                }
+                if input.frame == FrameRef::Previous && input.output != 0 {
+                    bail!(
+                        "pass '{}' channel {} uses previous-frame feedback from output {}; only output 0 is resumable",
+                        pass.name,
+                        input.channel,
+                        input.output
                     );
                 }
                 if kind == InputKind::Pass {
@@ -436,6 +613,21 @@ impl Manifest {
                     };
                     if input.frame == FrameRef::Previous && *source_kind == PassKind::Image {
                         bail!("the final image pass cannot be a previous-frame source");
+                    }
+                    let source_pass = self
+                        .passes
+                        .iter()
+                        .find(|candidate| candidate.name == input.source)
+                        .expect("pass kind map and pass list stay in sync");
+                    if usize::from(input.output) > source_pass.extra_outputs.len() {
+                        bail!(
+                            "pass '{}' channel {} selects output {} from '{}', which exposes outputs 0..{}",
+                            pass.name,
+                            input.channel,
+                            input.output,
+                            input.source,
+                            source_pass.extra_outputs.len()
+                        );
                     }
                 }
                 if matches!(

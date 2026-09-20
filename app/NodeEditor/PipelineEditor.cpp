@@ -261,6 +261,8 @@ static ImColor getIconColor(const NodeType type) {
             return { 0, 255, 255 };
         case NodeType::Sound:
             return { 0, 0, 255 };
+        case NodeType::Compute:
+            return { 255, 128, 0 };
     }
     return {};
 }
@@ -281,6 +283,9 @@ static void drawPinIcon(const EditorPin& pin, const bool connected, const int al
             break;
         case NodeType::Volume:
             iconType = IconType::RoundSquare;
+            break;
+        case NodeType::Compute:
+            iconType = IconType::Square;
             break;
     }
 
@@ -699,7 +704,8 @@ ShaderDocument PipelineEditor::makeDocument() const {
         if(!startPin || !endPin)
             throw Error("Pipeline editor contains a dangling link");
         const auto slot = static_cast<uint32_t>(endPin - endPin->node->inputs.data());
-        document.links.push_back(Link{ nodeMap.at(startPin->node), nodeMap.at(endPin->node), link.filter, link.wrapMode, slot });
+        document.links.push_back(
+            Link{ nodeMap.at(startPin->node), nodeMap.at(endPin->node), link.filter, link.wrapMode, slot, link.sourceOutput });
     }
 
     return document;
@@ -839,11 +845,30 @@ bool EditorShader::renderContent() {
     return false;
 }
 std::unique_ptr<Node> EditorShader::toSTTF() const {
-    return std::make_unique<GLSLShader>(editor.getText(), type);
+    auto shader = std::make_unique<GLSLShader>(editor.getText(), type);
+    shader->fixedWidth = fixedWidth;
+    shader->fixedHeight = fixedHeight;
+    shader->renderFormat = renderFormat;
+    shader->iterations = iterations;
+    shader->localSizeX = localSizeX;
+    shader->localSizeY = localSizeY;
+    shader->localSizeZ = localSizeZ;
+    shader->storageBuffers = storageBuffers;
+    shader->extraRenderFormats = extraRenderFormats;
+    return shader;
 }
 void EditorShader::fromSTTF(Node& node) {
     const auto& shader = dynamic_cast<GLSLShader&>(node);
     type = shader.nodeType;
+    fixedWidth = shader.fixedWidth;
+    fixedHeight = shader.fixedHeight;
+    renderFormat = shader.renderFormat;
+    iterations = shader.iterations;
+    localSizeX = shader.localSizeX;
+    localSizeY = shader.localSizeY;
+    localSizeZ = shader.localSizeZ;
+    storageBuffers = shader.storageBuffers;
+    extraRenderFormats = shader.extraRenderFormats;
     editor.setText(shader.source);
 }
 
@@ -1046,10 +1071,11 @@ void EditorLastFrame::renderPopup() {
     ed::Resume();
 }
 std::unique_ptr<Node> EditorLastFrame::toSTTF() const {
-    return std::make_unique<LastFrame>(lastFrame->name, type);
+    return std::make_unique<LastFrame>(lastFrame->name, type, refOutput);
 }
-void EditorLastFrame::fromSTTF(Node&) {
-    // should be fixed by post processing
+void EditorLastFrame::fromSTTF(Node& node) {
+    refOutput = dynamic_cast<LastFrame&>(node).refOutput;
+    // source pointer is fixed by post processing
 }
 std::unique_ptr<Node> EditorKeyboard::toSTTF() const {
     return std::make_unique<Keyboard>();
@@ -1128,14 +1154,14 @@ void PipelineEditor::loadDocument(ShaderDocument document) {
         editorNode->type = lastFrame.nodeType;
     }
 
-    for(const auto& [start, end, filter, wrapMode, slot] : document.links) {
+    for(const auto& [start, end, filter, wrapMode, slot, sourceOutput] : document.links) {
         if(!nodeMap.contains(start) || !nodeMap.contains(end))
             throw Error("Document link references an unknown node");
         auto* startNode = nodeMap.at(start);
         auto* endNode = nodeMap.at(end);
         if(startNode->outputs.empty() || slot >= endNode->inputs.size())
             throw Error("Document link uses an invalid pin");
-        mLinks.emplace_back(nextId(), startNode->outputs.front().id, endNode->inputs[slot].id, filter, wrapMode);
+        mLinks.emplace_back(nextId(), startNode->outputs.front().id, endNode->inputs[slot].id, filter, wrapMode, sourceOutput);
     }
 
     mShouldResetLayout = true;

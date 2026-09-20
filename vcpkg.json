@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "shadertoy",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "dependencies": [
     "fmt",
     {
       "name": "glad",
       "features": [
-        "gl-api-41"
+        "gl-api-43"
       ]
     },
     "cpp-httplib",

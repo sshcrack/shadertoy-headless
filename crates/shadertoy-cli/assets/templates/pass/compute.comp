@@ -1,0 +1,7 @@
+// Compute pass entry point. The host provides iOutput as an image2D,
+// iResolution/iTime/iFrame/iIteration, and configured iChannel samplers.
+void mainCompute(ivec2 coord)
+{
+    vec2 uv = (vec2(coord) + 0.5) / iResolution.xy;
+    imageStore(iOutput, coord, vec4(uv, 0.0, 1.0));
+}

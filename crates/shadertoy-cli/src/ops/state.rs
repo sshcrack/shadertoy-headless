@@ -28,7 +28,7 @@ pub fn capture_state(
     let mut buffers = BTreeMap::new();
     let mut buffer_dimensions = BTreeMap::new();
     for pass in &loaded.manifest.passes {
-        if pass.kind != PassKind::Buffer {
+        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
             continue;
         }
         let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);

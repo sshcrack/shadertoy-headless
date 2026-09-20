@@ -95,6 +95,15 @@ struct EditorShader final : EditorNode {
     ShaderToyEditor editor;
     bool isOpen = false;
     bool requestFocus = false;
+    uint32_t fixedWidth = 0;
+    uint32_t fixedHeight = 0;
+    RenderFormat renderFormat{ RenderFormat::RGBA32F };
+    uint32_t iterations = 1;
+    uint32_t localSizeX = 8;
+    uint32_t localSizeY = 8;
+    uint32_t localSizeZ = 1;
+    std::vector<StorageBufferBinding> storageBuffers;
+    std::vector<RenderFormat> extraRenderFormats;
 
     EditorShader(const uint32_t idVal, std::string nameVal) : EditorNode(idVal, std::move(nameVal)) {}
     bool renderContent() override;
@@ -107,6 +116,7 @@ struct EditorShader final : EditorNode {
 
 struct EditorLastFrame final : EditorNode {
     EditorNode* lastFrame = nullptr;
+    uint32_t refOutput = 0;
     bool openPopup = false;
     bool editing = false;
 
@@ -193,10 +203,13 @@ struct EditorLink final {
     ed::PinId endPinId;
     Filter filter;
     Wrap wrapMode;
+    uint32_t sourceOutput = 0;
 
     EditorLink(const ed::LinkId idVal, const ed::PinId startPinIdVal, const ed::PinId endPinIdVal,
-               const Filter filterVal = Filter::Linear, const Wrap wrapModeVal = Wrap::Repeat)
-        : id(idVal), startPinId(startPinIdVal), endPinId(endPinIdVal), filter{ filterVal }, wrapMode{ wrapModeVal } {}
+               const Filter filterVal = Filter::Linear, const Wrap wrapModeVal = Wrap::Repeat,
+               const uint32_t sourceOutputVal = 0)
+        : id(idVal), startPinId(startPinIdVal), endPinId(endPinIdVal), filter{ filterVal }, wrapMode{ wrapModeVal },
+          sourceOutput{ sourceOutputVal } {}
 };
 
 class PipelineEditor final {

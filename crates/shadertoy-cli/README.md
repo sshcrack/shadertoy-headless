@@ -46,7 +46,12 @@ preserving feedback buffers when possible.
 Buffer passes can opt into fixed `width`/`height` render targets for stable
 simulation grids, while each iChannel can independently choose
 `filter = "nearest" | "linear" | "mipmap"` and
-`wrap = "clamp" | "repeat"`. See `shadertoy docs passes` and
+`wrap = "clamp" | "repeat"`.
+
+For heavier pipelines, `kind = "compute"` adds fixed-size OpenGL 4.3 compute
+dispatch, typed `r32f`/`rg32f`/`rgba16f`/`rgba32f` outputs, repeated dispatch
+iterations via `iIteration`, writable `iOutput` image load/store, and persistent
+named SSBOs shared across passes. Buffer/compute passes can also expose up to eight render targets with extra_outputs, and consumers select an attachment with output = N. See `shadertoy docs passes` and
 `shadertoy docs channels` for the exact semantics.
 
 For automated visual/numeric validation, add `[[test]]` cases to

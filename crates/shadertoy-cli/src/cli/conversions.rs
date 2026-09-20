@@ -16,6 +16,7 @@ impl From<PassKindArg> for PassKind {
         match value {
             PassKindArg::Buffer => PassKind::Buffer,
             PassKindArg::Cubemap => PassKind::Cubemap,
+            PassKindArg::Compute => PassKind::Compute,
         }
     }
 }

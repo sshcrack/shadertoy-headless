@@ -11,6 +11,8 @@ supported remote assets local.
      shadertoy inspect --json
 
 2. Edit ShaderToy.toml and files under shaders/ or assets/.
+   For GPU simulations, FFTs, particles, and large structured state, prefer
+   compute passes + typed targets + named SSBOs; see shadertoy docs passes.
    The manifest is schema-backed. To print the exact schema:
      shadertoy docs manifest --schema
 
@@ -53,6 +55,6 @@ supported remote assets local.
      shadertoy preview --record target/repro.strec
      shadertoy replay target/repro.strec -o target/replayed.png
 
-On Linux, check/render/render-frames/state capture/preview/profile/test/replay use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY.
+On Linux, check/render/render-frames/state capture/preview/profile/test/replay use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY. The context prefers OpenGL 4.3 and falls back to 4.1 for projects that do not use compute/SSBO features.
 
 Do not edit target/. It is disposable generated output.

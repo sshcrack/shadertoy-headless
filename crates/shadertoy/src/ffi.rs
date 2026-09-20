@@ -1,4 +1,4 @@
-use crate::{Error, Filter, InputKind, PassKind, Result, Wrap};
+use crate::{Error, Filter, InputKind, PassKind, RenderFormat, Result, Wrap};
 use shadertoy_sys as sys;
 use std::ffi::CStr;
 
@@ -24,6 +24,16 @@ pub(crate) fn pass_kind(kind: PassKind) -> sys::st_pass_kind {
         PassKind::Image => sys::ST_PASS_IMAGE,
         PassKind::Buffer => sys::ST_PASS_BUFFER,
         PassKind::Cubemap => sys::ST_PASS_CUBEMAP,
+        PassKind::Compute => sys::ST_PASS_COMPUTE,
+    }
+}
+
+pub(crate) fn render_format(format: RenderFormat) -> sys::st_render_format {
+    match format {
+        RenderFormat::R32f => sys::ST_RENDER_R32F,
+        RenderFormat::Rg32f => sys::ST_RENDER_RG32F,
+        RenderFormat::Rgba16f => sys::ST_RENDER_RGBA16F,
+        RenderFormat::Rgba32f => sys::ST_RENDER_RGBA32F,
     }
 }
 

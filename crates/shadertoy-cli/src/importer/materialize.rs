@@ -223,6 +223,11 @@ impl<'a> ProjectBuilder<'a> {
                 source: source_path,
                 width: None,
                 height: None,
+                format: crate::manifest::RenderFormat::default(),
+                extra_outputs: Vec::new(),
+                iterations: 1,
+                local_size: None,
+                storage: Vec::new(),
                 inputs: Vec::new(),
             });
         }
@@ -335,6 +340,7 @@ impl<'a> ProjectBuilder<'a> {
             channel,
             source,
             kind: Some(kind),
+            output: 0,
             frame,
             filter,
             wrap,
@@ -368,8 +374,21 @@ impl<'a> ProjectBuilder<'a> {
             name: name.clone(),
             kind,
             source: source_path,
-            width: None,
-            height: None,
+            width: if kind == PassKind::Compute {
+                Some(256)
+            } else {
+                None
+            },
+            height: if kind == PassKind::Compute {
+                Some(256)
+            } else {
+                None
+            },
+            format: crate::manifest::RenderFormat::default(),
+            extra_outputs: Vec::new(),
+            iterations: 1,
+            local_size: None,
+            storage: Vec::new(),
             inputs: Vec::new(),
         });
         self.output_to_pass
@@ -565,6 +584,7 @@ fn prepare_passes(render_passes: &[RenderPass]) -> Result<(String, Vec<ImportedP
             PassKind::Image => "image".to_string(),
             PassKind::Buffer => format!("buffer-{synthetic}"),
             PassKind::Cubemap => format!("cubemap-{synthetic}"),
+            PassKind::Compute => format!("compute-{synthetic}"),
         };
         let base = nonempty(&pass.name)
             .map(file_safe_name)

@@ -1,6 +1,6 @@
-use crate::ffi::{check, filter_kind, input_kind, last_error, pass_kind, wrap_kind};
+use crate::ffi::{check, filter_kind, input_kind, last_error, pass_kind, render_format, wrap_kind};
 use crate::types::checked_image_len;
-use crate::{Error, Filter, InputKind, PassKind, Result, Wrap};
+use crate::{Error, Filter, InputKind, PassKind, RenderFormat, Result, Wrap};
 use shadertoy_sys as sys;
 use std::ffi::CString;
 use std::ptr::NonNull;
@@ -48,6 +48,78 @@ impl Project {
         Ok(self)
     }
 
+    pub fn set_pass_format(&mut self, pass: &str, format: RenderFormat) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        // SAFETY: project handle is valid and the C string lives across the call.
+        check(unsafe {
+            sys::st_project_set_pass_format(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                render_format(format),
+            )
+        })?;
+        Ok(self)
+    }
+
+    pub fn add_pass_output(&mut self, pass: &str, format: RenderFormat) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        // SAFETY: project handle is valid and the C string lives across the call.
+        check(unsafe {
+            sys::st_project_add_pass_output(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                render_format(format),
+            )
+        })?;
+        Ok(self)
+    }
+
+    pub fn set_pass_iterations(&mut self, pass: &str, iterations: u32) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        // SAFETY: project handle is valid and the C string lives across the call.
+        check(unsafe {
+            sys::st_project_set_pass_iterations(self.handle.as_ptr(), pass.as_ptr(), iterations)
+        })?;
+        Ok(self)
+    }
+
+    pub fn set_compute_local_size(
+        &mut self,
+        pass: &str,
+        x: u32,
+        y: u32,
+        z: u32,
+    ) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        // SAFETY: project handle is valid and the C string lives across the call.
+        check(unsafe {
+            sys::st_project_set_compute_local_size(self.handle.as_ptr(), pass.as_ptr(), x, y, z)
+        })?;
+        Ok(self)
+    }
+
+    pub fn bind_storage_buffer(
+        &mut self,
+        pass: &str,
+        binding: u32,
+        name: &str,
+        size: u64,
+    ) -> Result<&mut Self> {
+        let pass = CString::new(pass)?;
+        let name = CString::new(name)?;
+        // SAFETY: project handle is valid and both C strings live across the call.
+        check(unsafe {
+            sys::st_project_bind_storage_buffer(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                binding,
+                name.as_ptr(),
+                size,
+            )
+        })?;
+        Ok(self)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn add_input(
         &mut self,
@@ -59,16 +131,32 @@ impl Project {
         filter: Filter,
         wrap: Wrap,
     ) -> Result<&mut Self> {
+        self.add_input_output(pass, channel, kind, source, 0, previous_frame, filter, wrap)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_input_output(
+        &mut self,
+        pass: &str,
+        channel: u32,
+        kind: InputKind,
+        source: &str,
+        source_output: u32,
+        previous_frame: bool,
+        filter: Filter,
+        wrap: Wrap,
+    ) -> Result<&mut Self> {
         let pass = CString::new(pass)?;
         let source = CString::new(source)?;
         // SAFETY: project handle is valid and both C strings live across the call.
         check(unsafe {
-            sys::st_project_add_input(
+            sys::st_project_add_input_output(
                 self.handle.as_ptr(),
                 pass.as_ptr(),
                 channel,
                 input_kind(kind),
                 source.as_ptr(),
+                source_output,
                 i32::from(previous_frame),
                 filter_kind(filter),
                 wrap_kind(wrap),
