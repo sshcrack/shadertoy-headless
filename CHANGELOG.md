@@ -4,6 +4,12 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.1
+
+- Fixed heap corruption when rendering or previewing RGB output whose width is not 4-byte aligned.
+- Hardened related OpenGL pixel-transfer paths, including tightly packed single-channel volumes.
+- Made the live WebSocket/canvas preview responsive and touch-friendly on mobile.
+
 ## 2.1.0
 
 - Made Linux offscreen rendering display-less (surfaceless EGL) so headless rendering needs no X/Wayland display.
