@@ -4,6 +4,11 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.5
+
+- Fixed the Windows release triplet selection: the static triplet must be passed via `VCPKG_DEFAULT_TRIPLET` (the env var the vcpkg tool honors in manifest mode), not `VCPKG_TARGET_TRIPLET` (only read as a CMake variable, so 2.1.3/2.1.4 silently built the dynamic triplet again).
+- Installed EGL runtime (`libegl1`, Mesa DRI drivers) on Linux CI so headless render tests can create a context.
+
 ## 2.1.4
 
 - Fixed the Windows release link (`LNK2019` on `__imp_*` CRT symbols): when Rust links the static CRT, the native code is now compiled `/MT` too (`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` in `shadertoy-sys`).

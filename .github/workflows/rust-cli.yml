@@ -23,7 +23,8 @@ jobs:
             clang libclang-dev ninja-build mono-complete
             libgl-dev libglu1-mesa-dev libltdl-dev
             libxcursor-dev libxi-dev libxinerama-dev libxmu-dev xorg-dev
-          version: 1.0
+            libegl1 libgl1-mesa-dri
+          version: 1.1
           execute_install_scripts: true
 
       - name: Configure vcpkg binary cache

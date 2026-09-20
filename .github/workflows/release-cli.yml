@@ -90,8 +90,10 @@ jobs:
           # made every 2.1.x Windows download die with STATUS_DLL_NOT_FOUND
           # (0xC0000135). The static triplet removes that dependency, and a
           # static CRT removes the VC-redist (MSVCP140/VCRUNTIME140) one.
-          # vcpkg.cmake picks VCPKG_TARGET_TRIPLET up from the environment.
-          echo "VCPKG_TARGET_TRIPLET=x64-windows-static" >> "$GITHUB_ENV"
+          # NOTE: the triplet must go through VCPKG_DEFAULT_TRIPLET (the env
+          # var honored by the vcpkg tool in manifest mode); the toolchain
+          # file only reads VCPKG_TARGET_TRIPLET as a CMake variable.
+          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-static" >> "$GITHUB_ENV"
           echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
 
       - name: Validate runner target
