@@ -5,6 +5,7 @@
 #pragma once
 
 #include "shadertoy/AudioInput.hpp"
+#include "shadertoy/Backend.hpp"
 #include "shadertoy/Importer.hpp"
 #include "shadertoy/Result.hpp"
 #include "shadertoy/STTF.hpp"
@@ -63,8 +64,11 @@ public:
     [[nodiscard]] std::vector<uint8_t> renderToBuffer(Vec2 size);
     [[nodiscard]] Result<std::vector<uint8_t>> snapshotPassRgb(std::string_view passName);
     [[nodiscard]] Result<std::vector<float>> snapshotPassRgba32f(std::string_view passName);
+    Result<void> reloadPassSource(std::string_view passName, std::string source);
     Result<void> overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba);
     Result<void> restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const std::vector<float>& rgba);
+    void setProfilingEnabled(bool enabled);
+    [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
     [[nodiscard]] int32_t frame() const noexcept;
     [[nodiscard]] Vec4 mouseStatus() const noexcept;

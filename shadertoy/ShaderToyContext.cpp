@@ -4,6 +4,7 @@
 */
 
 #include "shadertoy/ShaderToyContext.hpp"
+#include "shadertoy/Error.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -167,6 +168,12 @@ std::vector<float> ShaderToyContext::snapshotPassRgba32f(const std::string_view 
     return mPipeline->snapshotPassRgba32f(passName);
 }
 
+void ShaderToyContext::reloadPassSource(const std::string_view passName, const std::string& source) {
+    if(!mPipeline)
+        throw Error("No shader pipeline is loaded");
+    mPipeline->reloadPassSource(passName, source);
+}
+
 void ShaderToyContext::overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
                                          const uint8_t* data) {
     if(!mPipeline)
@@ -179,6 +186,16 @@ void ShaderToyContext::restorePassRgba32f(const std::string_view passName, const
     if(!mPipeline)
         return;
     mPipeline->restorePassRgba32f(passName, width, height, data);
+}
+
+void ShaderToyContext::setProfilingEnabled(const bool enabled) {
+    if(mPipeline)
+        mPipeline->setProfilingEnabled(enabled);
+}
+
+const std::vector<PassTiming>& ShaderToyContext::lastPassTimings() const {
+    static const std::vector<PassTiming> empty;
+    return mPipeline ? mPipeline->lastPassTimings() : empty;
 }
 
 void ShaderToyContext::setFixedState(const float timeSeconds, const int32_t frame, const float frameRate) {

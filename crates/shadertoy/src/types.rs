@@ -33,6 +33,14 @@ pub enum Wrap {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PassTiming {
+    pub name: String,
+    pub gpu_nanoseconds: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RgbImage {
     pub width: u32,
     pub height: u32,

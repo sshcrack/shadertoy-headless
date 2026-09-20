@@ -167,6 +167,17 @@ Result<std::vector<float>> Runtime::snapshotPassRgba32f(const std::string_view p
     }
 }
 
+Result<void> Runtime::reloadPassSource(const std::string_view passName, std::string source) {
+    try {
+        mImpl->context.reloadPassSource(passName, source);
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
 Result<void> Runtime::overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,
                                         const std::vector<uint8_t>& rgba) {
     try {
@@ -197,6 +208,14 @@ Result<void> Runtime::restorePassRgba32f(const std::string_view passName, const 
     } catch(const std::exception& error) {
         return std::unexpected(Error(error.what()));
     }
+}
+
+void Runtime::setProfilingEnabled(const bool enabled) {
+    mImpl->context.setProfilingEnabled(enabled);
+}
+
+const std::vector<PassTiming>& Runtime::lastPassTimings() const {
+    return mImpl->context.lastPassTimings();
 }
 
 void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, const float frameRate) {

@@ -42,6 +42,13 @@ struct DoubleBufferedTex final {
     }
 };
 
+struct PassTiming final {
+    std::string name;
+    uint64_t gpuNanoseconds{};
+    uint32_t width{};
+    uint32_t height{};
+};
+
 struct ShaderToyUniform final {
     float time{};
     float timeDelta{};
@@ -122,7 +129,10 @@ public:
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
     virtual void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
                          std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput) = 0;
+    virtual void reloadPassSource(std::string_view passName, const std::string& src) = 0;
     virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size, const ShaderToyUniform& uniform) = 0;
+    virtual void setProfilingEnabled(bool enabled) = 0;
+    [[nodiscard]] virtual const std::vector<PassTiming>& lastPassTimings() const = 0;
 
     virtual TextureId createTexture(uint32_t width, uint32_t height, const uint32_t* data) = 0;
     virtual TextureId createCubeMap(uint32_t size, const uint32_t* data) = 0;

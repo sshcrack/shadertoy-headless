@@ -54,8 +54,11 @@ public:
     [[nodiscard]] std::vector<uint8_t> renderToBuffer(Vec2 size);
     [[nodiscard]] std::vector<uint8_t> snapshotPassRgb(std::string_view passName);
     [[nodiscard]] std::vector<float> snapshotPassRgba32f(std::string_view passName);
+    void reloadPassSource(std::string_view passName, const std::string& source);
     void overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const uint8_t* data);
     void restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const float* data);
+    void setProfilingEnabled(bool enabled);
+    [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
     [[nodiscard]] int32_t getFrame() const noexcept {
         return mFrameCount;

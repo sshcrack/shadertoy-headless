@@ -1,8 +1,8 @@
 use crate::ffi::{check, last_error};
 use crate::types::{checked_image_len, zeroed_image_vec};
-use crate::{Error, HeadlessContext, Project, Result, RgbImage};
+use crate::{Error, HeadlessContext, PassTiming, Project, Result, RgbImage};
 use shadertoy_sys as sys;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::ptr::NonNull;
@@ -209,6 +209,61 @@ impl<'context> Runtime<'context> {
             )
         })?;
         Ok(pixels)
+    }
+
+    pub fn reload_pass_source(&mut self, pass: &str, source: &str) -> Result<()> {
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        let source = CString::new(source)?;
+        // SAFETY: runtime handle and C strings are valid across the call.
+        check(unsafe {
+            sys::st_runtime_reload_pass_source(self.handle.as_ptr(), pass.as_ptr(), source.as_ptr())
+        })
+    }
+
+    pub fn set_profiling(&mut self, enabled: bool) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        unsafe { sys::st_runtime_set_profiling(self.handle.as_ptr(), i32::from(enabled)) };
+        Ok(())
+    }
+
+    pub fn pass_timings(&self) -> Result<Vec<PassTiming>> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid; returned count indexes the runtime-owned timing vector.
+        let count = unsafe { sys::st_runtime_profile_pass_count(self.handle.as_ptr()) };
+        let mut timings = Vec::with_capacity(count);
+        for index in 0..count {
+            // SAFETY: index is below count from the same timing vector.
+            let name_len =
+                unsafe { sys::st_runtime_profile_pass_name_len(self.handle.as_ptr(), index) };
+            if name_len == 0 {
+                return Err(Error::Native("invalid native profiling pass name".into()));
+            }
+            let mut name = vec![0 as std::ffi::c_char; name_len];
+            let mut native = sys::st_pass_timing::default();
+            // SAFETY: buffers are correctly sized and valid for the duration of the call.
+            check(unsafe {
+                sys::st_runtime_profile_pass(
+                    self.handle.as_ptr(),
+                    index,
+                    name.as_mut_ptr(),
+                    name.len(),
+                    &mut native,
+                )
+            })?;
+            // SAFETY: native API guarantees NUL termination within the provided buffer.
+            let name = unsafe { CStr::from_ptr(name.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
+            timings.push(PassTiming {
+                name,
+                gpu_nanoseconds: native.gpu_nanoseconds,
+                width: native.width,
+                height: native.height,
+            });
+        }
+        Ok(timings)
     }
 
     pub fn override_pass_rgba8(

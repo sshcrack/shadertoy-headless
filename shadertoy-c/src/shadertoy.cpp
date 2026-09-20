@@ -765,6 +765,20 @@ int st_runtime_snapshot_pass_rgba32f(st_runtime* runtime, const char* passName, 
     });
 }
 
+int st_runtime_reload_pass_source(st_runtime* runtime, const char* passName, const char* source) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(!source)
+            throw std::runtime_error("Pass source is null");
+        auto result = runtime->runtime.reloadPassSource(passName, source);
+        if(!result)
+            throw result.error();
+    });
+}
+
 int st_runtime_override_pass_rgba8(st_runtime* runtime, const char* passName, const uint32_t width, const uint32_t height,
                                    const uint8_t* rgba, const size_t rgbaLen) {
     return guard([&] {
@@ -798,6 +812,45 @@ int st_runtime_restore_pass_rgba32f(st_runtime* runtime, const char* passName, c
         auto result = runtime->runtime.restorePassRgba32f(passName, width, height, pixels);
         if(!result)
             throw result.error();
+    });
+}
+
+void st_runtime_set_profiling(st_runtime* runtime, const int enabled) {
+    if(runtime)
+        runtime->runtime.setProfilingEnabled(enabled != 0);
+}
+
+size_t st_runtime_profile_pass_count(const st_runtime* runtime) {
+    return runtime ? runtime->runtime.lastPassTimings().size() : 0U;
+}
+
+size_t st_runtime_profile_pass_name_len(const st_runtime* runtime, const size_t index) {
+    if(!runtime)
+        return 0U;
+    const auto& timings = runtime->runtime.lastPassTimings();
+    return index < timings.size() ? timings[index].name.size() + 1U : 0U;
+}
+
+int st_runtime_profile_pass(const st_runtime* runtime, const size_t index, char* outName, const size_t outNameLen,
+                            st_pass_timing* outTiming) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!outTiming)
+            throw std::runtime_error("Pass timing output is null");
+        const auto& timings = runtime->runtime.lastPassTimings();
+        if(index >= timings.size())
+            throw std::runtime_error("Pass timing index is out of range");
+        const auto& timing = timings[index];
+        if(!outName || outNameLen == 0)
+            throw std::runtime_error("Pass timing name buffer is null or empty");
+        if(timing.name.size() + 1U > outNameLen)
+            throw std::runtime_error("Pass timing name buffer is too small");
+        std::copy(timing.name.begin(), timing.name.end(), outName);
+        outName[timing.name.size()] = '\0';
+        outTiming->gpu_nanoseconds = timing.gpuNanoseconds;
+        outTiming->width = timing.width;
+        outTiming->height = timing.height;
     });
 }
 

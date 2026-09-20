@@ -385,61 +385,56 @@ public:
 
 class RenderPass final {
     std::string mName;
-    GLuint mProgram;
+    GLuint mProgram{};
     std::vector<DoubleBufferedFB> mBuffers;
     NodeType mType;
-    GLint mLocationResolution;
-    GLint mLocationTime;
-    GLint mLocationTimeDelta;
-    GLint mLocationFrameRate;
-    GLint mLocationFrame;
-    GLint mLocationMouse;
-    GLint mLocationDate;
-    GLint mLocationMusicBands;
-    GLint mLocationMusicHits;
-    GLint mLocationMusicBeat;
-    GLint mLocationMusicStereo;
-    GLint mLocationMusicStructure;
-    GLint mLocationMusicMeta;
+    GLint mLocationResolution{};
+    GLint mLocationTime{};
+    GLint mLocationTimeDelta{};
+    GLint mLocationFrameRate{};
+    GLint mLocationFrame{};
+    GLint mLocationMouse{};
+    GLint mLocationDate{};
+    GLint mLocationMusicBands{};
+    GLint mLocationMusicHits{};
+    GLint mLocationMusicBeat{};
+    GLint mLocationMusicStereo{};
+    GLint mLocationMusicStructure{};
+    GLint mLocationMusicMeta{};
     GLint mLocationChannel[4]{};
     GLint mLocationChannelResolution[4]{};
     std::vector<Channel> mChannels;
     std::array<GLuint, 4> mSamplers{};
     std::optional<Vec2> mFixedResolution;
+    bool mClampOutput{};
+    uint32_t mLastWidth{};
+    uint32_t mLastHeight{};
 
-public:
-    RenderPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer,
-               std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput)
-        : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) },
-          mFixedResolution{ fixedResolution } {
+    [[nodiscard]] GLuint compileProgram(const std::string& src) const {
         std::string vertexSrc = shaderVersionDirective;
         std::string pixelSrc = shaderVersionDirective;
-        if(type == NodeType::CubeMap) {
+        if(mType == NodeType::CubeMap) {
             vertexSrc += shaderCubeMapDef;
             pixelSrc += shaderCubeMapDef;
         }
 
         vertexSrc += shaderVertexSrc;
         pixelSrc += shaderPixelHeader;
-        for(auto& channel : mChannels) {
+        for(const auto& channel : mChannels) {
             pixelSrc += "uniform sampler";
             pixelSrc += channel.tex.type == TexType::CubeMap ? "Cube" : channel.tex.type == TexType::Tex2D ? "2D" : "3D";
             pixelSrc += " iChannel";
             pixelSrc += static_cast<char>(static_cast<uint32_t>('0') + channel.slot);
             pixelSrc += ";\n";
         }
-        if(clampOutput)
+        if(mClampOutput)
             pixelSrc += "#define SHADERTOY_CLAMP_OUTPUT\n";
         pixelSrc += "#line 1\n";
         pixelSrc += src;
         pixelSrc += shaderPixelFooter;
 
-        const auto vertexSrcData = vertexSrc.c_str();
-        const auto pixelSrcData = pixelSrc.c_str();
-
-        // std::cout << "---- Vertex Shader ----" << std::endl;
-        // std::cout << vertexSrc << std::endl;
-        // std::cout << "------------------------" << std::endl;
+        const auto* vertexSrcData = vertexSrc.c_str();
+        const auto* pixelSrcData = pixelSrc.c_str();
 
         const auto shaderVertex = glCreateShader(GL_VERTEX_SHADER);
         auto vertGuard = scopeExit([&] { glDeleteShader(shaderVertex); });
@@ -447,25 +442,24 @@ public:
         glCompileShader(shaderVertex);
         checkShaderCompileError(shaderVertex, "VERTEX");
 
-        // std::cout << "---- Pixel Shader ----" << std::endl;
-        // std::cout << pixelSrc << std::endl;
-        // std::cout << "-----------------------" << std::endl;
-
         const auto shaderPixel = glCreateShader(GL_FRAGMENT_SHADER);
         auto pixelGuard = scopeExit([&] { glDeleteShader(shaderPixel); });
         glShaderSource(shaderPixel, 1, &pixelSrcData, nullptr);
         glCompileShader(shaderPixel);
         checkShaderCompileError(shaderPixel, "PIXEL");
 
-        mProgram = glCreateProgram();
-        auto programGuard = scopeFail([&] { glDeleteProgram(mProgram); });
-        glAttachShader(mProgram, shaderVertex);
-        auto vertBindGuard = scopeExit([&] { glDetachShader(mProgram, shaderVertex); });
-        glAttachShader(mProgram, shaderPixel);
-        auto pixelBindGuard = scopeExit([&] { glDetachShader(mProgram, shaderPixel); });
-        glLinkProgram(mProgram);
-        checkShaderCompileError(mProgram, "PROGRAM");
+        const auto program = glCreateProgram();
+        auto programGuard = scopeFail([&] { glDeleteProgram(program); });
+        glAttachShader(program, shaderVertex);
+        auto vertBindGuard = scopeExit([&] { glDetachShader(program, shaderVertex); });
+        glAttachShader(program, shaderPixel);
+        auto pixelBindGuard = scopeExit([&] { glDetachShader(program, shaderPixel); });
+        glLinkProgram(program);
+        checkShaderCompileError(program, "PROGRAM");
+        return program;
+    }
 
+    void refreshUniformLocations() {
         auto& mLocationChannel0 = mLocationChannel[0];
         auto& mLocationChannel1 = mLocationChannel[1];
         auto& mLocationChannel2 = mLocationChannel[2];
@@ -493,6 +487,15 @@ public:
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[2]);
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[3]);
 #undef SHADERTOY_GET_UNIFORM_LOCATION
+    }
+
+public:
+    RenderPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> buffer,
+               std::vector<Channel> channels, std::optional<Vec2> fixedResolution, const bool clampOutput)
+        : mName{ std::move(name) }, mBuffers{ std::move(buffer) }, mType{ type }, mChannels{ std::move(channels) },
+          mFixedResolution{ fixedResolution }, mClampOutput{ clampOutput } {
+        mProgram = compileProgram(src);
+        refreshUniformLocations();
 
         for(const auto& channel : mChannels) {
             const GLint wrapMode = [&] {
@@ -535,6 +538,21 @@ public:
             glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, minFilter);
             glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, magFilter);
         }
+    }
+
+    void reloadSource(const std::string& src) {
+        const GLuint replacement = compileProgram(src);
+        const GLuint previous = mProgram;
+        mProgram = replacement;
+        refreshUniformLocations();
+        glDeleteProgram(previous);
+    }
+
+    [[nodiscard]] uint32_t lastWidth() const noexcept {
+        return mLastWidth;
+    }
+    [[nodiscard]] uint32_t lastHeight() const noexcept {
+        return mLastHeight;
     }
     RenderPass(const RenderPass&) = delete;
     RenderPass(RenderPass&&) = delete;
@@ -623,6 +641,8 @@ public:
                 fbSize = frameBufferSize;
                 uniformSize = canvasSize;
             }
+            mLastWidth = static_cast<uint32_t>(size.x);
+            mLastHeight = static_cast<uint32_t>(size.y);
             glUseProgram(mProgram);
             // update vertex array
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
@@ -870,6 +890,33 @@ class OpenGLPipeline final : public Pipeline {
     std::vector<std::unique_ptr<TextureObject>> mTextures;
     AudioInput mAudioInput;
     KeyboardInput mKeyboardInput;
+    bool mProfilingEnabled{};
+    std::vector<PassTiming> mLastPassTimings;
+
+    void renderProfiled(RenderPass& pass, const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax,
+                        const Vec2 size, const ShaderToyUniform& uniform) {
+        if(!mProfilingEnabled) {
+            pass.render(frameBufferSize, clipMin, clipMax, size, uniform,
+                        pass.getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+            return;
+        }
+
+        GLuint query{};
+        glGenQueries(1, &query);
+        auto queryGuard = scopeExit([&] { glDeleteQueries(1, &query); });
+        glBeginQuery(GL_TIME_ELAPSED, query);
+        pass.render(frameBufferSize, clipMin, clipMax, size, uniform,
+                    pass.getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+        glEndQuery(GL_TIME_ELAPSED);
+        GLuint64 elapsed{};
+        glGetQueryObjectui64v(query, GL_QUERY_RESULT, &elapsed);
+        mLastPassTimings.push_back(PassTiming{
+            std::string(pass.getName()),
+            static_cast<uint64_t>(elapsed),
+            pass.lastWidth(),
+            pass.lastHeight(),
+        });
+    }
 
     static uint8_t toByte(const float value) {
         return static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
@@ -973,6 +1020,24 @@ public:
                                                              std::move(channels), fixedResolution, clampOutput));
     }
 
+    void reloadPassSource(const std::string_view passName, const std::string& src) override {
+        const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
+                                           [passName](const auto& pass) { return pass->getName() == passName; });
+        if(selected == mRenderPasses.end())
+            throw Error("Unknown shader pass: " + std::string(passName));
+        (*selected)->reloadSource(src);
+    }
+
+    void setProfilingEnabled(const bool enabled) override {
+        mProfilingEnabled = enabled;
+        if(!enabled)
+            mLastPassTimings.clear();
+    }
+
+    [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const override {
+        return mLastPassTimings;
+    }
+
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,
                 const ShaderToyUniform& uniform) override {
         GLint callerFramebuffer = 0;
@@ -985,11 +1050,11 @@ public:
                          GL_RGBA, GL_UNSIGNED_BYTE, data.data());  // R8G8B8A8
             glBindTexture(GL_TEXTURE_2D, GL_NONE);
         }
+        mLastPassTimings.clear();
         for(const auto& pass : mRenderPasses) {
             if(!pass->hasOffscreenTarget())
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
-            pass->render(frameBufferSize, clipMin, clipMax, size, uniform,
-                         pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+            renderProfiled(*pass, frameBufferSize, clipMin, clipMax, size, uniform);
         }
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
     }
@@ -1048,11 +1113,11 @@ public:
         // Render all passes. Offscreen passes may bind and unbind their own framebuffer,
         // so explicitly restore the capture framebuffer before any pass that renders
         // directly to the caller target.
+        mLastPassTimings.clear();
         for(const auto& pass : mRenderPasses) {
             if(!pass->hasOffscreenTarget())
                 fb->bind(width, height);
-            pass->render(size, Vec2{ 0, 0 }, size, size, uniform, pass->getType() == NodeType::Image ? mVAOImage : mVAOCubeMap,
-                         mVBO);
+            renderProfiled(*pass, size, Vec2{ 0, 0 }, size, size, uniform);
         }
 
         fb->bind(width, height);
