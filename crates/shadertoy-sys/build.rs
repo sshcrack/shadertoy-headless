@@ -109,6 +109,18 @@ fn main() {
         .define("BUILD_TESTING", "OFF")
         .define("CMAKE_BUILD_TYPE", "Release");
 
+    // The final link's CRT choice is owned by rustc. When it links the static
+    // CRT (the Windows release build sets `-C target-feature=+crt-static` so
+    // the shipped exe needs no VC redist), our C++ objects must be compiled
+    // /MT as well, otherwise the link fails with LNK2019 on __imp_* CRT
+    // symbols (CMake defaults to /MD; vcpkg's x64-windows-static triplet
+    // already builds its ports /MT).
+    let target = env::var("TARGET").unwrap_or_default();
+    let encoded_rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+    if target.contains("msvc") && encoded_rustflags.contains("+crt-static") {
+        config.define("CMAKE_MSVC_RUNTIME_LIBRARY", "MultiThreaded");
+    }
+
     if let Ok(vcpkg_root) = env::var("VCPKG_ROOT").or_else(|_| env::var("VCPKG_INSTALLATION_ROOT"))
     {
         let toolchain = Path::new(&vcpkg_root)

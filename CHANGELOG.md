@@ -4,6 +4,11 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.4
+
+- Fixed the Windows release link (`LNK2019` on `__imp_*` CRT symbols): when Rust links the static CRT, the native code is now compiled `/MT` too (`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded` in `shadertoy-sys`).
+- Fixed `clippy -D warnings` on current stable (`chunks_exact_to_as_chunks` in `state.rs`).
+
 ## 2.1.3
 
 - Fixed the Windows CLI dying on startup with a missing-DLL error (`STATUS_DLL_NOT_FOUND`): the release build now links vcpkg ports (notably `glfw3`) and the CRT statically (`x64-windows-static`, `+crt-static`), so the shipped `shadertoy.exe` needs no sidecar DLLs or VC redist.

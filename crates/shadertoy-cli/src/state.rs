@@ -199,7 +199,7 @@ impl StateFile {
                 let values_in_chunk = remaining.min(raw.len() / std::mem::size_of::<f32>());
                 let bytes_in_chunk = values_in_chunk * std::mem::size_of::<f32>();
                 reader.read_exact(&mut raw[..bytes_in_chunk])?;
-                for chunk in raw[..bytes_in_chunk].chunks_exact(4) {
+                for chunk in raw[..bytes_in_chunk].as_chunks::<4>().0 {
                     values.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
                 }
                 remaining -= values_in_chunk;
