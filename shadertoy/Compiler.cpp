@@ -226,7 +226,7 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                                     " in pass " + node->name);
                     auto found = storageBufferMap.find(storage.name);
                     if(found == storageBufferMap.end()) {
-                        const auto id = pipeline->createStorageBuffer(storage.size);
+                        const auto id = pipeline->createStorageBuffer(storage.name, storage.size);
                         found = storageBufferMap.emplace(storage.name, std::pair<uint64_t, BufferId>{ storage.size, id }).first;
                     } else if(found->second.first != storage.size) {
                         throw Error("Storage buffer '" + storage.name + "' uses inconsistent sizes");
@@ -285,7 +285,7 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
                     throw Error("Texture node has invalid dimensions");
                 if(texture.pixel.size() != checkedSizeProduct({ texture.width, texture.height }, "Texture"))
                     throw Error("Texture node has an invalid pixel payload");
-                const auto id = pipeline->createTexture(texture.width, texture.height, texture.pixel.data());
+                const auto id = pipeline->createTexture(node->name, texture.width, texture.height, texture.pixel.data());
                 textureSizeMap.emplace(node, Vec2{ static_cast<float>(texture.width), static_cast<float>(texture.height) });
                 textureMap.emplace(node, std::vector<DoubleBufferedTex>{ DoubleBufferedTex{ id, TexType::Tex2D } });
                 break;

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -49,11 +50,16 @@ public:
     void setMouseInput(const std::optional<MouseInput>& mouse);
     void setKeyboardInput(const KeyboardInput& input);
     void setAudioInput(const AudioInput& input);
+    void setUniformFloats(std::string name, const float* values, uint32_t count);
+    void setUniformInt(std::string name, int32_t value);
 
     void render(const RenderRegion& region);
     [[nodiscard]] std::vector<uint8_t> renderToBuffer(Vec2 size);
-    [[nodiscard]] std::vector<uint8_t> snapshotPassRgb(std::string_view passName);
-    [[nodiscard]] std::vector<float> snapshotPassRgba32f(std::string_view passName);
+    [[nodiscard]] std::vector<uint8_t> snapshotPassRgb(std::string_view passName, uint32_t output = 0);
+    [[nodiscard]] std::vector<float> snapshotPassRgba32f(std::string_view passName, uint32_t output = 0);
+    [[nodiscard]] std::vector<uint8_t> snapshotStorageBuffer(std::string_view name);
+    void restoreStorageBuffer(std::string_view name, const uint8_t* data, uint64_t size);
+    void updateTexture(std::string_view name, uint32_t width, uint32_t height, const uint32_t* data);
     void reloadPassSource(std::string_view passName, const std::string& source);
     void overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const uint8_t* data);
     void restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const float* data);
@@ -99,6 +105,7 @@ private:
     Vec4 mDate;
     AudioInput mAudioInput;
     KeyboardInput mKeyboardInput;
+    CustomUniformMap mCustomUniforms;
     std::unique_ptr<Pipeline> mPipeline;
 };
 

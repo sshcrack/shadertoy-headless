@@ -2,7 +2,7 @@ Every pass may bind up to four inputs: iChannel0 through iChannel3.
 
 An input selects:
   channel = 0..3
-  source  = another pass, an asset, "keyboard", or "music"
+  source  = another pass, an asset, "keyboard", "music", or "webcam"
   output  = pass render-target index, default 0 (pass inputs only)
   frame   = "current" or "previous" (pass inputs only; output 0 for previous)
   filter  = "nearest", "linear", or "mipmap"
@@ -36,3 +36,17 @@ The same controls are available when editing a project from the CLI:
 
 For a multi-render-target pass, use --output 1 (or another valid attachment)
 to bind that target without adding another producer pass.
+
+Media channels
+--------------
+
+`kind = "video"` references a local `[[asset]] kind = "video"`. Headless
+rendering decodes the frame for deterministic shader time through ffmpeg/ffprobe,
+updates the channel texture before each rendered frame, and exposes that time in
+`iChannelTime[channel]`.
+
+`kind = "webcam"` uses reserved source `"webcam"`. It is available only in live
+preview: the browser asks for camera permission, downsamples frames to 320x240,
+and sends RGBA frames to the native renderer over the existing WebSocket.
+Headless render/test/replay and preview recording reject webcam input because a
+live camera cannot be deterministic.

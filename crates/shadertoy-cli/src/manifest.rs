@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, bail};
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use crate::uniforms::{UniformDefinition, UniformValue, validate_definitions};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -9,7 +11,7 @@ pub const MANIFEST_NAME: &str = "ShaderToy.toml";
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_RENDER_DIMENSION: u32 = 16384;
 pub const MAX_RENDER_FPS: f32 = 1000.0;
-const RESERVED_INPUT_NAMES: [&str; 2] = ["keyboard", "music"];
+const RESERVED_INPUT_NAMES: [&str; 3] = ["keyboard", "music", "webcam"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +23,8 @@ pub struct Manifest {
     pub render: RenderSection,
     #[serde(default)]
     pub shader: ShaderSection,
+    #[serde(default, rename = "uniform", skip_serializing_if = "Vec::is_empty")]
+    pub uniforms: Vec<UniformDefinition>,
     #[serde(default, rename = "asset", skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<Asset>,
     #[serde(rename = "pass")]
@@ -84,6 +88,10 @@ fn default_test_tolerance() -> f32 {
     0.002
 }
 
+fn is_zero_f32(value: &f32) -> bool {
+    *value == 0.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TestCase {
@@ -94,10 +102,16 @@ pub struct TestCase {
     pub frame: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time: Option<f32>,
+    /// Additional deterministic frames. Mutually exclusive with frame/time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    /// Output-resolution matrix. Mutually exclusive with width/height.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resolutions: Vec<[u32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     #[serde(default = "default_test_tolerance")]
@@ -108,6 +122,18 @@ pub struct TestCase {
     pub assert_no_inf: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mean_range: Option<[f32; 2]>,
+    /// Re-run every matrix entry from a fresh runtime and require identical output.
+    #[serde(default)]
+    pub assert_deterministic: bool,
+    /// Require a fixed-size buffer/compute pass to be unchanged by output resolution.
+    #[serde(default)]
+    pub assert_resolution_independent: bool,
+    /// Absolute tolerance for raw floating-point comparisons.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub raw_tolerance: f32,
+    /// Per-test custom uniform overrides.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub uniforms: BTreeMap<String, UniformValue>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -117,6 +143,7 @@ pub enum PassKind {
     Buffer,
     Cubemap,
     Compute,
+    Sound,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -201,6 +228,8 @@ pub enum InputKind {
     Volume,
     Keyboard,
     Music,
+    Video,
+    Webcam,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -259,6 +288,7 @@ pub enum AssetKind {
     Texture,
     Cubemap,
     Volume,
+    Video,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -290,6 +320,7 @@ impl Manifest {
             },
             render: RenderSection::default(),
             shader: ShaderSection::default(),
+            uniforms: Vec::new(),
             assets: Vec::new(),
             passes: vec![Pass {
                 name: "image".into(),
@@ -320,6 +351,7 @@ impl Manifest {
             },
             render: RenderSection::default(),
             shader: ShaderSection::default(),
+            uniforms: Vec::new(),
             assets: Vec::new(),
             passes: vec![
                 Pass {
@@ -398,6 +430,7 @@ impl Manifest {
         for include_dir in &self.shader.include_dirs {
             validate_project_relative_path(include_dir, "shader.include_dirs entry")?;
         }
+        validate_definitions(&self.uniforms)?;
         if self.passes.is_empty() {
             bail!("project must contain at least one [[pass]]");
         }
@@ -620,6 +653,14 @@ impl Manifest {
                     if input.frame == FrameRef::Previous && *source_kind == PassKind::Image {
                         bail!("the final image pass cannot be a previous-frame source");
                     }
+                    if *source_kind == PassKind::Sound {
+                        bail!("sound passes cannot be used as iChannel sources");
+                    }
+                    if pass.kind == PassKind::Sound {
+                        bail!(
+                            "sound passes currently support static/keyboard/music inputs, not pass inputs"
+                        );
+                    }
                     let source_pass = self
                         .passes
                         .iter()
@@ -638,7 +679,7 @@ impl Manifest {
                 }
                 if matches!(
                     kind,
-                    InputKind::Texture | InputKind::Cubemap | InputKind::Volume
+                    InputKind::Texture | InputKind::Cubemap | InputKind::Volume | InputKind::Video
                 ) {
                     let Some(asset_kind) = asset_kinds.get(input.source.as_str()) else {
                         bail!(
@@ -652,6 +693,7 @@ impl Manifest {
                         InputKind::Texture => AssetKind::Texture,
                         InputKind::Cubemap => AssetKind::Cubemap,
                         InputKind::Volume => AssetKind::Volume,
+                        InputKind::Video => AssetKind::Video,
                         _ => unreachable!(),
                     };
                     if *asset_kind != expected {
@@ -681,6 +723,14 @@ impl Manifest {
                         input.source
                     );
                 }
+                if kind == InputKind::Webcam && input.source != "webcam" {
+                    bail!(
+                        "pass '{}' channel {} uses webcam input with source '{}'; use source 'webcam'",
+                        pass.name,
+                        input.channel,
+                        input.source
+                    );
+                }
             }
         }
         let mut test_names = HashSet::new();
@@ -697,14 +747,65 @@ impl Manifest {
                     test.name
                 );
             }
-            if test.frame.is_some_and(|frame| frame < 0) {
-                bail!("test '{}' frame must be non-negative", test.name);
+            if !test.frames.is_empty() && (test.frame.is_some() || test.time.is_some()) {
+                bail!(
+                    "test '{}' frames is mutually exclusive with frame/time",
+                    test.name
+                );
+            }
+            if test.frames.len() > 1024 {
+                bail!("test '{}' may contain at most 1024 frames", test.name);
+            }
+            if test.frame.is_some_and(|frame| frame < 0)
+                || test.frames.iter().any(|frame| *frame < 0)
+            {
+                bail!("test '{}' frame values must be non-negative", test.name);
+            }
+            let mut unique_frames = HashSet::new();
+            if test
+                .frames
+                .iter()
+                .any(|frame| !unique_frames.insert(*frame))
+            {
+                bail!("test '{}' frames contains duplicates", test.name);
             }
             if test
                 .time
                 .is_some_and(|time| !time.is_finite() || time < 0.0)
             {
                 bail!("test '{}' time must be finite and non-negative", test.name);
+            }
+            if !test.resolutions.is_empty() && (test.width.is_some() || test.height.is_some()) {
+                bail!(
+                    "test '{}' resolutions is mutually exclusive with width/height",
+                    test.name
+                );
+            }
+            if test.resolutions.len() > 32 {
+                bail!("test '{}' may contain at most 32 resolutions", test.name);
+            }
+            for [width, height] in &test.resolutions {
+                if *width == 0
+                    || *height == 0
+                    || *width > MAX_RENDER_DIMENSION
+                    || *height > MAX_RENDER_DIMENSION
+                {
+                    bail!(
+                        "test '{}' resolution {}x{} must be positive and at most {}",
+                        test.name,
+                        width,
+                        height,
+                        MAX_RENDER_DIMENSION
+                    );
+                }
+            }
+            let matrix_frames = test.frames.len().max(1);
+            let matrix_resolutions = test.resolutions.len().max(1);
+            if matrix_frames.saturating_mul(matrix_resolutions) > 1024 {
+                bail!(
+                    "test '{}' expands to more than 1024 frame/resolution variants",
+                    test.name
+                );
             }
             match (test.width, test.height) {
                 (None, None) => {}
@@ -735,10 +836,61 @@ impl Manifest {
                     &format!("reference for test '{}'", test.name),
                 )?;
             }
+            if test.reference.is_some() && (test.frames.len() > 1 || test.resolutions.len() > 1) {
+                bail!(
+                    "test '{}' uses a single reference image and therefore cannot also define a frame/resolution matrix",
+                    test.name
+                );
+            }
             if let Some(pass) = &test.pass
                 && !self.passes.iter().any(|candidate| candidate.name == *pass)
             {
                 bail!("test '{}' references unknown pass '{}'", test.name, pass);
+            }
+            if let Some(pass) = &test.pass
+                && self
+                    .passes
+                    .iter()
+                    .any(|candidate| candidate.name == *pass && candidate.kind == PassKind::Sound)
+            {
+                bail!(
+                    "test '{}' selects Sound pass '{}'; use render-audio for Sound validation",
+                    test.name,
+                    pass
+                );
+            }
+            if !test.raw_tolerance.is_finite() || test.raw_tolerance < 0.0 {
+                bail!(
+                    "test '{}' raw_tolerance must be finite and non-negative",
+                    test.name
+                );
+            }
+            if test.assert_resolution_independent {
+                if test.resolutions.len() < 2 {
+                    bail!(
+                        "test '{}' assert_resolution_independent requires at least two resolutions",
+                        test.name
+                    );
+                }
+                let selected = test
+                    .pass
+                    .as_deref()
+                    .map(|name| {
+                        self.passes
+                            .iter()
+                            .find(|candidate| candidate.name == name)
+                            .expect("test pass was validated above")
+                    })
+                    .unwrap_or_else(|| self.final_pass());
+                if !matches!(selected.kind, PassKind::Buffer | PassKind::Compute)
+                    || selected.width.is_none()
+                    || selected.height.is_none()
+                {
+                    bail!(
+                        "test '{}' resolution independence requires a fixed-size buffer/compute pass",
+                        test.name
+                    );
+                }
             }
             if let Some([min, max]) = test.mean_range
                 && (!min.is_finite() || !max.is_finite() || min > max)
@@ -748,10 +900,27 @@ impl Manifest {
                     test.name
                 );
             }
+            for (name, value) in &test.uniforms {
+                let definition = self
+                    .uniforms
+                    .iter()
+                    .find(|definition| definition.name() == name)
+                    .with_context(|| {
+                        format!(
+                            "test '{}' references unknown custom uniform '{}'",
+                            test.name, name
+                        )
+                    })?;
+                definition.validate_value(value).with_context(|| {
+                    format!("invalid custom uniform '{}' in test '{}'", name, test.name)
+                })?;
+            }
             if test.reference.is_none()
                 && !test.assert_no_nan
                 && !test.assert_no_inf
                 && test.mean_range.is_none()
+                && !test.assert_deterministic
+                && !test.assert_resolution_independent
             {
                 bail!(
                     "test '{}' must define a reference or at least one numeric assertion",
@@ -773,11 +942,15 @@ impl Manifest {
         if input.source == "music" {
             return Ok(InputKind::Music);
         }
+        if input.source == "webcam" {
+            return Ok(InputKind::Webcam);
+        }
         if let Some(asset) = self.assets.iter().find(|asset| asset.name == input.source) {
             return Ok(match asset.kind {
                 AssetKind::Texture => InputKind::Texture,
                 AssetKind::Cubemap => InputKind::Cubemap,
                 AssetKind::Volume => InputKind::Volume,
+                AssetKind::Video => InputKind::Video,
             });
         }
         if self.passes.iter().any(|pass| pass.name == input.source) {

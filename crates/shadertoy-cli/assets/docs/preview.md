@@ -12,13 +12,20 @@ project reload path. Any failed reload keeps the last successful render alive
 and exposes the compile/load error.
 
 The preview supports final Image and intermediate 2D buffer views, pause/reset,
-frame stepping, time scale, resolution changes, and mouse forwarding.
+frame stepping, time scale, resolution changes, mouse/keyboard forwarding, and
+live controls for declared custom uniforms. File-backed video channels are
+updated from shader time. If the manifest declares a `kind = "webcam"` channel,
+the browser exposes a Start webcam control and forwards 320x240 RGBA frames to
+the native renderer.
 
 On Linux the native preview uses the same surfaceless EGL path as check/render, so it can run without DISPLAY or WAYLAND_DISPLAY.
 
 
 Input recording and replay
 --------------------------
+
+Live webcam input cannot be recorded because camera frames are not reproducible;
+use a local video asset when a media-dependent bug needs deterministic replay.
 
 Record shader-affecting preview controls together with exact rendered
 iFrame/iTime/iTimeDelta/iFrameRate markers:

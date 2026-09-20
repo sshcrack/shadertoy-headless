@@ -9,7 +9,8 @@ use std::path::Path;
 const MAGIC: &[u8; 8] = b"STSTATE1";
 const LEGACY_STATE_FORMAT: u32 = 1;
 const DIMENSION_STATE_FORMAT: u32 = 2;
-const STATE_FORMAT: u32 = 3;
+const RENDER_FORMAT_STATE_FORMAT: u32 = 3;
+const STATE_FORMAT: u32 = 4;
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 const MAX_BUFFERS: usize = 64;
 
@@ -33,12 +34,16 @@ pub struct StateHeader {
     pub buffer_dimensions: BTreeMap<String, BufferDimensions>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub buffer_formats: BTreeMap<String, RenderFormat>,
+    /// Named SSBO sizes in bytes. Payloads follow image buffers in sorted name order.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub storage_buffers: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StateFile {
     pub header: StateHeader,
     pub buffers: BTreeMap<String, Vec<f32>>,
+    pub storage_buffers: BTreeMap<String, Vec<u8>>,
 }
 
 impl StateFile {
@@ -53,6 +58,7 @@ impl StateFile {
         buffers: BTreeMap<String, Vec<f32>>,
         buffer_dimensions: BTreeMap<String, BufferDimensions>,
         buffer_formats: BTreeMap<String, RenderFormat>,
+        storage_buffers: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
         validate_dimensions(width, height)?;
         if !fps.is_finite() || fps <= 0.0 || fps > crate::manifest::MAX_RENDER_FPS {
@@ -106,7 +112,27 @@ impl StateFile {
                 bail!("state buffer '{name}' is missing its render format");
             }
         }
+        if storage_buffers.len() > MAX_BUFFERS {
+            bail!("state contains too many storage buffers");
+        }
+        for (name, data) in &storage_buffers {
+            if name.trim().is_empty() {
+                bail!("state storage buffer name must not be empty");
+            }
+            if data.is_empty() {
+                bail!("state storage buffer '{name}' must not be empty");
+            }
+        }
         let names = buffers.keys().cloned().collect();
+        let storage_sizes = storage_buffers
+            .iter()
+            .map(|(name, data)| {
+                Ok((
+                    name.clone(),
+                    u64::try_from(data.len()).context("storage buffer size exceeds u64")?,
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
         Ok(Self {
             header: StateHeader {
                 format: STATE_FORMAT,
@@ -119,8 +145,10 @@ impl StateFile {
                 buffers: names,
                 buffer_dimensions,
                 buffer_formats,
+                storage_buffers: storage_sizes,
             },
             buffers,
+            storage_buffers,
         })
     }
 
@@ -151,6 +179,13 @@ impl StateFile {
             for value in values {
                 file.write_all(&value.to_le_bytes())?;
             }
+        }
+        for name in self.header.storage_buffers.keys() {
+            let data = self
+                .storage_buffers
+                .get(name)
+                .with_context(|| format!("missing state storage buffer '{name}'"))?;
+            file.write_all(data)?;
         }
         Ok(())
     }
@@ -257,7 +292,21 @@ impl StateFile {
             buffers.insert(name.clone(), values);
         }
 
-        let state = Self { header, buffers };
+        let mut storage_buffers = BTreeMap::new();
+        for (name, size) in &header.storage_buffers {
+            let size = usize::try_from(*size).context("state storage buffer size exceeds usize")?;
+            let mut data = vec![0u8; size];
+            reader
+                .read_exact(&mut data)
+                .with_context(|| format!("state file is truncated in storage buffer '{name}'"))?;
+            storage_buffers.insert(name.clone(), data);
+        }
+
+        let state = Self {
+            header,
+            buffers,
+            storage_buffers,
+        };
         state.validate()?;
         Ok(state)
     }
@@ -293,6 +342,41 @@ impl StateFile {
                 );
             }
         }
+        if self.storage_buffers.len() != self.header.storage_buffers.len() {
+            bail!("state storage table does not match its header");
+        }
+        for (name, expected_size) in &self.header.storage_buffers {
+            let data = self.storage_buffers.get(name).with_context(|| {
+                format!("state header references missing storage buffer '{name}'")
+            })?;
+            if u64::try_from(data.len()).ok() != Some(*expected_size) {
+                bail!(
+                    "state storage buffer '{}' has {} bytes; expected {}",
+                    name,
+                    data.len(),
+                    expected_size
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn replace_storage_buffer(&mut self, name: &str, data: Vec<u8>) -> Result<()> {
+        let expected = self
+            .header
+            .storage_buffers
+            .get(name)
+            .copied()
+            .with_context(|| format!("state has no storage buffer named '{name}'"))?;
+        if u64::try_from(data.len()).ok() != Some(expected) {
+            bail!(
+                "replacement storage buffer '{}' has {} bytes; expected {}",
+                name,
+                data.len(),
+                expected
+            );
+        }
+        self.storage_buffers.insert(name.to_string(), data);
         Ok(())
     }
 
@@ -373,6 +457,12 @@ fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) 
             .checked_add(bytes)
             .context("state file size overflow")?;
     }
+    for size in header.storage_buffers.values() {
+        let bytes = usize::try_from(*size).context("state storage size exceeds usize")?;
+        payload_bytes = payload_bytes
+            .checked_add(bytes)
+            .context("state file size overflow")?;
+    }
     let prefix_bytes = MAGIC
         .len()
         .checked_add(std::mem::size_of::<u32>())
@@ -396,21 +486,25 @@ fn validate_file_length(file_len: u64, header_len: usize, header: &StateHeader) 
 fn validate_header(header: &StateHeader) -> Result<()> {
     if !matches!(
         header.format,
-        LEGACY_STATE_FORMAT | DIMENSION_STATE_FORMAT | STATE_FORMAT
+        LEGACY_STATE_FORMAT | DIMENSION_STATE_FORMAT | RENDER_FORMAT_STATE_FORMAT | STATE_FORMAT
     ) {
         bail!(
-            "unsupported .ststate format {}; supported formats are {}, {}, and {}",
+            "unsupported .ststate format {}; supported formats are {}, {}, {}, and {}",
             header.format,
             LEGACY_STATE_FORMAT,
             DIMENSION_STATE_FORMAT,
+            RENDER_FORMAT_STATE_FORMAT,
             STATE_FORMAT
         );
     }
     if header.format == LEGACY_STATE_FORMAT && !header.buffer_dimensions.is_empty() {
         bail!("legacy .ststate format cannot contain per-buffer dimensions");
     }
-    if header.format < STATE_FORMAT && !header.buffer_formats.is_empty() {
+    if header.format < RENDER_FORMAT_STATE_FORMAT && !header.buffer_formats.is_empty() {
         bail!("legacy .ststate formats cannot contain per-buffer render formats");
+    }
+    if header.format < STATE_FORMAT && !header.storage_buffers.is_empty() {
+        bail!("legacy .ststate formats cannot contain storage buffers");
     }
     if header.project.trim().is_empty() {
         bail!("state project name must not be empty");
@@ -452,11 +546,22 @@ fn validate_header(header: &StateHeader) -> Result<()> {
             bail!("state has a render format for unknown buffer '{name}'");
         }
     }
-    if header.format == STATE_FORMAT {
+    if header.format >= RENDER_FORMAT_STATE_FORMAT {
         for name in &header.buffers {
             if !header.buffer_formats.contains_key(name) {
                 bail!("state buffer '{name}' is missing its render format");
             }
+        }
+    }
+    if header.storage_buffers.len() > MAX_BUFFERS {
+        bail!("state contains too many storage buffers");
+    }
+    for (name, size) in &header.storage_buffers {
+        if name.trim().is_empty() {
+            bail!("state storage buffer name must not be empty");
+        }
+        if *size == 0 {
+            bail!("state storage buffer '{name}' must have a positive size");
         }
     }
     Ok(())
@@ -502,6 +607,7 @@ mod tests {
             buffers,
             buffer_dimensions: BTreeMap::new(),
             buffer_formats: BTreeMap::new(),
+            storage_buffers: BTreeMap::new(),
         }
     }
 
@@ -550,6 +656,7 @@ mod tests {
     #[test]
     fn current_header_requires_render_format_for_every_buffer() {
         let mut value = header(vec!["buffer-a".into()]);
+        value.format = RENDER_FORMAT_STATE_FORMAT;
         assert!(validate_header(&value).is_err());
         value
             .buffer_formats

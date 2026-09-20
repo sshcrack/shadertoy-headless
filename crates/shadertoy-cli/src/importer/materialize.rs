@@ -131,6 +131,7 @@ pub fn materialize_capture(
         },
         render: RenderSection::default(),
         shader: ShaderSection::default(),
+        uniforms: Vec::new(),
         assets: builder.assets,
         passes: builder.manifest_passes,
         tests: Vec::new(),
@@ -327,6 +328,18 @@ impl<'a> ProjectBuilder<'a> {
                 FrameRef::Current,
                 input.channel,
             ),
+            "video" => (
+                self.ensure_asset(input, AssetKind::Video)?,
+                InputKind::Video,
+                FrameRef::Current,
+                input.channel,
+            ),
+            "webcam" => (
+                "webcam".into(),
+                InputKind::Webcam,
+                FrameRef::Current,
+                input.channel,
+            ),
             unsupported => {
                 self.warnings.push(format!(
                     "pass '{}' iChannel{} uses unsupported ShaderToy input type '{}'; it was left unbound",
@@ -451,6 +464,7 @@ impl<'a> ProjectBuilder<'a> {
             AssetKind::Texture => self.materialize_texture(input, &name)?,
             AssetKind::Cubemap => self.materialize_cubemap(input, &name)?,
             AssetKind::Volume => self.materialize_volume(input, &name)?,
+            AssetKind::Video => self.materialize_video(input, &name)?,
         };
         self.assets.push(Asset {
             name: name.clone(),
@@ -546,6 +560,19 @@ impl<'a> ProjectBuilder<'a> {
         Ok(relative)
     }
 
+    fn materialize_video(&self, input: &ShaderInput, name: &str) -> Result<String> {
+        let source = self.resource(&input.filepath)?;
+        let extension = Path::new(input.filepath.split('?').next().unwrap_or(&input.filepath))
+            .extension()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("mp4");
+        let relative = format!("assets/{name}.{extension}");
+        fs::copy(source, self.root.join(&relative))
+            .with_context(|| format!("failed to write imported video {relative}"))?;
+        Ok(relative)
+    }
+
     fn resource(&self, remote: &str) -> Result<&Path> {
         self.capture
             .resources
@@ -576,6 +603,7 @@ fn prepare_passes(render_passes: &[RenderPass]) -> Result<(String, Vec<ImportedP
             "image" => PassKind::Image,
             "buffer" => PassKind::Buffer,
             "cubemap" => PassKind::Cubemap,
+            "sound" => PassKind::Sound,
             "common" => continue,
             _ => continue,
         };
@@ -585,6 +613,7 @@ fn prepare_passes(render_passes: &[RenderPass]) -> Result<(String, Vec<ImportedP
             PassKind::Buffer => format!("buffer-{synthetic}"),
             PassKind::Cubemap => format!("cubemap-{synthetic}"),
             PassKind::Compute => format!("compute-{synthetic}"),
+            PassKind::Sound => format!("sound-{synthetic}"),
         };
         let base = nonempty(&pass.name)
             .map(file_safe_name)
@@ -605,7 +634,7 @@ fn prepare_passes(render_passes: &[RenderPass]) -> Result<(String, Vec<ImportedP
         });
     }
     if imported.is_empty() {
-        bail!("ShaderToy response contains no supported image/buffer/cubemap passes");
+        bail!("ShaderToy response contains no supported image/buffer/cubemap/sound passes");
     }
     Ok((common, imported))
 }
@@ -713,6 +742,7 @@ fn asset_kind_name(kind: AssetKind) -> &'static str {
         AssetKind::Texture => "texture",
         AssetKind::Cubemap => "cubemap",
         AssetKind::Volume => "volume",
+        AssetKind::Video => "video",
     }
 }
 

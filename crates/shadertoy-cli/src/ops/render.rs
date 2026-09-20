@@ -3,6 +3,7 @@ use super::*;
 pub fn render_project(options: &RenderOptions) -> Result<Output> {
     let loaded = LoadedManifest::load(&options.project)?;
     ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let state = options.state.as_ref().map(StateFile::load).transpose()?;
 
     if let Some(state) = &state
@@ -36,6 +37,9 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, &options.set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
 
     let final_image = if let Some(state) = &state {
         restore_state(&mut runtime, state)?;
@@ -47,9 +51,18 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
             width,
             height,
             &overrides,
+            &media,
         )?
     } else {
-        render_from_zero(&mut runtime, target_frame, fps, width, height, &overrides)?
+        render_from_zero(
+            &mut runtime,
+            target_frame,
+            fps,
+            width,
+            height,
+            &overrides,
+            &media,
+        )?
     };
 
     let requested_pass = options.pass.as_deref();
@@ -65,8 +78,8 @@ pub fn render_project(options: &RenderOptions) -> Result<Output> {
                 .iter()
                 .find(|pass| pass.name == name)
                 .with_context(|| format!("unknown render pass '{name}'"))?;
-            if pass.kind == PassKind::Cubemap {
-                bail!("named renders only support the final image and 2D buffer passes");
+            if matches!(pass.kind, PassKind::Cubemap | PassKind::Sound) {
+                bail!("named renders only support the final image and 2D buffer/compute passes");
             }
             let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
             runtime.snapshot_pass_rgb(name, pass_width, pass_height)?
@@ -113,6 +126,13 @@ pub(super) fn restore_state(runtime: &mut Runtime<'_>, state: &StateFile) -> Res
         let dimensions = state.buffer_dimensions(name)?;
         runtime.restore_pass_rgba32f(name, dimensions.width, dimensions.height, values)?;
     }
+    for name in state.header.storage_buffers.keys() {
+        let data = state
+            .storage_buffers
+            .get(name)
+            .with_context(|| format!("state is missing storage buffer '{name}'"))?;
+        runtime.restore_storage_buffer(name, data)?;
+    }
     Ok(())
 }
 
@@ -123,6 +143,7 @@ pub(super) fn render_from_zero(
     width: u32,
     height: u32,
     overrides: &[BufferOverride],
+    media: &crate::media::MediaInputs,
 ) -> Result<Option<RgbImage>> {
     if target_frame < 0 {
         bail!("target frame must be non-negative");
@@ -130,20 +151,25 @@ pub(super) fn render_from_zero(
 
     if target_frame == 0 {
         apply_overrides(runtime, overrides)?;
+        media.update(runtime, runtime.time())?;
         return Ok(Some(runtime.render(width, height)?));
     }
 
     // Establish deterministic frame-0 buffer contents before advancing.
+    media.update(runtime, runtime.time())?;
     let _ = runtime.render(width, height)?;
     for _frame in 1..target_frame {
         runtime.tick_fixed(1.0 / fps, fps)?;
+        media.update(runtime, runtime.time())?;
         let _ = runtime.render(width, height)?;
     }
     apply_overrides(runtime, overrides)?;
     runtime.tick_fixed(1.0 / fps, fps)?;
+    media.update(runtime, runtime.time())?;
     Ok(Some(runtime.render(width, height)?))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_from_restored_state(
     runtime: &mut Runtime<'_>,
     state_frame: i32,
@@ -152,6 +178,7 @@ fn render_from_restored_state(
     width: u32,
     height: u32,
     overrides: &[BufferOverride],
+    media: &crate::media::MediaInputs,
 ) -> Result<Option<RgbImage>> {
     if target_frame < state_frame {
         bail!("requested frame {target_frame} precedes restored state frame {state_frame}");
@@ -169,6 +196,7 @@ fn render_from_restored_state(
             apply_overrides(runtime, overrides)?;
         }
         runtime.tick_fixed(1.0 / fps, fps)?;
+        media.update(runtime, runtime.time())?;
         image = Some(runtime.render(width, height)?);
     }
     Ok(image)
@@ -324,7 +352,13 @@ const MAX_CONTACT_SHEET_BYTES: usize = 256 * 1024 * 1024;
 pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
     let loaded = LoadedManifest::load(&options.project)?;
     ensure_source_files_exist(&loaded)?;
-    let frames = normalize_frames(&options.frames)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
+    let requested_frames = if let Some(range) = &options.range {
+        crate::ops::video::parse_frame_range(range)?
+    } else {
+        options.frames.clone()
+    };
+    let frames = normalize_frames(&requested_frames)?;
     let (width, height) = resolve_dimensions(&loaded, None, options.width, options.height)?;
     let fps = resolve_fps(&loaded, None, options.fps)?;
 
@@ -338,8 +372,8 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
         .iter()
         .find(|pass| pass.name == selected_pass)
         .with_context(|| format!("unknown render pass '{selected_pass}'"))?;
-    if pass.kind == PassKind::Cubemap {
-        bail!("render-frames only supports the final image and 2D buffer passes");
+    if matches!(pass.kind, PassKind::Cubemap | PassKind::Sound) {
+        bail!("render-frames only supports the final image and 2D buffer/compute passes");
     }
 
     let (selected_width, selected_height) = loaded.manifest.pass_dimensions(pass, width, height);
@@ -370,6 +404,9 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, &options.set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
 
     let final_pass = loaded.manifest.final_pass().name.as_str();
     let mut outputs = Vec::with_capacity(frames.len());
@@ -382,6 +419,8 @@ pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
         if frame > 0 {
             runtime.tick_fixed(1.0 / fps, fps)?;
         }
+        let media_time = runtime.time();
+        media.update(&mut runtime, media_time)?;
         let final_image = runtime.render(width, height)?;
 
         if frame != frames[next_requested] {

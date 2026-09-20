@@ -8,6 +8,7 @@
 shadertoy inspect --json
 shadertoy check --json
 shadertoy render -o target/check.png
+shadertoy render-frames --range 0:120:30 --contact-sheet target/contact.png
 shadertoy preview
 ```
 

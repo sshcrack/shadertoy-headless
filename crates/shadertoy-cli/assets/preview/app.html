@@ -19,6 +19,11 @@ select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: 
 button { touch-action: manipulation; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .control + .control { margin-top: 8px; }
+.uniform-entry { margin-top: 8px; }
+.uniform-entry > label { margin-top: 0; }
+.uniform-vector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.uniform-bool { display: flex; align-items: center; gap: 8px; }
+.uniform-bool input { width: auto; min-height: 0; margin: 0; }
 .meta { margin-top: 14px; font-size: 11px; line-height: 1.65; color: #b7bac3; white-space: pre-line; }
 #error { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: #ff8e8e; font-size: 11px; }
 @media (max-width: 720px) {
@@ -66,6 +71,14 @@ button { touch-action: manipulation; }
   <div class="control">
     <label>Time scale (log2)<input id="scale" type="range" min="-4" max="4" step="0.25" value="0"></label>
   </div>
+  <div class="control" id="uniform-section">
+    <label>Parameters</label>
+    <div id="uniforms"></div>
+  </div>
+  <div class="control" id="webcam-section" style="display:none">
+    <label>Webcam input</label>
+    <button id="webcam-toggle">Start webcam</button>
+  </div>
   <div class="meta" id="meta"></div>
   <div id="error"></div>
 </aside>
@@ -84,6 +97,18 @@ const error = document.getElementById("error");
 const width = document.getElementById("width");
 const height = document.getElementById("height");
 const scale = document.getElementById("scale");
+const uniforms = document.getElementById("uniforms");
+const uniformSection = document.getElementById("uniform-section");
+const webcamSection = document.getElementById("webcam-section");
+const webcamToggle = document.getElementById("webcam-toggle");
+const webcamVideo = document.createElement("video");
+const webcamCanvas = document.createElement("canvas");
+webcamCanvas.width = 320;
+webcamCanvas.height = 240;
+const webcamContext = webcamCanvas.getContext("2d", {alpha:false, willReadFrequently:true});
+let webcamStream = null;
+let webcamTimer = null;
+let uniformSignature = "";
 let status = null;
 let down = false;
 let decodingFrame = false;
@@ -99,6 +124,129 @@ function samePassOptions(passes) {
   }
   return true;
 }
+function uniformStructureSignature(items) {
+  return JSON.stringify((items || []).map(item => ({
+    name:item.name, kind:item.kind, min:item.min, max:item.max, step:item.step
+  })));
+}
+function componentValue(value, index) {
+  return Array.isArray(value) ? value[index] : value;
+}
+function makeNumericUniformInput(item, index=null) {
+  const input = document.createElement("input");
+  const component = index === null ? 0 : index;
+  const min = item.min == null ? null : componentValue(item.min, component);
+  const max = item.max == null ? null : componentValue(item.max, component);
+  input.type = min != null && max != null ? "range" : "number";
+  if (min != null) input.min = min;
+  if (max != null) input.max = max;
+  input.step = item.step || (item.kind === "int" ? 1 : "any");
+  input.dataset.uniform = item.name;
+  if (index !== null) input.dataset.component = index;
+  input.oninput = () => {
+    const current = (status.uniforms || []).find(candidate => candidate.name === item.name);
+    if (!current) return;
+    if (index === null) {
+      const value = item.kind === "int" ? Math.trunc(+input.value) : +input.value;
+      send({type:"uniform", name:item.name, value:value});
+    } else {
+      const next = current.value.slice();
+      next[index] = +input.value;
+      send({type:"uniform", name:item.name, value:next});
+    }
+  };
+  return input;
+}
+function rebuildUniforms(items) {
+  uniforms.replaceChildren();
+  uniformSection.style.display = items.length ? "" : "none";
+  for (const item of items) {
+    const entry = document.createElement("div");
+    entry.className = "uniform-entry";
+    const label = document.createElement("label");
+    label.textContent = item.name;
+    entry.appendChild(label);
+    if (item.kind === "bool") {
+      const wrap = document.createElement("div");
+      wrap.className = "uniform-bool";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.uniform = item.name;
+      input.onchange = () => send({type:"uniform", name:item.name, value:input.checked});
+      wrap.append(input, document.createTextNode("enabled"));
+      entry.appendChild(wrap);
+    } else if (item.kind.startsWith("vec")) {
+      const count = +item.kind.slice(3);
+      const vector = document.createElement("div");
+      vector.className = "uniform-vector";
+      for (let i = 0; i < count; i++) vector.appendChild(makeNumericUniformInput(item, i));
+      entry.appendChild(vector);
+    } else {
+      entry.appendChild(makeNumericUniformInput(item));
+    }
+    uniforms.appendChild(entry);
+  }
+}
+function updateUniforms(items) {
+  const signature = uniformStructureSignature(items);
+  if (signature !== uniformSignature) {
+    uniformSignature = signature;
+    rebuildUniforms(items);
+  }
+  uniforms.querySelectorAll("[data-uniform]").forEach(input => {
+    const item = items.find(candidate => candidate.name === input.dataset.uniform);
+    if (!item || document.activeElement === input) return;
+    if (item.kind === "bool") input.checked = !!item.value;
+    else {
+      const component = input.dataset.component;
+      input.value = component == null ? item.value : item.value[+component];
+    }
+  });
+}
+
+function stopWebcam() {
+  if (webcamTimer !== null) clearInterval(webcamTimer);
+  webcamTimer = null;
+  if (webcamStream !== null) {
+    for (const track of webcamStream.getTracks()) track.stop();
+  }
+  webcamStream = null;
+  webcamVideo.srcObject = null;
+  webcamToggle.textContent = "Start webcam";
+}
+async function startWebcam() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("getUserMedia is unavailable in this browser/context");
+  }
+  webcamStream = await navigator.mediaDevices.getUserMedia({
+    video: {width:{ideal:320}, height:{ideal:240}},
+    audio: false
+  });
+  webcamVideo.srcObject = webcamStream;
+  webcamVideo.muted = true;
+  webcamVideo.playsInline = true;
+  await webcamVideo.play();
+  webcamToggle.textContent = "Stop webcam";
+  webcamTimer = setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN || webcamVideo.readyState < 2) return;
+    webcamContext.drawImage(webcamVideo, 0, 0, 320, 240);
+    const rgba = webcamContext.getImageData(0, 0, 320, 240).data;
+    ws.send(rgba.buffer);
+  }, 100);
+}
+webcamToggle.onclick = async () => {
+  if (webcamStream !== null) {
+    stopWebcam();
+    return;
+  }
+  try {
+    await startWebcam();
+  } catch (err) {
+    error.textContent = "webcam failed: " + err;
+    stopWebcam();
+  }
+};
+
 function update(s) {
   status = s;
   meta.textContent = s.project + "\nframe " + s.frame + "  time " + s.time.toFixed(3) + "s\n" + s.width + "x" + s.height + " @ " + s.fps + " fps";
@@ -107,6 +255,9 @@ function update(s) {
   if (document.activeElement !== width) width.value = s.width;
   if (document.activeElement !== height) height.value = s.height;
   if (document.activeElement !== scale) scale.value = s.time_scale;
+  updateUniforms(s.uniforms || []);
+  webcamSection.style.display = s.webcam ? "" : "none";
+  if (!s.webcam && webcamStream !== null) stopWebcam();
   if (!samePassOptions(s.passes)) {
     const selected = view.value;
     view.replaceChildren(...s.passes.map(name => {
@@ -193,6 +344,7 @@ function keyEvent(e, isDown) {
 }
 window.addEventListener("keydown", e => keyEvent(e,true));
 window.addEventListener("keyup", e => keyEvent(e,false));
+window.addEventListener("beforeunload", stopWebcam);
 </script>
 </body>
 </html>

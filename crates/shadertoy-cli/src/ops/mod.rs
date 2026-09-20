@@ -7,7 +7,9 @@ mod project;
 mod regression;
 mod render;
 mod replay;
+mod sound;
 mod state;
+mod video;
 
 use crate::manifest::{LoadedManifest, PassKind};
 use crate::project::{build_native_project, ensure_source_files_exist};
@@ -23,14 +25,16 @@ use std::path::{Path, PathBuf};
 
 pub use images::rgb_png_bytes;
 pub use importer::import_project;
-pub use inspect::{inspect_buffer, inspect_project};
+pub use inspect::{inspect_buffer, inspect_project, inspect_storage};
 pub use mutate::{ChannelSetOptions, add_pass, remove_channel, remove_pass, set_channel};
 pub use profile::profile_project;
 pub use project::{build_project, check_project, init_project, new_project};
 pub use regression::test_project;
 pub use render::{render_frames_project, render_project};
 pub use replay::replay_project;
-pub use state::{capture_state, inspect_state, set_state_buffers};
+pub use sound::render_audio_project;
+pub use state::{capture_state, inspect_state, set_state_buffers, set_state_storage};
+pub use video::render_video_project;
 
 use images::{BufferOverride, flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
 use render::{render_from_zero, resolve_target_frame, validate_dimensions, validate_fps};
@@ -53,6 +57,7 @@ pub struct RenderOptions {
     pub time: Option<f32>,
     pub state: Option<PathBuf>,
     pub set_buffers: Vec<String>,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +87,32 @@ pub struct ProfileOptions {
     pub time: Option<f32>,
     pub warmup: u32,
     pub samples: u32,
+    pub set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderAudioOptions {
+    pub project: PathBuf,
+    pub output: Option<PathBuf>,
+    pub pass: Option<String>,
+    pub duration: f32,
+    pub sample_rate: u32,
+    pub set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderVideoOptions {
+    pub project: PathBuf,
+    pub output: Option<PathBuf>,
+    pub pass: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f32>,
+    pub start_frame: i32,
+    pub frames: Option<u32>,
+    pub duration: Option<f32>,
+    pub codec: Option<String>,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +126,8 @@ pub struct RenderFramesOptions {
     pub height: Option<u32>,
     pub fps: Option<f32>,
     pub frames: Vec<i32>,
+    pub range: Option<String>,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +142,7 @@ pub enum InspectVisualization {
 pub struct InspectBufferOptions {
     pub project: PathBuf,
     pub pass: String,
+    pub output_index: u8,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub fps: Option<f32>,
@@ -116,7 +150,31 @@ pub struct InspectBufferOptions {
     pub time: Option<f32>,
     pub pixel: Option<(u32, u32)>,
     pub output: Option<PathBuf>,
+    pub raw: Option<PathBuf>,
     pub visualization: InspectVisualization,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum InspectStorageType {
+    Bytes,
+    U32,
+    I32,
+    F32,
+}
+
+#[derive(Debug, Clone)]
+pub struct InspectStorageOptions {
+    pub project: PathBuf,
+    pub name: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f32>,
+    pub frame: Option<i32>,
+    pub time: Option<f32>,
+    pub offset: usize,
+    pub count: usize,
+    pub value_type: InspectStorageType,
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]

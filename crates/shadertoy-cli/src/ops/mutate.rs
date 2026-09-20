@@ -346,5 +346,6 @@ fn pass_stub(kind: PassKind) -> &'static str {
         PassKind::Buffer | PassKind::Image => crate::include_file!("templates/pass/buffer.frag"),
         PassKind::Cubemap => crate::include_file!("templates/pass/cubemap.frag"),
         PassKind::Compute => crate::include_file!("templates/pass/compute.comp"),
+        PassKind::Sound => crate::include_file!("templates/pass/sound.frag"),
     }
 }

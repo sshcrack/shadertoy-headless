@@ -30,6 +30,7 @@ ShaderToyUniform ShaderToyContext::makeUniform() const {
         { mAudioInput.stereoWidth, mAudioInput.stereoBalance, mAudioInput.stereoCorrelation, mAudioInput.energyTrend },
         { mAudioInput.drop, mAudioInput.sectionChange, mAudioInput.spectralCentroid, mAudioInput.spectralFlux },
         { mAudioInput.available ? 1.0f : 0.0f, mAudioInput.silence ? 1.0f : 0.0f, mAudioInput.sampleRate, 0.0f },
+        &mCustomUniforms,
     };
 }
 
@@ -144,6 +145,30 @@ void ShaderToyContext::setAudioInput(const AudioInput& input) {
         mPipeline->setAudioInput(mAudioInput);
 }
 
+void ShaderToyContext::setUniformFloats(std::string name, const float* values, const uint32_t count) {
+    if(name.empty())
+        throw Error("Custom uniform name must not be empty");
+    if(!values || count == 0 || count > 4)
+        throw Error("Custom float uniforms require 1 to 4 values");
+    CustomUniformValue value;
+    value.type = count == 1 ? CustomUniformType::Float : count == 2 ? CustomUniformType::Vec2 :
+        count == 3 ? CustomUniformType::Vec3 : CustomUniformType::Vec4;
+    value.value.x = values[0];
+    value.value.y = count > 1 ? values[1] : 0.0f;
+    value.value.z = count > 2 ? values[2] : 0.0f;
+    value.value.w = count > 3 ? values[3] : 0.0f;
+    mCustomUniforms.insert_or_assign(std::move(name), value);
+}
+
+void ShaderToyContext::setUniformInt(std::string name, const int32_t intValue) {
+    if(name.empty())
+        throw Error("Custom uniform name must not be empty");
+    CustomUniformValue value;
+    value.type = CustomUniformType::Int;
+    value.intValue = intValue;
+    mCustomUniforms.insert_or_assign(std::move(name), value);
+}
+
 void ShaderToyContext::render(const RenderRegion& region) {
     if(!mPipeline)
         return;
@@ -156,16 +181,35 @@ std::vector<uint8_t> ShaderToyContext::renderToBuffer(const Vec2 size) {
     return mPipeline->renderToBuffer(size, makeUniform());
 }
 
-std::vector<uint8_t> ShaderToyContext::snapshotPassRgb(const std::string_view passName) {
+std::vector<uint8_t> ShaderToyContext::snapshotPassRgb(const std::string_view passName, const uint32_t output) {
     if(!mPipeline)
         return {};
-    return mPipeline->snapshotPassRgb(passName);
+    return mPipeline->snapshotPassRgb(passName, output);
 }
 
-std::vector<float> ShaderToyContext::snapshotPassRgba32f(const std::string_view passName) {
+std::vector<float> ShaderToyContext::snapshotPassRgba32f(const std::string_view passName, const uint32_t output) {
     if(!mPipeline)
         return {};
-    return mPipeline->snapshotPassRgba32f(passName);
+    return mPipeline->snapshotPassRgba32f(passName, output);
+}
+
+std::vector<uint8_t> ShaderToyContext::snapshotStorageBuffer(const std::string_view name) {
+    if(!mPipeline)
+        return {};
+    return mPipeline->snapshotStorageBuffer(name);
+}
+
+void ShaderToyContext::restoreStorageBuffer(const std::string_view name, const uint8_t* data, const uint64_t size) {
+    if(!mPipeline)
+        throw Error("No shader pipeline is loaded");
+    mPipeline->restoreStorageBuffer(name, data, size);
+}
+
+void ShaderToyContext::updateTexture(const std::string_view name, const uint32_t width, const uint32_t height,
+                                     const uint32_t* data) {
+    if(!mPipeline)
+        throw Error("No shader pipeline is loaded");
+    mPipeline->updateTexture(name, width, height, data);
 }
 
 void ShaderToyContext::reloadPassSource(const std::string_view passName, const std::string& source) {

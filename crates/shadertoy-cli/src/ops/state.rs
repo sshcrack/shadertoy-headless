@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn capture_state(
     project_path: &Path,
     output: &Path,
@@ -8,9 +9,11 @@ pub fn capture_state(
     fps: Option<f32>,
     frame: Option<i32>,
     time: Option<f32>,
+    include_storage: bool,
 ) -> Result<Output> {
     let loaded = LoadedManifest::load(project_path)?;
     ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let width = width.unwrap_or(loaded.manifest.render.width);
     let height = height.unwrap_or(loaded.manifest.render.height);
     validate_dimensions(width, height)?;
@@ -23,7 +26,11 @@ pub fn capture_state(
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
-    let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[])?;
+    crate::uniforms::apply_to_runtime(
+        &mut runtime,
+        &crate::uniforms::defaults(&loaded.manifest.uniforms),
+    )?;
+    let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[], &media)?;
 
     let mut buffers = BTreeMap::new();
     let mut buffer_dimensions = BTreeMap::new();
@@ -52,6 +59,27 @@ pub fn capture_state(
         }
     }
 
+    let mut storage_buffers = BTreeMap::new();
+    if include_storage {
+        let mut sizes = BTreeMap::new();
+        for pass in &loaded.manifest.passes {
+            for storage in &pass.storage {
+                sizes.entry(storage.name.clone()).or_insert(storage.size);
+            }
+        }
+        for (name, size) in sizes {
+            let size = usize::try_from(size).context("storage buffer size exceeds usize")?;
+            match runtime.snapshot_storage_buffer(&name, size) {
+                Ok(data) => {
+                    storage_buffers.insert(name, data);
+                }
+                Err(error) => {
+                    eprintln!("warning: state capture skipped storage '{name}': {error}");
+                }
+            }
+        }
+    }
+
     let state = StateFile::new(
         loaded.manifest.project.name.clone(),
         width,
@@ -62,15 +90,17 @@ pub fn capture_state(
         buffers,
         buffer_dimensions,
         buffer_formats,
+        storage_buffers,
     )?;
     state.save(output)?;
 
     Ok(Output {
         human: format!(
-            "Captured frame {} ({:.3}s), {} buffers -> {}",
+            "Captured frame {} ({:.3}s), {} buffers, {} storage buffers -> {}",
             state.header.frame,
             state.header.time,
             state.header.buffers.len(),
+            state.header.storage_buffers.len(),
             output.display()
         ),
         json: json!({
@@ -84,6 +114,7 @@ pub fn capture_state(
             "frame": state.header.frame,
             "time": state.header.time,
             "buffers": state.header.buffers,
+            "storage_buffers": state.header.storage_buffers,
         }),
     })
 }
@@ -142,6 +173,36 @@ pub fn set_state_buffers(input: &Path, output: &Path, assignments: &[String]) ->
             "input": input,
             "output": output,
             "buffers": changed,
+        }),
+    })
+}
+
+pub fn set_state_storage(input: &Path, output: &Path, assignments: &[String]) -> Result<Output> {
+    if assignments.is_empty() {
+        bail!("state set-storage requires at least one STORAGE=BINARY assignment");
+    }
+    let mut state = StateFile::load(input)?;
+    let mut changed = Vec::new();
+    for assignment in assignments {
+        let (name, path) = split_assignment(assignment)?;
+        let data = fs::read(path)
+            .with_context(|| format!("failed to read replacement storage {}", path.display()))?;
+        state.replace_storage_buffer(name, data)?;
+        changed.push(name.to_string());
+    }
+    state.save(output)?;
+    Ok(Output {
+        human: format!(
+            "Updated storage {} -> {}",
+            changed.join(", "),
+            output.display()
+        ),
+        json: json!({
+            "ok": true,
+            "action": "state-set-storage",
+            "input": input,
+            "output": output,
+            "storage_buffers": changed,
         }),
     })
 }

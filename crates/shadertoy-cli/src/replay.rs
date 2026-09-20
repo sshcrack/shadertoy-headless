@@ -50,6 +50,10 @@ pub enum ReplayAction {
     TimeScale {
         value: f32,
     },
+    Uniform {
+        name: String,
+        value: crate::uniforms::UniformValue,
+    },
     Mouse {
         x: f32,
         y: f32,
@@ -228,6 +232,7 @@ pub fn project_fingerprint(loaded: &LoadedManifest) -> Result<String> {
     hash.update(loaded.manifest.project.name.as_bytes());
     hash.update(serde_json::to_vec(&loaded.manifest.render)?);
     hash.update(serde_json::to_vec(&loaded.manifest.shader)?);
+    hash.update(serde_json::to_vec(&loaded.manifest.uniforms)?);
     hash.update(serde_json::to_vec(&loaded.manifest.passes)?);
     hash.update(serde_json::to_vec(&loaded.manifest.assets)?);
 

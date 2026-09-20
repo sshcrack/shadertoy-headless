@@ -52,6 +52,11 @@ pub fn check_project(path: &Path) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    crate::uniforms::apply_to_runtime(
+        &mut runtime,
+        &crate::uniforms::defaults(&loaded.manifest.uniforms),
+    )?;
+    let sound_passes = super::sound::check_sound_passes(&context, &loaded)?;
 
     Ok(Output {
         human: format!(
@@ -67,6 +72,7 @@ pub fn check_project(path: &Path) -> Result<Output> {
             "passes": loaded.manifest.passes.len(),
             "assets": loaded.manifest.assets.len(),
             "compiled": true,
+            "sound_passes": sound_passes,
         }),
     })
 }
@@ -74,6 +80,27 @@ pub fn check_project(path: &Path) -> Result<Output> {
 pub fn build_project(path: &Path, output: Option<&Path>) -> Result<Output> {
     let loaded = LoadedManifest::load(path)?;
     ensure_source_files_exist(&loaded)?;
+    if loaded
+        .manifest
+        .passes
+        .iter()
+        .any(|pass| pass.kind == PassKind::Sound)
+    {
+        bail!(
+            "STTF build does not encode Sound passes; use render-audio or keep the directory project"
+        );
+    }
+    if loaded
+        .manifest
+        .assets
+        .iter()
+        .any(|asset| asset.kind == crate::manifest::AssetKind::Video)
+        || crate::media::manifest_uses_webcam(&loaded)
+    {
+        bail!(
+            "STTF build does not encode dynamic video/webcam playback; keep the directory project for media inputs"
+        );
+    }
     let output = output.map(PathBuf::from).unwrap_or_else(|| {
         loaded.root.join("target").join(format!(
             "{}.sttf",
@@ -89,6 +116,10 @@ pub fn build_project(path: &Path, output: Option<&Path>) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    crate::uniforms::apply_to_runtime(
+        &mut runtime,
+        &crate::uniforms::defaults(&loaded.manifest.uniforms),
+    )?;
     runtime.save_sttf(&output)?;
 
     Ok(Output {

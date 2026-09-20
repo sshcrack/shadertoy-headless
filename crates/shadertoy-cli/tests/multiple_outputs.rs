@@ -117,6 +117,28 @@ void mainImage(out vec4 color, in vec2 fragCoord) {
     assert!((i16::from(pixel[0]) - 191).abs() <= 1, "{pixel:?}");
     assert!((i16::from(pixel[1]) - 64).abs() <= 1, "{pixel:?}");
     assert!(pixel[2] <= 1, "{pixel:?}");
+
+    let inspected = shadertoy(&[
+        "--json",
+        "inspect",
+        "--project",
+        &project_arg,
+        "buffer",
+        "gbuffer",
+        "--output-index",
+        "1",
+        "--frame",
+        "0",
+        "--pixel",
+        "0,0",
+    ]);
+    assert!(inspected.status.success(), "{inspected:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&inspected.stdout).expect("parse MRT inspection");
+    assert_eq!(report["output_index"], 1);
+    let rgba = report["pixel"]["rgba"].as_array().expect("pixel rgba");
+    assert!((rgba[0].as_f64().unwrap() - 0.75).abs() < 1e-5, "{report}");
+    assert!((rgba[1].as_f64().unwrap() - 0.25).abs() < 1e-5, "{report}");
 }
 
 #[test]

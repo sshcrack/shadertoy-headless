@@ -5,6 +5,7 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
     let recording = ReplayFile::load(&options.recording)?;
     let loaded = LoadedManifest::load(&options.project)?;
     ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
     if recording.project != loaded.manifest.project.name {
         bail!(
             "replay belongs to project '{}' but current project is '{}'",
@@ -48,6 +49,8 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    let default_uniforms = crate::uniforms::defaults(&loaded.manifest.uniforms);
+    crate::uniforms::apply_to_runtime(&mut runtime, &default_uniforms)?;
 
     let mut width = recording.width;
     let mut height = recording.height;
@@ -59,7 +62,10 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
             && recording.events[event_index].frame == timeline_frame
         {
             match &recording.events[event_index].action {
-                ReplayAction::Reset => runtime.load_project(&project)?,
+                ReplayAction::Reset => {
+                    runtime.load_project(&project)?;
+                    crate::uniforms::apply_to_runtime(&mut runtime, &default_uniforms)?;
+                }
                 ReplayAction::Resolution {
                     width: new_width,
                     height: new_height,
@@ -73,6 +79,20 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
                         bail!("replay contains an invalid time-scale event");
                     }
                     runtime.set_time_scale(*value)?;
+                }
+                ReplayAction::Uniform { name, value } => {
+                    let definition = loaded
+                        .manifest
+                        .uniforms
+                        .iter()
+                        .find(|definition| definition.name() == name)
+                        .with_context(|| {
+                            format!("replay references unknown custom uniform '{name}'")
+                        })?;
+                    definition.validate_value(value)?;
+                    let mut one = BTreeMap::new();
+                    one.insert(name.clone(), value.clone());
+                    crate::uniforms::apply_to_runtime(&mut runtime, &one)?;
                 }
                 ReplayAction::Mouse {
                     x,
@@ -96,6 +116,7 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
             marker.runtime_frame,
             marker.frame_rate,
         )?;
+        media.update(&mut runtime, marker.time)?;
         let image = runtime.render(width, height)?;
         if timeline_frame == target {
             final_image = Some(image);
@@ -113,8 +134,8 @@ pub fn replay_project(options: &ReplayOptions) -> Result<Output> {
         .iter()
         .find(|pass| pass.name == selected)
         .with_context(|| format!("unknown replay pass '{selected}'"))?;
-    if pass.kind == PassKind::Cubemap {
-        bail!("replay output only supports the final image and 2D buffer passes");
+    if matches!(pass.kind, PassKind::Cubemap | PassKind::Sound) {
+        bail!("replay output only supports the final image and 2D buffer/compute passes");
     }
     let image = if pass.name == loaded.manifest.final_pass().name {
         final_image.context("replay did not render its target frame")?

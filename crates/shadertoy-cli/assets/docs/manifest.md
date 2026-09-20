@@ -37,6 +37,28 @@ Resolution order is the including file's directory first, followed by
 shader.include_dirs. Include paths must remain inside the project root. Cycles,
 missing includes, and root escapes are validation errors.
 
+Custom uniforms
+---------------
+
+Declare project-level parameters once:
+
+  [[uniform]]
+  name = "wave_height"
+  type = "float"
+  default = 1.0
+  min = 0.0
+  max = 4.0
+  step = 0.05
+
+Supported types are float, int, bool, vec2, vec3, and vec4. The CLI injects the
+corresponding GLSL uniform declaration. Defaults apply to check/render/preview;
+deterministic commands can override values with:
+
+  shadertoy render --set wave_height=1.75
+
+A [[test]] may provide a `uniforms` table to override declared values for only
+that case.
+
 Regression tests
 ----------------
 
@@ -49,12 +71,15 @@ Deterministic tests live in the same manifest:
   tolerance = 0.002
 
   [[test]]
-  name = "spectrum-finite"
+  name = "spectrum-stability"
   pass = "spectrum"
-  frame = 120
+  frames = [0, 60, 120]
+  resolutions = [[640, 360], [1280, 720]]
   assert_no_nan = true
   assert_no_inf = true
-  mean_range = [-10.0, 10.0]
+  assert_deterministic = true
+  assert_resolution_independent = true
+  raw_tolerance = 0.0
 
 Run shadertoy test; shadertoy test --update intentionally rewrites visual
 reference PNGs.

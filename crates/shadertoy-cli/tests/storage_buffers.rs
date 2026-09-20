@@ -82,7 +82,8 @@ wrap = "clamp"
         root.join("shaders/writer.frag"),
         r#"layout(std430, binding = 0) buffer SharedData { vec4 value; };
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    value = vec4(0.125, 0.25, 0.5, 1.0);
+    if (iFrame == 0)
+        value = vec4(0.125, 0.25, 0.5, 1.0);
     fragColor = value;
 }
 "#,
@@ -134,4 +135,89 @@ fn cli_render_shares_named_ssbo_between_fragment_passes() {
         assert!((i16::from(actual[1]) - 64).abs() <= 1, "{actual:?}");
         assert!((i16::from(actual[2]) - 128).abs() <= 1, "{actual:?}");
     }
+
+    let inspected = shadertoy(&[
+        "--json",
+        "inspect",
+        "--project",
+        &project_arg,
+        "storage",
+        "shared-data",
+        "--frame",
+        "0",
+        "--type",
+        "f32",
+        "--count",
+        "4",
+    ]);
+    assert!(inspected.status.success(), "{inspected:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&inspected.stdout).expect("parse storage inspection");
+    let values = report["values"].as_array().expect("storage values");
+    assert_eq!(values.len(), 4);
+    for (actual, expected) in values.iter().zip([0.125, 0.25, 0.5, 1.0]) {
+        let actual = actual.as_f64().expect("finite f32 value");
+        assert!((actual - expected).abs() < 1e-6, "{report}");
+    }
+
+    let state = temp.0.join("with-storage.ststate");
+    let state_arg = state.to_string_lossy().into_owned();
+    let captured = shadertoy(&[
+        "state",
+        "capture",
+        "--project",
+        &project_arg,
+        "--frame",
+        "0",
+        "--include-storage",
+        "-o",
+        &state_arg,
+    ]);
+    assert!(captured.status.success(), "{captured:?}");
+
+    let inspected_state = shadertoy(&["--json", "state", "inspect", &state_arg]);
+    assert!(inspected_state.status.success(), "{inspected_state:?}");
+    let header: serde_json::Value =
+        serde_json::from_slice(&inspected_state.stdout).expect("parse state header");
+    assert_eq!(header["header"]["format"], 4);
+    assert_eq!(header["header"]["storage_buffers"]["shared-data"], 16);
+
+    let replacement = temp.0.join("replacement.bin");
+    let mut replacement_bytes = Vec::new();
+    for value in [0.75f32, 0.5, 0.25, 1.0] {
+        replacement_bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    std::fs::write(&replacement, replacement_bytes).unwrap();
+    let replacement_assignment = format!("shared-data={}", replacement.to_string_lossy());
+    let modified = temp.0.join("modified.ststate");
+    let modified_arg = modified.to_string_lossy().into_owned();
+    let set = shadertoy(&[
+        "state",
+        "set-storage",
+        &state_arg,
+        &replacement_assignment,
+        "-o",
+        &modified_arg,
+    ]);
+    assert!(set.status.success(), "{set:?}");
+
+    let resumed_path = temp.0.join("resumed.png");
+    let resumed_arg = resumed_path.to_string_lossy().into_owned();
+    let resumed = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--state",
+        &modified_arg,
+        "--frame",
+        "1",
+        "-o",
+        &resumed_arg,
+    ]);
+    assert!(resumed.status.success(), "{resumed:?}");
+    let resumed_image = image::open(&resumed_path).unwrap().to_rgb8();
+    let pixel = resumed_image.get_pixel(1, 0).0;
+    assert!((i16::from(pixel[0]) - 191).abs() <= 1, "{pixel:?}");
+    assert!((i16::from(pixel[1]) - 128).abs() <= 1, "{pixel:?}");
+    assert!((i16::from(pixel[2]) - 64).abs() <= 1, "{pixel:?}");
 }

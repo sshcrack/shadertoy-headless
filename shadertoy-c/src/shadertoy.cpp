@@ -877,6 +877,32 @@ int st_runtime_clear_key_transients(st_runtime* runtime) {
     });
 }
 
+int st_runtime_set_uniform_f32(st_runtime* runtime, const char* name, const float* values, const size_t count) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!name || !*name)
+            throw std::runtime_error("Custom uniform name must not be empty");
+        if(!values || count == 0 || count > 4)
+            throw std::runtime_error("Custom float uniforms require 1 to 4 values");
+        auto result = runtime->runtime.setUniformFloats(name, values, static_cast<uint32_t>(count));
+        if(!result)
+            throw result.error();
+    });
+}
+
+int st_runtime_set_uniform_i32(st_runtime* runtime, const char* name, const int32_t value) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!name || !*name)
+            throw std::runtime_error("Custom uniform name must not be empty");
+        auto result = runtime->runtime.setUniformInt(name, value);
+        if(!result)
+            throw result.error();
+    });
+}
+
 int st_runtime_render_rgb(st_runtime* runtime, const uint32_t width, const uint32_t height, uint8_t* outRgb,
                           const size_t outLen) {
     return guard([&] {
@@ -922,6 +948,101 @@ int st_runtime_snapshot_pass_rgba32f(st_runtime* runtime, const char* passName, 
         if(result->size() != outLen)
             throw std::runtime_error("Output buffer has the wrong size");
         std::copy(result->begin(), result->end(), outRgba);
+    });
+}
+
+int st_runtime_snapshot_pass_rgb_output(st_runtime* runtime, const char* passName, const uint32_t output,
+                                        uint8_t* outRgb, const size_t outLen) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(!outRgb)
+            throw std::runtime_error("Output buffer is null");
+        auto result = runtime->runtime.snapshotPassRgb(passName, output);
+        if(!result)
+            throw result.error();
+        copyRgb(*result, outRgb, outLen);
+    });
+}
+
+int st_runtime_snapshot_pass_rgba32f_output(st_runtime* runtime, const char* passName, const uint32_t output,
+                                            float* outRgba, const size_t outLen) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!passName || !*passName)
+            throw std::runtime_error("Pass name must not be empty");
+        if(!outRgba)
+            throw std::runtime_error("Output buffer is null");
+        auto result = runtime->runtime.snapshotPassRgba32f(passName, output);
+        if(!result)
+            throw result.error();
+        if(result->size() != outLen)
+            throw std::runtime_error("Output buffer has the wrong size");
+        std::copy(result->begin(), result->end(), outRgba);
+    });
+}
+
+int st_runtime_snapshot_storage_buffer(st_runtime* runtime, const char* name, uint8_t* outData, const size_t outLen) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!name || !*name)
+            throw std::runtime_error("Storage buffer name must not be empty");
+        if(!outData)
+            throw std::runtime_error("Storage output buffer is null");
+        auto result = runtime->runtime.snapshotStorageBuffer(name);
+        if(!result)
+            throw result.error();
+        if(result->size() != outLen)
+            throw std::runtime_error("Storage output buffer has the wrong size");
+        std::copy(result->begin(), result->end(), outData);
+    });
+}
+
+int st_runtime_restore_storage_buffer(st_runtime* runtime, const char* name, const uint8_t* data,
+                                      const size_t dataLen) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!name || !*name)
+            throw std::runtime_error("Storage buffer name must not be empty");
+        if(!data && dataLen != 0)
+            throw std::runtime_error("Storage restore data is null");
+        std::vector<uint8_t> values(data, data + dataLen);
+        auto result = runtime->runtime.restoreStorageBuffer(name, values);
+        if(!result)
+            throw result.error();
+    });
+}
+
+int st_runtime_update_texture_rgba8(st_runtime* runtime, const char* name, const uint32_t width,
+                                    const uint32_t height, const uint8_t* rgba, const size_t rgbaLen) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!name || !*name)
+            throw std::runtime_error("Texture name must not be empty");
+        if(!rgba)
+            throw std::runtime_error("Texture data is null");
+        const auto expected = checkedImageValueCount(width, height, 4U, "Texture update");
+        const auto pixelCount = expected / 4U;
+        if(rgbaLen != expected)
+            throw std::runtime_error("Texture RGBA8 payload has the wrong size");
+
+        std::vector<uint32_t> pixels(pixelCount);
+        for(size_t index = 0; index < pixelCount; ++index) {
+            const auto offset = index * 4U;
+            pixels[index] = static_cast<uint32_t>(rgba[offset]) |
+                (static_cast<uint32_t>(rgba[offset + 1]) << 8U) |
+                (static_cast<uint32_t>(rgba[offset + 2]) << 16U) |
+                (static_cast<uint32_t>(rgba[offset + 3]) << 24U);
+        }
+        auto result = runtime->runtime.updateTexture(name, width, height, pixels);
+        if(!result)
+            throw result.error();
     });
 }
 

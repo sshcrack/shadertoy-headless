@@ -205,7 +205,7 @@ fn fixed_pass_state_and_overrides_use_pass_dimensions() {
     assert!(inspected.status.success(), "{inspected:?}");
     let inspection: serde_json::Value =
         serde_json::from_slice(&inspected.stdout).expect("parse state inspection");
-    assert_eq!(inspection["header"]["format"], 3);
+    assert_eq!(inspection["header"]["format"], 4);
     assert_eq!(
         inspection["header"]["buffer_dimensions"]["spectrum"]["width"],
         2
@@ -423,4 +423,130 @@ wrap = "clamp"
     let pixel = image.get_pixel(0, 0).0;
     assert!((i16::from(pixel[0]) - 179).abs() <= 2, "{pixel:?}");
     assert!((i16::from(pixel[1]) - 128).abs() <= 2, "{pixel:?}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn regression_matrix_checks_determinism_and_output_resolution_independence() {
+    let temp = TempRoot::new("regression-matrix");
+    let project = temp.0.join("project");
+    write_project(&project);
+    let manifest_path = project.join("ShaderToy.toml");
+    let mut manifest = std::fs::read_to_string(&manifest_path).unwrap();
+    manifest.push_str(
+        r#"
+[[test]]
+name = "fixed-grid-stays-fixed"
+pass = "spectrum"
+frames = [0, 2]
+resolutions = [[7, 5], [13, 9]]
+assert_no_nan = true
+assert_no_inf = true
+assert_deterministic = true
+assert_resolution_independent = true
+raw_tolerance = 0.0
+"#,
+    );
+    std::fs::write(&manifest_path, manifest).unwrap();
+
+    let project_arg = project.to_string_lossy().into_owned();
+    let tested = shadertoy(&["--json", "test", "--project", &project_arg]);
+    assert!(tested.status.success(), "{tested:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&tested.stdout).expect("parse regression report");
+    assert_eq!(report["passed"], 1);
+    assert_eq!(report["failed"], 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn regression_matrix_reports_a_fixed_pass_that_depends_on_output_resolution() {
+    let temp = TempRoot::new("regression-resolution-dependent");
+    let project = temp.0.join("project");
+    std::fs::create_dir_all(project.join("shaders")).unwrap();
+    std::fs::write(
+        project.join("ShaderToy.toml"),
+        r#"format = 1
+[project]
+name = "resolution-dependent"
+
+[render]
+width = 8
+height = 6
+fps = 60.0
+preview_time = 0.0
+
+[[pass]]
+name = "dynamic"
+kind = "buffer"
+source = "shaders/dynamic.frag"
+
+[[pass]]
+name = "fixed"
+kind = "buffer"
+source = "shaders/fixed.frag"
+width = 2
+height = 2
+
+[[pass.input]]
+channel = 0
+source = "dynamic"
+kind = "pass"
+filter = "nearest"
+wrap = "clamp"
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[pass.input]]
+channel = 0
+source = "fixed"
+kind = "pass"
+filter = "nearest"
+wrap = "clamp"
+
+[[test]]
+name = "detect-resolution-coupling"
+pass = "fixed"
+frame = 0
+resolutions = [[8, 6], [12, 10]]
+assert_resolution_independent = true
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("shaders/dynamic.frag"),
+        "void mainImage(out vec4 c, in vec2 p){ c=vec4(iResolution.xy,0.0,1.0); }
+",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("shaders/fixed.frag"),
+        "void mainImage(out vec4 c, in vec2 p){ c=texelFetch(iChannel0,ivec2(0),0); }
+",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("shaders/image.frag"),
+        "void mainImage(out vec4 c, in vec2 p){ c=texelFetch(iChannel0,ivec2(0),0); }
+",
+    )
+    .unwrap();
+
+    let project_arg = project.to_string_lossy().into_owned();
+    let tested = shadertoy(&["--json", "test", "--project", &project_arg]);
+    assert!(!tested.status.success(), "{tested:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&tested.stdout).expect("parse failed regression report");
+    assert_eq!(report["failed"], 1);
+    let reasons = report["cases"][0]["reasons"].as_array().unwrap();
+    assert!(
+        reasons.iter().any(|reason| reason
+            .as_str()
+            .unwrap_or_default()
+            .contains("depends on output resolution")),
+        "{report}"
+    );
 }

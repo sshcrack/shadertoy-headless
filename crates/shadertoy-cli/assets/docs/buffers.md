@@ -31,7 +31,14 @@ Inspecting float data
 Inspect the actual floating-point contents (read back as RGBA32F) rather than the clamped display image:
 
   shadertoy inspect buffer spectrum --frame 120 --pixel 10,12
+  shadertoy inspect buffer gbuffer --output-index 1 --raw target/gbuffer1.rgba32f
 
-The command reports per-channel min/max/mean and NaN/Inf counts. Use
+The command reports per-channel min/max/mean and NaN/Inf counts. `--output-index`
+selects an MRT attachment; `--raw` writes little-endian RGBA32F bytes. Use
 --visualization signed, rgb, or magnitude with --output to write a diagnostic
-PNG while preserving the raw statistics in JSON output.
+PNG while preserving raw statistics in JSON output.
+
+Named SSBOs can be inspected directly:
+
+  shadertoy inspect storage particles --frame 120 --type f32 --offset 0 --count 32
+  shadertoy inspect storage particles --frame 120 -o target/particles.bin

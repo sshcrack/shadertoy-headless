@@ -29,3 +29,11 @@ Import a public ShaderToy into the same directory format with:
 
 Imported projects keep their source provenance under the project section and preserve
 the original browser response under .shadertoy/import-response.json.
+
+STTF export limits
+------------------
+
+`shadertoy build` serializes the native static render graph. Directory projects
+that contain Sound passes or dynamic video/webcam channels must stay in directory
+form; build rejects them rather than silently dropping Sound or freezing media to
+one frame.

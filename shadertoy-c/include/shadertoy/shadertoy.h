@@ -118,12 +118,24 @@ ST_NATIVE_EXPORT int st_runtime_set_mouse(st_runtime* runtime, float x, float y,
 ST_NATIVE_EXPORT int st_runtime_clear_mouse(st_runtime* runtime);
 ST_NATIVE_EXPORT int st_runtime_set_key(st_runtime* runtime, uint8_t key, int down, int pressed);
 ST_NATIVE_EXPORT int st_runtime_clear_key_transients(st_runtime* runtime);
+ST_NATIVE_EXPORT int st_runtime_set_uniform_f32(st_runtime* runtime, const char* name, const float* values, size_t count);
+ST_NATIVE_EXPORT int st_runtime_set_uniform_i32(st_runtime* runtime, const char* name, int32_t value);
 
 ST_NATIVE_EXPORT int st_runtime_render_rgb(st_runtime* runtime, uint32_t width, uint32_t height, uint8_t* out_rgb,
                                            size_t out_len);
 ST_NATIVE_EXPORT int st_runtime_snapshot_pass_rgb(st_runtime* runtime, const char* pass_name, uint8_t* out_rgb, size_t out_len);
 ST_NATIVE_EXPORT int st_runtime_snapshot_pass_rgba32f(st_runtime* runtime, const char* pass_name, float* out_rgba,
                                                       size_t out_len);
+ST_NATIVE_EXPORT int st_runtime_snapshot_pass_rgb_output(st_runtime* runtime, const char* pass_name, uint32_t output,
+                                                         uint8_t* out_rgb, size_t out_len);
+ST_NATIVE_EXPORT int st_runtime_snapshot_pass_rgba32f_output(st_runtime* runtime, const char* pass_name, uint32_t output,
+                                                             float* out_rgba, size_t out_len);
+ST_NATIVE_EXPORT int st_runtime_snapshot_storage_buffer(st_runtime* runtime, const char* name, uint8_t* out_data,
+                                                        size_t out_len);
+ST_NATIVE_EXPORT int st_runtime_restore_storage_buffer(st_runtime* runtime, const char* name, const uint8_t* data,
+                                                       size_t data_len);
+ST_NATIVE_EXPORT int st_runtime_update_texture_rgba8(st_runtime* runtime, const char* name, uint32_t width,
+                                                     uint32_t height, const uint8_t* rgba, size_t rgba_len);
 ST_NATIVE_EXPORT int st_runtime_reload_pass_source(st_runtime* runtime, const char* pass_name, const char* source);
 ST_NATIVE_EXPORT int st_runtime_override_pass_rgba8(st_runtime* runtime, const char* pass_name, uint32_t width, uint32_t height,
                                                     const uint8_t* rgba, size_t rgba_len);

@@ -111,6 +111,19 @@ async fn websocket_loop(mut socket: WebSocket, shared: Shared) {
                             let _ = shared.controls.send(browser_control(command));
                         }
                     }
+                    Message::Binary(data) => {
+                        let expected = (crate::media::WEBCAM_WIDTH as usize)
+                            * (crate::media::WEBCAM_HEIGHT as usize)
+                            * 4;
+                        let webcam_enabled = shared
+                            .status
+                            .read()
+                            .map(|status| status.webcam)
+                            .unwrap_or(false);
+                        if webcam_enabled && data.len() == expected {
+                            let _ = shared.controls.send(Control::WebcamFrame(data.to_vec()));
+                        }
+                    }
                     Message::Close(_) => break,
                     _ => {}
                 }
@@ -152,6 +165,7 @@ fn browser_control(command: BrowserControl) -> Control {
         BrowserControl::View { pass } => Control::View(pass),
         BrowserControl::Resolution { width, height } => Control::Resolution(width, height),
         BrowserControl::TimeScale { value } => Control::TimeScale(value),
+        BrowserControl::Uniform { name, value } => Control::Uniform { name, value },
         BrowserControl::Mouse {
             x,
             y,

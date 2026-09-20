@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,16 @@ struct PassTiming final {
     uint32_t height{};
 };
 
+enum class CustomUniformType { Float, Int, Vec2, Vec3, Vec4 };
+
+struct CustomUniformValue final {
+    CustomUniformType type{ CustomUniformType::Float };
+    Vec4 value;
+    int32_t intValue{};
+};
+
+using CustomUniformMap = std::unordered_map<std::string, CustomUniformValue>;
+
 struct ShaderToyUniform final {
     float time{};
     float timeDelta{};
@@ -63,6 +74,7 @@ struct ShaderToyUniform final {
     Vec4 audioStereo;
     Vec4 audioStructure;
     Vec4 audioMeta;
+    const CustomUniformMap* customUniforms{};
 };
 
 class TextureObject {
@@ -128,7 +140,7 @@ public:
 
     virtual FrameBuffer* createFrameBuffer(RenderFormat format = RenderFormat::RGBA32F) = 0;
     virtual std::vector<FrameBuffer*> createCubeMapFrameBuffer() = 0;
-    virtual BufferId createStorageBuffer(uint64_t size) = 0;
+    virtual BufferId createStorageBuffer(std::string name, uint64_t size) = 0;
     virtual void addPass(std::string name, const std::string& src, NodeType type, std::vector<DoubleBufferedFB> target,
                          std::vector<Channel> channels, std::optional<Vec2> fixedResolution, bool clampOutput,
                          RenderFormat format, std::vector<RenderFormat> extraFormats, uint32_t iterations,
@@ -139,7 +151,8 @@ public:
     virtual void setProfilingEnabled(bool enabled) = 0;
     [[nodiscard]] virtual const std::vector<PassTiming>& lastPassTimings() const = 0;
 
-    virtual TextureId createTexture(uint32_t width, uint32_t height, const uint32_t* data) = 0;
+    virtual TextureId createTexture(std::string name, uint32_t width, uint32_t height, const uint32_t* data) = 0;
+    virtual void updateTexture(std::string_view name, uint32_t width, uint32_t height, const uint32_t* data) = 0;
     virtual TextureId createCubeMap(uint32_t size, const uint32_t* data) = 0;
     virtual TextureId createVolume(uint32_t size, uint32_t channels, const uint8_t* data) = 0;
     virtual TextureId createKeyboardTexture() = 0;
@@ -149,8 +162,10 @@ public:
     virtual void setAudioInput(const AudioInput& input) = 0;
 
     virtual std::vector<uint8_t> renderToBuffer(Vec2 size, const ShaderToyUniform& uniform) = 0;
-    virtual std::vector<uint8_t> snapshotPassRgb(std::string_view passName) = 0;
-    virtual std::vector<float> snapshotPassRgba32f(std::string_view passName) = 0;
+    virtual std::vector<uint8_t> snapshotPassRgb(std::string_view passName, uint32_t output = 0) = 0;
+    virtual std::vector<float> snapshotPassRgba32f(std::string_view passName, uint32_t output = 0) = 0;
+    virtual std::vector<uint8_t> snapshotStorageBuffer(std::string_view name) = 0;
+    virtual void restoreStorageBuffer(std::string_view name, const uint8_t* data, uint64_t size) = 0;
     virtual void overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const uint8_t* data) = 0;
     virtual void restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const float* data) = 0;
 };

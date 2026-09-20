@@ -189,6 +189,34 @@ impl<'context> Runtime<'context> {
         check(unsafe { sys::st_runtime_clear_key_transients(self.handle.as_ptr()) })
     }
 
+    pub fn set_uniform_f32(&mut self, name: &str, values: &[f32]) -> Result<()> {
+        if values.is_empty() || values.len() > 4 {
+            return Err(Error::Native(
+                "custom float uniforms require 1 to 4 values".into(),
+            ));
+        }
+        self.context.make_current()?;
+        let name = CString::new(name)?;
+        // SAFETY: runtime/name/value slice remain valid for the duration of the native call.
+        check(unsafe {
+            sys::st_runtime_set_uniform_f32(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                values.as_ptr(),
+                values.len(),
+            )
+        })
+    }
+
+    pub fn set_uniform_i32(&mut self, name: &str, value: i32) -> Result<()> {
+        self.context.make_current()?;
+        let name = CString::new(name)?;
+        // SAFETY: runtime handle and name are valid for the duration of the native call.
+        check(unsafe {
+            sys::st_runtime_set_uniform_i32(self.handle.as_ptr(), name.as_ptr(), value)
+        })
+    }
+
     pub fn render(&mut self, width: u32, height: u32) -> Result<RgbImage> {
         self.context.make_current()?;
         let mut pixels = zeroed_image_vec::<u8>(width, height, 3)?;
@@ -240,6 +268,107 @@ impl<'context> Runtime<'context> {
             )
         })?;
         Ok(pixels)
+    }
+
+    pub fn snapshot_pass_output_rgb(
+        &mut self,
+        pass: &str,
+        output: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<RgbImage> {
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        let mut pixels = zeroed_image_vec::<u8>(width, height, 3)?;
+        // SAFETY: runtime/buffer/string are valid across the call.
+        check(unsafe {
+            sys::st_runtime_snapshot_pass_rgb_output(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                output,
+                pixels.as_mut_ptr(),
+                pixels.len(),
+            )
+        })?;
+        Ok(RgbImage::new(width, height, pixels))
+    }
+
+    pub fn snapshot_pass_output_rgba32f(
+        &mut self,
+        pass: &str,
+        output: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<f32>> {
+        self.context.make_current()?;
+        let pass = CString::new(pass)?;
+        let mut pixels = zeroed_image_vec::<f32>(width, height, 4)?;
+        // SAFETY: runtime/buffer/string are valid across the call.
+        check(unsafe {
+            sys::st_runtime_snapshot_pass_rgba32f_output(
+                self.handle.as_ptr(),
+                pass.as_ptr(),
+                output,
+                pixels.as_mut_ptr(),
+                pixels.len(),
+            )
+        })?;
+        Ok(pixels)
+    }
+
+    pub fn snapshot_storage_buffer(&mut self, name: &str, size: usize) -> Result<Vec<u8>> {
+        self.context.make_current()?;
+        let name = CString::new(name)?;
+        let mut data = vec![0u8; size];
+        // SAFETY: runtime/string/output are valid for the duration of the native call.
+        check(unsafe {
+            sys::st_runtime_snapshot_storage_buffer(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                data.as_mut_ptr(),
+                data.len(),
+            )
+        })?;
+        Ok(data)
+    }
+
+    pub fn restore_storage_buffer(&mut self, name: &str, data: &[u8]) -> Result<()> {
+        self.context.make_current()?;
+        let name = CString::new(name)?;
+        // SAFETY: runtime/string/data are valid for the duration of the native call.
+        check(unsafe {
+            sys::st_runtime_restore_storage_buffer(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                data.as_ptr(),
+                data.len(),
+            )
+        })
+    }
+
+    pub fn update_texture_rgba8(
+        &mut self,
+        name: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<()> {
+        if rgba.len() != crate::types::checked_image_len(width, height, 4)? {
+            return Err(Error::InvalidRgbaBuffer { width, height });
+        }
+        self.context.make_current()?;
+        let name = CString::new(name)?;
+        // SAFETY: runtime/string/data are valid for the duration of the native call.
+        check(unsafe {
+            sys::st_runtime_update_texture_rgba8(
+                self.handle.as_ptr(),
+                name.as_ptr(),
+                width,
+                height,
+                rgba.as_ptr(),
+                rgba.len(),
+            )
+        })
     }
 
     pub fn reload_pass_source(&mut self, pass: &str, source: &str) -> Result<()> {

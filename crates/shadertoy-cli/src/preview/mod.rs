@@ -3,6 +3,7 @@ use crate::ops::rgb_png_bytes;
 use crate::project::{build_native_project_with_sources, ensure_source_files_exist};
 use crate::replay::{ReplayAction, ReplayRecorder};
 use crate::source::{SourceGraph, expand_pass};
+use crate::uniforms::UniformValue;
 use anyhow::{Context, Result, bail};
 use axum::body::Bytes;
 use axum::extract::{
@@ -49,6 +50,16 @@ pub struct PreviewConfig {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PreviewUniformStatus {
+    pub name: String,
+    pub kind: String,
+    pub value: UniformValue,
+    pub min: Option<UniformValue>,
+    pub max: Option<UniformValue>,
+    pub step: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PreviewStatus {
     pub project: String,
     pub sequence: u64,
@@ -62,6 +73,8 @@ pub struct PreviewStatus {
     pub view: String,
     pub final_pass: String,
     pub passes: Vec<String>,
+    pub uniforms: Vec<PreviewUniformStatus>,
+    pub webcam: bool,
     pub error: Option<String>,
 }
 
@@ -80,6 +93,8 @@ impl Default for PreviewStatus {
             view: "image".into(),
             final_pass: "image".into(),
             passes: Vec::new(),
+            uniforms: Vec::new(),
+            webcam: false,
             error: None,
         }
     }
@@ -106,6 +121,11 @@ enum Control {
     View(String),
     Resolution(u32, u32),
     TimeScale(f32),
+    Uniform {
+        name: String,
+        value: UniformValue,
+    },
+    WebcamFrame(Vec<u8>),
     Mouse {
         x: f32,
         y: f32,
@@ -136,6 +156,10 @@ enum BrowserControl {
     },
     TimeScale {
         value: f32,
+    },
+    Uniform {
+        name: String,
+        value: UniformValue,
     },
     Mouse {
         x: f32,
@@ -173,6 +197,11 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     let loaded = LoadedManifest::load(&config.project)?;
     validate_preview_dimensions(&loaded)?;
+    if config.record.is_some() && crate::media::manifest_uses_webcam(&loaded) {
+        bail!(
+            "preview --record does not support live webcam input; use a deterministic video asset instead"
+        );
+    }
     let root = loaded.root.clone();
     let recorder = config
         .record
@@ -190,8 +219,23 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
             .manifest
             .passes
             .iter()
+            .filter(|pass| !matches!(pass.kind, PassKind::Cubemap | PassKind::Sound))
             .map(|pass| pass.name.clone())
             .collect(),
+        uniforms: loaded
+            .manifest
+            .uniforms
+            .iter()
+            .map(|definition| PreviewUniformStatus {
+                name: definition.name().to_string(),
+                kind: definition.kind_name().to_string(),
+                value: definition.default_value(),
+                min: definition.preview_min(),
+                max: definition.preview_max(),
+                step: definition.preview_step(),
+            })
+            .collect(),
+        webcam: crate::media::manifest_uses_webcam(&loaded),
         ..PreviewStatus::default()
     };
 

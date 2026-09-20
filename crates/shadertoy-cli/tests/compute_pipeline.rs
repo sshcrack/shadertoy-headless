@@ -273,7 +273,7 @@ wrap = "clamp"
     assert!(inspected.status.success(), "{inspected:?}");
     let state_json: serde_json::Value =
         serde_json::from_slice(&inspected.stdout).expect("parse state inspection");
-    assert_eq!(state_json["header"]["format"], 3);
+    assert_eq!(state_json["header"]["format"], 4);
     assert_eq!(
         state_json["header"]["buffer_formats"]["simulation"],
         "rg32f"

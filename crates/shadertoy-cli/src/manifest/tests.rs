@@ -28,7 +28,7 @@ fn manifest_rejects_paths_outside_project() {
 
 #[test]
 fn manifest_rejects_reserved_source_names() {
-    for name in ["keyboard", "music"] {
+    for name in ["keyboard", "music", "webcam"] {
         let mut manifest = Manifest::minimal("demo");
         manifest.passes[0].name = name.into();
         assert!(
@@ -129,4 +129,31 @@ fn compute_local_size_rejects_multiple_z_lanes() {
         .expect_err("2D compute entrypoints must reject multiple local Z lanes");
     assert!(error.to_string().contains("z"), "{error}");
     assert!(error.to_string().contains("1"), "{error}");
+}
+
+#[test]
+fn visual_reference_tests_reject_frame_resolution_matrices() {
+    let source = r#"format = 1
+[project]
+name = "matrix-reference"
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[test]]
+name = "ambiguous-reference"
+frames = [0, 1]
+resolutions = [[16, 16], [32, 32]]
+reference = "tests/reference.png"
+"#;
+    let manifest: Manifest = toml::from_str(source).expect("manifest should parse");
+    let error = manifest
+        .validate_structure()
+        .expect_err("one reference path cannot describe a frame/resolution matrix");
+    assert!(
+        error.to_string().contains("single reference image"),
+        "{error}"
+    );
 }

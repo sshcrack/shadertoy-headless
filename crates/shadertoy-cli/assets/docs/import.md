@@ -14,16 +14,17 @@ verification step still requires manual interaction, run from a graphical deskto
 the visible Camoufox window remains available for completing it.
 
 Imported projects keep supported shader passes, Common code, pass/feedback wiring,
-sampler filter/wrap settings, keyboard/audio inputs, textures, cubemaps, and volumes.
-Static resources are copied into assets/ so rendering no longer depends on ShaderToy.
+sampler filter/wrap settings, keyboard/audio inputs, textures, cubemaps, volumes,
+file-backed video inputs, and Sound passes. Static resources are copied into
+assets/ so rendering no longer depends on ShaderToy.
 
 Project metadata records the source URL/id, author, and description. The exact
 ShaderToy response used for the import is preserved at:
 
   .shadertoy/import-response.json
 
-Unsupported ShaderToy input types such as video/webcam are reported as warnings and
-left unbound instead of being silently replaced.
+Webcam inputs are preserved as live-preview channels. Unsupported ShaderToy input
+types are reported as warnings and left unbound instead of being silently replaced.
 
 Environment overrides for advanced/packaged setups:
 

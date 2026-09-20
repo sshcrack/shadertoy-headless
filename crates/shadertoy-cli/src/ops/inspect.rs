@@ -139,6 +139,7 @@ pub fn inspect_project(path: &Path, mode: InspectMode) -> Result<Output> {
 pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
     let loaded = LoadedManifest::load(&options.project)?;
     ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let pass = loaded
         .manifest
         .passes
@@ -147,6 +148,14 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
         .with_context(|| format!("unknown pass '{}'", options.pass))?;
     if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
         bail!("runtime buffer inspection requires a 2D buffer/compute pass");
+    }
+    if usize::from(options.output_index) > pass.extra_outputs.len() {
+        bail!(
+            "pass '{}' exposes outputs 0..{}; requested output {}",
+            pass.name,
+            pass.extra_outputs.len(),
+            options.output_index
+        );
     }
 
     let (width, height) =
@@ -171,8 +180,17 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
-    let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[])?;
-    let values = runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height)?;
+    crate::uniforms::apply_to_runtime(
+        &mut runtime,
+        &crate::uniforms::defaults(&loaded.manifest.uniforms),
+    )?;
+    let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?;
+    let values = runtime.snapshot_pass_output_rgba32f(
+        &pass.name,
+        options.output_index.into(),
+        pass_width,
+        pass_height,
+    )?;
 
     let stats = BufferStats::from_rgba(&values);
     let pixel = options.pixel.map(|(x, y)| {
@@ -184,6 +202,18 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
             values[offset + 3],
         ]
     });
+
+    if let Some(path) = &options.raw {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut bytes = Vec::with_capacity(values.len() * 4);
+        for value in &values {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        fs::write(path, bytes)
+            .with_context(|| format!("failed to write raw buffer {}", path.display()))?;
+    }
 
     if let Some(path) = &options.output {
         if let Some(parent) = path.parent() {
@@ -200,8 +230,9 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
     }
 
     let mut human = format!(
-        "Buffer: {}\nFormat: RGBA32F\nResolution: {}x{}\nFrame: {} ({:.3}s)\nNaN: {}  Inf: {}\n",
+        "Buffer: {} output {}\nReadback: RGBA32F\nResolution: {}x{}\nFrame: {} ({:.3}s)\nNaN: {}  Inf: {}\n",
         pass.name,
+        options.output_index,
         pass_width,
         pass_height,
         runtime.frame(),
@@ -234,7 +265,12 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
             "ok": true,
             "project": loaded.manifest.project.name,
             "pass": pass.name,
-            "format": format!("{:?}", pass.format).to_lowercase(),
+            "output_index": options.output_index,
+            "format": if options.output_index == 0 {
+                format!("{:?}", pass.format).to_lowercase()
+            } else {
+                format!("{:?}", pass.extra_outputs[usize::from(options.output_index) - 1]).to_lowercase()
+            },
             "width": pass_width,
             "height": pass_height,
             "frame": runtime.frame(),
@@ -251,6 +287,149 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
                 "y": coordinates.1,
                 "rgba": pixel.expect("pixel value exists with pixel coordinates"),
             })),
+            "output": options.output,
+            "raw": options.raw,
+        }),
+    })
+}
+
+pub fn inspect_storage(options: &InspectStorageOptions) -> Result<Output> {
+    let loaded = LoadedManifest::load(&options.project)?;
+    ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
+
+    let declared_size = loaded
+        .manifest
+        .passes
+        .iter()
+        .flat_map(|pass| &pass.storage)
+        .find(|storage| storage.name == options.name)
+        .map(|storage| storage.size)
+        .with_context(|| format!("unknown storage buffer '{}'", options.name))?;
+    let declared_size =
+        usize::try_from(declared_size).context("storage buffer size does not fit this platform")?;
+
+    let (width, height) =
+        super::render::resolve_dimensions(&loaded, None, options.width, options.height)?;
+    let fps = super::render::resolve_fps(&loaded, None, options.fps)?;
+    let frame = resolve_target_frame(&loaded, None, options.frame, options.time, fps)?;
+
+    let context = HeadlessContext::new(64, 64)
+        .context("failed to create headless OpenGL context for storage inspection")?;
+    let mut runtime = Runtime::new(&context)?;
+    let project = build_native_project(&loaded)?;
+    runtime.load_project(&project)?;
+    crate::uniforms::apply_to_runtime(
+        &mut runtime,
+        &crate::uniforms::defaults(&loaded.manifest.uniforms),
+    )?;
+    let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?;
+    let data = runtime.snapshot_storage_buffer(&options.name, declared_size)?;
+
+    if let Some(path) = &options.output {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, &data)
+            .with_context(|| format!("failed to write storage dump {}", path.display()))?;
+    }
+
+    let element_size = match options.value_type {
+        InspectStorageType::Bytes => 1,
+        InspectStorageType::U32 | InspectStorageType::I32 | InspectStorageType::F32 => 4,
+    };
+    if !options.offset.is_multiple_of(element_size) {
+        bail!(
+            "--offset {} is not aligned for {:?} values ({} bytes)",
+            options.offset,
+            options.value_type,
+            element_size
+        );
+    }
+    if options.offset > data.len() {
+        bail!(
+            "--offset {} exceeds storage buffer size {}",
+            options.offset,
+            data.len()
+        );
+    }
+    let available = (data.len() - options.offset) / element_size;
+    let count = options.count.min(available);
+    let bytes = &data[options.offset..options.offset + count * element_size];
+
+    let mut human_values = Vec::with_capacity(count);
+    let mut json_values = Vec::with_capacity(count);
+    for chunk in bytes.chunks_exact(element_size) {
+        match options.value_type {
+            InspectStorageType::Bytes => {
+                human_values.push(format!("{}", chunk[0]));
+                json_values.push(json!(chunk[0]));
+            }
+            InspectStorageType::U32 => {
+                let value = u32::from_le_bytes(chunk.try_into().expect("four-byte chunk"));
+                human_values.push(value.to_string());
+                json_values.push(json!(value));
+            }
+            InspectStorageType::I32 => {
+                let value = i32::from_le_bytes(chunk.try_into().expect("four-byte chunk"));
+                human_values.push(value.to_string());
+                json_values.push(json!(value));
+            }
+            InspectStorageType::F32 => {
+                let value = f32::from_le_bytes(chunk.try_into().expect("four-byte chunk"));
+                human_values.push(format!("{value:.9}"));
+                json_values.push(if value.is_finite() {
+                    json!(value)
+                } else if value.is_nan() {
+                    json!("NaN")
+                } else if value.is_sign_positive() {
+                    json!("+Inf")
+                } else {
+                    json!("-Inf")
+                });
+            }
+        }
+    }
+
+    let kind = match options.value_type {
+        InspectStorageType::Bytes => "bytes",
+        InspectStorageType::U32 => "u32",
+        InspectStorageType::I32 => "i32",
+        InspectStorageType::F32 => "f32",
+    };
+    let mut human = format!(
+        "Storage: {}\nSize: {} bytes\nFrame: {} ({:.3}s)\n{} @ byte {}: [{}]",
+        options.name,
+        data.len(),
+        runtime.frame(),
+        runtime.time(),
+        kind,
+        options.offset,
+        human_values.join(", ")
+    );
+    if count < options.count {
+        human.push_str(&format!(
+            "\nRequested {} values; {} were available",
+            options.count, count
+        ));
+    }
+    if let Some(path) = &options.output {
+        human.push_str(&format!("\nRaw dump: {}", path.display()));
+    }
+
+    Ok(Output {
+        human,
+        json: json!({
+            "ok": true,
+            "project": loaded.manifest.project.name,
+            "storage": options.name,
+            "size": data.len(),
+            "frame": runtime.frame(),
+            "time": runtime.time(),
+            "offset": options.offset,
+            "type": kind,
+            "count": count,
+            "values": json_values,
             "output": options.output,
         }),
     })

@@ -177,6 +177,16 @@ wrap = "repeat"    # repeat | clamp
 
 Sampler state is per iChannel, so the same source can be bound more than once with different interpolation or wrap behavior. Omitting the sampler fields preserves the existing linear/repeat defaults. The equivalent mutation command is `shadertoy channel set image 0 spectrum --filter nearest --wrap repeat`.
 
+Project-level `[[uniform]]` declarations provide typed float/int/bool/vector
+parameters with defaults and optional ranges. Deterministic commands accept
+`--set name=value`, preview exposes live controls, and regression cases can
+override declared values per test.
+
+ShaderToy Sound passes are compiled by `shadertoy check` and can be rendered
+offline with `shadertoy render-audio ... -o target/sound.wav`. Local `video`
+assets are decoded deterministically with ffmpeg/ffprobe and expose
+`iChannelTime`.
+
 The common agent loop is deliberately small:
 
 ~~~bash
@@ -184,7 +194,8 @@ cd feedback
 shadertoy inspect --json
 shadertoy check --json
 shadertoy render -o target/check.png
-shadertoy render-frames --frames 0,60,120,180 --contact-sheet target/contact.png
+shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
+shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy preview
 ~~~
 
@@ -195,6 +206,8 @@ shadertoy inspect graph --json
 shadertoy inspect pass buffer-a --json
 shadertoy inspect channels image --json
 shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --json
+shadertoy inspect buffer gbuffer --output-index 1 --raw target/gbuffer1.rgba32f
+shadertoy inspect storage particle-state --frame 120 --type f32 --count 16 --json
 shadertoy render --pass buffer-a -o target/buffer-a.png
 shadertoy profile --frame 120 --samples 30 --json
 ~~~
@@ -202,13 +215,13 @@ shadertoy profile --frame 120 --samples 30 --json
 shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
 
 ~~~bash
-shadertoy state capture --frame 300 -o target/frame300.ststate
+shadertoy state capture --frame 300 --include-storage -o target/frame300.ststate
 shadertoy state inspect target/frame300.ststate --json
 
 shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtures/known.png   -o target/debug.png
 ~~~
 
-Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
+Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; matrix cases can cover multiple frames/resolutions, repeat fresh runs with `assert_deterministic`, and verify fixed simulation grids with `assert_resolution_independent`. `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
 
 Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, buffers, channels, state, and preview.
 
@@ -228,7 +241,7 @@ shadertoy check adds semantic validation that JSON Schema cannot express, includ
 
 shadertoy preview starts a local web server, but the browser is only a viewer/controller: rendering remains in the native C++ renderer. Rendered PNG frames are pushed over the existing WebSocket and drawn into a canvas, so pass selection and controls do not fight a continuously refreshed HTTP image. It watches the manifest, shader sources, and assets, keeps the last successful frame when a new edit fails compilation, and hot-reloads automatically after the error is fixed.
 
-The preview exposes final Image and named 2D buffers plus pause/resume, reset, frame step, time scale, resolution, mouse, and keyboard controls. It binds to 127.0.0.1 by default; non-loopback binds require --token.
+The preview exposes final Image and named 2D buffers plus pause/resume, reset, frame step, time scale, resolution, mouse, keyboard, and declared custom-uniform controls. File-backed video channels advance from shader time. Webcam channels use browser camera permission and feed the native renderer over the WebSocket; they are intentionally unavailable to headless render/replay and preview recording. It binds to 127.0.0.1 by default; non-loopback binds require --token.
 
 ShaderToy-page import is available through shadertoy import URL_OR_ID. It is isolated behind the Camoufox browser adapter; normal project checking, rendering, building, and previewing remain browser-independent.
 

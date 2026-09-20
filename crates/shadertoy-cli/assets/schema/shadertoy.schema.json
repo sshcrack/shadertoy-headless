@@ -42,6 +42,12 @@
       "items": {
         "$ref": "#/$defs/TestCase"
       }
+    },
+    "uniform": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/UniformDefinition"
+      }
     }
   },
   "additionalProperties": false,
@@ -78,7 +84,8 @@
       "enum": [
         "texture",
         "cubemap",
-        "volume"
+        "volume",
+        "video"
       ]
     },
     "Filter": {
@@ -157,7 +164,9 @@
         "cubemap",
         "volume",
         "keyboard",
-        "music"
+        "music",
+        "video",
+        "webcam"
       ]
     },
     "Pass": {
@@ -250,7 +259,8 @@
         "image",
         "buffer",
         "cubemap",
-        "compute"
+        "compute",
+        "sound"
       ]
     },
     "ProjectSection": {
@@ -378,11 +388,21 @@
     "TestCase": {
       "type": "object",
       "properties": {
+        "assert_deterministic": {
+          "description": "Re-run every matrix entry from a fresh runtime and require identical output.",
+          "type": "boolean",
+          "default": false
+        },
         "assert_no_inf": {
           "type": "boolean",
           "default": false
         },
         "assert_no_nan": {
+          "type": "boolean",
+          "default": false
+        },
+        "assert_resolution_independent": {
+          "description": "Require a fixed-size buffer/compute pass to be unchanged by output resolution.",
           "type": "boolean",
           "default": false
         },
@@ -392,6 +412,14 @@
             "null"
           ],
           "format": "int32"
+        },
+        "frames": {
+          "description": "Additional deterministic frames. Mutually exclusive with frame/time.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int32"
+          }
         },
         "height": {
           "type": [
@@ -422,11 +450,30 @@
             "null"
           ]
         },
+        "raw_tolerance": {
+          "description": "Absolute tolerance for raw floating-point comparisons.",
+          "type": "number",
+          "format": "float"
+        },
         "reference": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "resolutions": {
+          "description": "Output-resolution matrix. Mutually exclusive with width/height.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "maxItems": 2,
+            "minItems": 2
+          }
         },
         "time": {
           "type": [
@@ -440,6 +487,13 @@
           "format": "float",
           "default": 0.0020000000949949026
         },
+        "uniforms": {
+          "description": "Per-test custom uniform overrides.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UniformValue"
+          }
+        },
         "width": {
           "type": [
             "integer",
@@ -452,6 +506,333 @@
       "additionalProperties": false,
       "required": [
         "name"
+      ]
+    },
+    "UniformDefinition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "number",
+              "format": "float"
+            },
+            "max": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "min": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "name": {
+              "type": "string"
+            },
+            "step": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "type": {
+              "type": "string",
+              "const": "float"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "max": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "min": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "name": {
+              "type": "string"
+            },
+            "step": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            },
+            "type": {
+              "type": "string",
+              "const": "int"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "bool"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "max": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "min": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "name": {
+              "type": "string"
+            },
+            "step": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "type": {
+              "type": "string",
+              "const": "vec2"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 3,
+              "minItems": 3
+            },
+            "max": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 3,
+              "minItems": 3
+            },
+            "min": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 3,
+              "minItems": 3
+            },
+            "name": {
+              "type": "string"
+            },
+            "step": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "type": {
+              "type": "string",
+              "const": "vec3"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "default": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
+            "max": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
+            "min": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "number",
+                "format": "float"
+              },
+              "maxItems": 4,
+              "minItems": 4
+            },
+            "name": {
+              "type": "string"
+            },
+            "step": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "float"
+            },
+            "type": {
+              "type": "string",
+              "const": "vec4"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "name",
+            "default"
+          ]
+        }
+      ]
+    },
+    "UniformValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer",
+          "format": "int32"
+        },
+        {
+          "type": "number",
+          "format": "float"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 4,
+          "minItems": 4
+        }
       ]
     },
     "Wrap": {

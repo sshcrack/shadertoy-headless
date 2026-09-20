@@ -4,6 +4,7 @@ Pass kinds:
   buffer   Offscreen 2D fragment pass. May be consumed by later passes and/or itself.
   cubemap  Cubemap fragment pass.
   compute  Fixed-size OpenGL 4.3 compute pass with a writable image output.
+  sound    ShaderToy mainSound(int,float) pass; rendered offline with render-audio.
 
 Fragment passes use ShaderToy-style mainImage/mainCubemap entry points. Compute
 passes implement:
@@ -11,7 +12,7 @@ passes implement:
   void mainCompute(ivec2 coord)
 
 The host provides iResolution, iTime, iTimeDelta, iFrameRate, iFrame, iMouse,
-iDate, iChannelResolution, configured iChannel samplers, iIteration, and a
+iDate, iChannelResolution, iChannelTime, configured iChannel samplers, iIteration, and a
 writable image2D named iOutput. The wrapper bounds-checks global invocation
 coordinates, so local workgroups do not need to divide the pass dimensions.
 Because mainCompute receives 2D coordinates, local_size Z must be 1.
@@ -114,9 +115,10 @@ explicit current-frame pass input to order them. A pass using compute or storage
 buffers requires OpenGL 4.3; ordinary projects continue to work on the existing
 OpenGL 4.1 path.
 
-.ststate snapshots persistent 2D pass textures, not SSBO byte contents. Keep any
-state that must survive state capture in a resumable pass texture, or rebuild the
-SSBO deterministically after resume.
+.ststate format 4 can snapshot named SSBO bytes as well as persistent 2D pass
+textures. Use `shadertoy state capture --include-storage ...` when SSBO state must
+survive resume. SSBO capture remains opt-in because large buffers can make state
+artifacts substantially bigger.
 
 Each pass input has independent sampler state. For an FFT/simulation grid,
 bind the fixed grid with exact texel sampling:
@@ -130,3 +132,20 @@ bind the fixed grid with exact texel sampling:
 Available filters are nearest, linear, and mipmap; wrap modes are clamp and
 repeat. The settings are applied independently per iChannel, even if two
 channels reference the same source.
+
+Sound passes
+------------
+
+A Sound source implements ShaderToy's conventional entry point:
+
+  vec2 mainSound(int samp, float time)
+
+`shadertoy check` compiles Sound passes. Render deterministic stereo PCM WAV with:
+
+  shadertoy render-audio --pass soundtrack --duration 10 --sample-rate 44100 -o target/sound.wav
+
+The offline Sound path uses fixed sample indices/times rather than wall clock.
+Static texture/cubemap/volume, keyboard, music, and SSBO declarations are
+accepted by the manifest. Video and webcam inputs are rejected by offline Sound
+because a changing live/media texture cannot be sampled independently for every
+audio sample.

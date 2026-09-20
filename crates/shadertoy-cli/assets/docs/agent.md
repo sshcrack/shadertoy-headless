@@ -22,16 +22,20 @@ supported remote assets local.
 4. Render deterministic evidence:
      shadertoy render -o target/check.png
    For temporal comparison/contact sheets, reuse one runtime:
-     shadertoy render-frames --frames 0,60,120,180 --contact-sheet target/contact.png
+     shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
+   For an encoded deterministic clip:
+     shadertoy render-video --frames 180 -o target/clip.mp4
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
      shadertoy inspect pass buffer-a --json
      shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --json
+     shadertoy inspect buffer gbuffer --output-index 1 --raw target/attachment.rgba32f
+     shadertoy inspect storage particle-state --frame 120 --type f32 --count 16 --json
      shadertoy render --pass buffer-a -o target/buffer-a.png
 
 6. Freeze a feedback state when a bug appears:
-     shadertoy state capture --frame 300 -o target/frame300.ststate
+     shadertoy state capture --frame 300 --include-storage -o target/frame300.ststate
      shadertoy state inspect target/frame300.ststate --json
 
 7. Replace a buffer with a known image to isolate a pass:
@@ -44,10 +48,15 @@ supported remote assets local.
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
      shadertoy test
-   Use --update deliberately to write visual baselines.
+   Tests can cover a frame/resolution matrix and assert deterministic raw GPU
+   output or output-resolution independence for fixed passes. Use --update
+   deliberately to write visual baselines.
 
 10. Use live native-rendered review when iterating:
      shadertoy preview
+    Declared custom uniforms become live controls. A `kind = "webcam"` channel
+    exposes a Start webcam button; webcam input is intentionally not recordable
+    or usable by headless commands.
     Shared GLSL can use quoted #include directives; preview recompiles only passes
     affected by a changed source/include and keeps existing feedback targets alive.
 

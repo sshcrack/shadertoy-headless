@@ -123,6 +123,7 @@ uniform int       iFrame;                // shader playback frame
 uniform vec4      iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
 uniform vec4      iDate;                 // Year, month, day, time in seconds in .xyzw
 uniform vec3 iChannelResolution[4];
+uniform float iChannelTime[4];
 
 // Host-provided semantic music analysis. The packed vec4 uniforms keep the
 // renderer interface small; the aliases below are the shader-facing contract.
@@ -196,6 +197,7 @@ uniform int       iIteration;
 uniform vec4      iMouse;
 uniform vec4      iDate;
 uniform vec3      iChannelResolution[4];
+uniform float     iChannelTime[4];
 
 uniform vec4 iMusicBands;
 uniform vec4 iMusicHits;
@@ -490,6 +492,7 @@ class RenderPass final {
     GLint mLocationMusicMeta{};
     GLint mLocationChannel[4]{};
     GLint mLocationChannelResolution[4]{};
+    GLint mLocationChannelTime[4]{};
     std::vector<Channel> mChannels;
     std::array<GLuint, 4> mSamplers{};
     std::optional<Vec2> mFixedResolution;
@@ -504,6 +507,33 @@ class RenderPass final {
     std::vector<std::pair<uint32_t, BufferId>> mStorageBuffers;
     uint32_t mLastWidth{};
     uint32_t mLastHeight{};
+
+    void applyCustomUniforms(const ShaderToyUniform& uniform) const {
+        if(!uniform.customUniforms)
+            return;
+        for(const auto& [name, value] : *uniform.customUniforms) {
+            const auto location = glGetUniformLocation(mProgram, name.c_str());
+            if(location == -1)
+                continue;
+            switch(value.type) {
+                case CustomUniformType::Float:
+                    glUniform1f(location, value.value.x);
+                    break;
+                case CustomUniformType::Int:
+                    glUniform1i(location, value.intValue);
+                    break;
+                case CustomUniformType::Vec2:
+                    glUniform2f(location, value.value.x, value.value.y);
+                    break;
+                case CustomUniformType::Vec3:
+                    glUniform3f(location, value.value.x, value.value.y, value.value.z);
+                    break;
+                case CustomUniformType::Vec4:
+                    glUniform4f(location, value.value.x, value.value.y, value.value.z, value.value.w);
+                    break;
+            }
+        }
+    }
 
     [[nodiscard]] GLuint compileProgram(const std::string& src) const {
         if(mType == NodeType::Compute) {
@@ -630,6 +660,10 @@ class RenderPass final {
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[1]);
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[2]);
         SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[3]);
+        mLocationChannelTime[0] = glGetUniformLocation(mProgram, "iChannelTime[0]");
+        mLocationChannelTime[1] = glGetUniformLocation(mProgram, "iChannelTime[1]");
+        mLocationChannelTime[2] = glGetUniformLocation(mProgram, "iChannelTime[2]");
+        mLocationChannelTime[3] = glGetUniformLocation(mProgram, "iChannelTime[3]");
 #undef SHADERTOY_GET_UNIFORM_LOCATION
     }
 
@@ -733,19 +767,19 @@ public:
     [[nodiscard]] bool hasOffscreenTarget() const noexcept {
         return !mBuffers.empty() && mBuffers.front().t1 != nullptr;
     }
-    [[nodiscard]] std::vector<uint8_t> readRgb() {
+    [[nodiscard]] std::vector<uint8_t> readRgb(const uint32_t output = 0) {
         if(mType != NodeType::Image && mType != NodeType::Compute)
             throw Error("Only image/buffer/compute passes can be read as RGB");
-        if(!hasOffscreenTarget())
-            throw Error("Final image pass is rendered to the caller framebuffer");
-        return mBuffers.front().t1->readRgb();
+        if(output >= mBuffers.size() || !mBuffers[output].t1)
+            throw Error("Pass render-target index is out of range or has no offscreen state");
+        return mBuffers[output].t1->readRgb();
     }
-    [[nodiscard]] std::vector<float> readRgba32f() {
+    [[nodiscard]] std::vector<float> readRgba32f(const uint32_t output = 0) {
         if(mType != NodeType::Image && mType != NodeType::Compute)
             throw Error("Only image/buffer/compute passes can be snapshotted as RGBA32F");
-        if(!hasOffscreenTarget())
-            throw Error("The final image pass has no persistent buffer state");
-        return mBuffers.front().t1->readRgba32f();
+        if(output >= mBuffers.size() || !mBuffers[output].t1)
+            throw Error("Pass render-target index is out of range or has no offscreen state");
+        return mBuffers[output].t1->readRgba32f();
     }
     void overrideRgba8(const uint32_t width, const uint32_t height, const uint8_t* data) {
         if(mType != NodeType::Image && mType != NodeType::Compute)
@@ -811,6 +845,8 @@ public:
                         glUniform3f(mLocationChannelResolution[channel.slot], x, x, x);
                     }
                 }
+                if(mLocationChannelTime[channel.slot] != -1)
+                    glUniform1f(mLocationChannelTime[channel.slot], uniform.time);
                 if(mLocationChannel[channel.slot] == -1)
                     continue;
                 glUniform1i(mLocationChannel[channel.slot], static_cast<GLint>(channel.slot));
@@ -867,6 +903,7 @@ public:
             if(mLocationMusicMeta != -1)
                 glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z,
                             uniform.audioMeta.w);
+            applyCustomUniforms(uniform);
 
             const auto groupsX = (width + mLocalSizeX - 1U) / mLocalSizeX;
             const auto groupsY = (height + mLocalSizeY - 1U) / mLocalSizeY;
@@ -996,16 +1033,18 @@ public:
 
             // update texture
             for(auto& channel : mChannels) {
-                if(mLocationChannelResolution[channel.slot] == -1)
-                    continue;
-                if(channel.tex.type != TexType::Tex3D) {
-                    const auto texSize =
-                        channel.size.value_or(channel.tex.type == TexType::CubeMap ? cubeMapSize : canvasSize);
-                    glUniform3f(mLocationChannelResolution[channel.slot], texSize.x, texSize.y, 1.0f);
-                } else {
-                    const auto x = channel.size->x;
-                    glUniform3f(mLocationChannelResolution[channel.slot], x, x, x);
+                if(mLocationChannelResolution[channel.slot] != -1) {
+                    if(channel.tex.type != TexType::Tex3D) {
+                        const auto texSize =
+                            channel.size.value_or(channel.tex.type == TexType::CubeMap ? cubeMapSize : canvasSize);
+                        glUniform3f(mLocationChannelResolution[channel.slot], texSize.x, texSize.y, 1.0f);
+                    } else {
+                        const auto x = channel.size->x;
+                        glUniform3f(mLocationChannelResolution[channel.slot], x, x, x);
+                    }
                 }
+                if(mLocationChannelTime[channel.slot] != -1)
+                    glUniform1f(mLocationChannelTime[channel.slot], uniform.time);
             }
             for(auto& channel : mChannels) {
                 if(mLocationChannel[channel.slot] == -1)
@@ -1059,6 +1098,7 @@ public:
             if(mLocationMusicMeta != -1)
                 glUniform4f(mLocationMusicMeta, uniform.audioMeta.x, uniform.audioMeta.y, uniform.audioMeta.z,
                             uniform.audioMeta.w);
+            applyCustomUniforms(uniform);
 
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
             if(!mStorageBuffers.empty())
@@ -1103,6 +1143,16 @@ public:
     GLTextureObject& operator=(GLTextureObject&&) = delete;
     ~GLTextureObject() override {
         glDeleteTextures(1, &mTex);
+    }
+    void update(const uint32_t width, const uint32_t height, const uint32_t* data) {
+        if(!data)
+            throw Error("Texture update data is null");
+        if(width != static_cast<uint32_t>(mSize.x) || height != static_cast<uint32_t>(mSize.y))
+            throw Error("Texture update dimensions do not match the declared texture");
+        glBindTexture(GL_TEXTURE_2D, mTex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height), GL_RGBA,
+                        GL_UNSIGNED_BYTE, data);
+        glBindTexture(GL_TEXTURE_2D, GL_NONE);
     }
     [[nodiscard]] TextureId getTexture() const override {
         return mTex;
@@ -1206,7 +1256,9 @@ class OpenGLPipeline final : public Pipeline {
     std::vector<std::unique_ptr<RenderPass>> mRenderPasses;
     std::vector<DynamicTexture> mDynamicTextures;
     std::vector<std::unique_ptr<TextureObject>> mTextures;
+    std::unordered_map<std::string, GLTextureObject*> mNamedTextures;
     std::vector<GLuint> mStorageBuffers;
+    std::unordered_map<std::string, std::pair<GLuint, uint64_t>> mNamedStorageBuffers;
     AudioInput mAudioInput;
     KeyboardInput mKeyboardInput;
     bool mProfilingEnabled{};
@@ -1335,9 +1387,13 @@ public:
         return buffers;
     }
 
-    BufferId createStorageBuffer(const uint64_t size) override {
+    BufferId createStorageBuffer(std::string name, const uint64_t size) override {
         if(!GLAD_GL_VERSION_4_3)
             throw Error("Shader storage buffers require OpenGL 4.3 or newer");
+        if(name.empty())
+            throw Error("Storage buffer name must not be empty");
+        if(mNamedStorageBuffers.contains(name))
+            throw Error("Duplicate storage buffer allocation: " + name);
         if(size == 0 || size > static_cast<uint64_t>(std::numeric_limits<GLsizeiptr>::max()))
             throw Error("Storage buffer size is outside the OpenGL range");
         GLuint buffer{};
@@ -1348,6 +1404,7 @@ public:
         glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         mStorageBuffers.push_back(buffer);
+        mNamedStorageBuffers.emplace(std::move(name), std::pair<GLuint, uint64_t>{ buffer, size });
         return buffer;
     }
 
@@ -1408,9 +1465,25 @@ public:
         });
         return mDynamicTextures.back().tex->getTexture();
     }
-    TextureId createTexture(const uint32_t width, const uint32_t height, const uint32_t* data) override {
-        mTextures.push_back(std::make_unique<GLTextureObject>(width, height, data));
-        return mTextures.back()->getTexture();
+    TextureId createTexture(std::string name, const uint32_t width, const uint32_t height,
+                            const uint32_t* data) override {
+        if(name.empty())
+            throw Error("Texture name must not be empty");
+        if(mNamedTextures.contains(name))
+            throw Error("Duplicate texture allocation: " + name);
+        auto texture = std::make_unique<GLTextureObject>(width, height, data);
+        auto* raw = texture.get();
+        const auto id = raw->getTexture();
+        mTextures.push_back(std::move(texture));
+        mNamedTextures.emplace(std::move(name), raw);
+        return id;
+    }
+    void updateTexture(const std::string_view name, const uint32_t width, const uint32_t height,
+                       const uint32_t* data) override {
+        const auto found = mNamedTextures.find(std::string(name));
+        if(found == mNamedTextures.end())
+            throw Error("Unknown texture: " + std::string(name));
+        found->second->update(width, height, data);
     }
     TextureId createCubeMap(const uint32_t size, const uint32_t* data) override {
         mTextures.push_back(std::make_unique<GLCubeMapObject>(size, data));
@@ -1469,20 +1542,48 @@ public:
         return buffer;
     }
 
-    std::vector<uint8_t> snapshotPassRgb(const std::string_view passName) override {
+    std::vector<uint8_t> snapshotPassRgb(const std::string_view passName, const uint32_t output) override {
         const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
                                            [passName](const auto& pass) { return pass->getName() == passName; });
         if(selected == mRenderPasses.end())
             throw Error("Unknown shader pass: " + std::string(passName));
-        return (*selected)->readRgb();
+        return (*selected)->readRgb(output);
     }
 
-    std::vector<float> snapshotPassRgba32f(const std::string_view passName) override {
+    std::vector<float> snapshotPassRgba32f(const std::string_view passName, const uint32_t output) override {
         const auto selected = std::find_if(mRenderPasses.begin(), mRenderPasses.end(),
                                            [passName](const auto& pass) { return pass->getName() == passName; });
         if(selected == mRenderPasses.end())
             throw Error("Unknown shader pass: " + std::string(passName));
-        return (*selected)->readRgba32f();
+        return (*selected)->readRgba32f(output);
+    }
+
+    std::vector<uint8_t> snapshotStorageBuffer(const std::string_view name) override {
+        const auto found = mNamedStorageBuffers.find(std::string(name));
+        if(found == mNamedStorageBuffers.end())
+            throw Error("Unknown storage buffer: " + std::string(name));
+        const auto [buffer, size] = found->second;
+        if(size > static_cast<uint64_t>(std::numeric_limits<size_t>::max()))
+            throw Error("Storage buffer is too large to read back");
+        std::vector<uint8_t> data(static_cast<size_t>(size));
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, static_cast<GLsizeiptr>(size), data.data());
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        return data;
+    }
+
+    void restoreStorageBuffer(const std::string_view name, const uint8_t* data, const uint64_t size) override {
+        const auto found = mNamedStorageBuffers.find(std::string(name));
+        if(found == mNamedStorageBuffers.end())
+            throw Error("Unknown storage buffer: " + std::string(name));
+        if(!data)
+            throw Error("Storage restore data is null");
+        const auto [buffer, expectedSize] = found->second;
+        if(size != expectedSize)
+            throw Error("Storage restore size does not match the declared buffer size");
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, static_cast<GLsizeiptr>(size), data);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 
     void overridePassRgba8(const std::string_view passName, const uint32_t width, const uint32_t height,

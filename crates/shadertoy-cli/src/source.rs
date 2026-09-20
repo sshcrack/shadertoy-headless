@@ -38,7 +38,7 @@ pub fn expand_pass(loaded: &LoadedManifest, pass: &Pass) -> Result<ExpandedPassS
 
     let mut dependencies = BTreeSet::new();
     let mut stack = Vec::new();
-    let text = expand_file(
+    let expanded = expand_file(
         &loaded.root,
         &source,
         &include_dirs,
@@ -47,6 +47,15 @@ pub fn expand_pass(loaded: &LoadedManifest, pass: &Pass) -> Result<ExpandedPassS
         0,
     )
     .with_context(|| format!("while expanding pass '{}'", pass.name))?;
+    let declarations = crate::uniforms::declarations(&loaded.manifest.uniforms);
+    let text = if declarations.is_empty() {
+        expanded
+    } else {
+        format!(
+            "{declarations}#line 1
+{expanded}"
+        )
+    };
     Ok(ExpandedPassSource { text, dependencies })
 }
 

@@ -110,18 +110,25 @@ fn run_case(
     }
 }
 
+#[derive(Debug)]
+struct RenderedVariant {
+    frame: i32,
+    width: u32,
+    height: u32,
+    image: RgbImage,
+    raw: Option<Vec<f32>>,
+}
+
 fn run_case_inner(
     context: &HeadlessContext,
     loaded: &LoadedManifest,
     test: &TestCase,
     update: bool,
 ) -> Result<CaseReport> {
-    let width = test.width.unwrap_or(loaded.manifest.render.width);
-    let height = test.height.unwrap_or(loaded.manifest.render.height);
-    render::validate_dimensions(width, height)?;
     let fps = loaded.manifest.render.fps;
     render::validate_fps(fps)?;
-    let frame = resolve_target_frame(loaded, None, test.frame, test.time, fps)?;
+    let frames = test_frames(loaded, test, fps)?;
+    let resolutions = test_resolutions(loaded, test);
 
     let selected_name = test
         .pass
@@ -136,63 +143,109 @@ fn run_case_inner(
     if pass.kind == PassKind::Cubemap {
         bail!("test pass '{selected_name}' is a cubemap; only 2D passes are supported");
     }
-    let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
 
-    let mut runtime = Runtime::new(context)?;
-    let project = build_native_project(loaded)?;
-    runtime.load_project(&project)?;
-    let final_image = render_from_zero(&mut runtime, frame, fps, width, height, &[])?
-        .context("test render did not produce a final image")?;
-    let image = if pass.name == loaded.manifest.final_pass().name {
-        final_image
-    } else {
-        runtime.snapshot_pass_rgb(&pass.name, pass_width, pass_height)?
-    };
+    let uniform_values = crate::uniforms::merge_values(&loaded.manifest.uniforms, &test.uniforms)?;
+    let raw_requested = matches!(pass.kind, PassKind::Buffer | PassKind::Compute)
+        && (test.assert_no_nan
+            || test.assert_no_inf
+            || test.mean_range.is_some()
+            || test.assert_deterministic
+            || test.assert_resolution_independent);
 
-    let numeric_requested = test.assert_no_nan || test.assert_no_inf || test.mean_range.is_some();
-    let numeric = if numeric_requested {
-        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
-            bail!(
-                "numeric assertions require a buffer/compute pass; '{}' is {:?}",
-                pass.name,
-                pass.kind
-            );
+    let mut variants = Vec::with_capacity(frames.len() * resolutions.len());
+    for frame in &frames {
+        for (width, height) in &resolutions {
+            variants.push(render_variant(
+                context,
+                loaded,
+                pass,
+                *frame,
+                fps,
+                *width,
+                *height,
+                &uniform_values,
+                raw_requested,
+            )?);
         }
-        Some(runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height)?)
-    } else {
-        None
-    };
+    }
 
     let mut reasons = Vec::new();
-    if let Some(values) = &numeric {
-        let nan = values.iter().filter(|value| value.is_nan()).count();
-        let inf = values.iter().filter(|value| value.is_infinite()).count();
-        if test.assert_no_nan && nan != 0 {
-            reasons.push(format!("found {nan} NaN values"));
+    for variant in &variants {
+        if let Some(values) = &variant.raw {
+            check_numeric_assertions(test, variant, values, &mut reasons);
         }
-        if test.assert_no_inf && inf != 0 {
-            reasons.push(format!("found {inf} infinite values"));
-        }
-        if let Some([min, max]) = test.mean_range {
-            let mut sum = 0.0f64;
-            let mut count = 0u64;
-            for value in values.iter().copied().filter(|value| value.is_finite()) {
-                sum += f64::from(value);
-                count += 1;
-            }
-            if count == 0 {
-                reasons.push("mean_range has no finite values to inspect".into());
-            } else {
-                let mean = sum / count as f64;
-                if mean < f64::from(min) || mean > f64::from(max) {
+    }
+
+    if test.assert_deterministic {
+        for variant in &variants {
+            let repeated = render_variant(
+                context,
+                loaded,
+                pass,
+                variant.frame,
+                fps,
+                variant.width,
+                variant.height,
+                &uniform_values,
+                raw_requested,
+            )?;
+            if let (Some(first), Some(second)) = (&variant.raw, &repeated.raw) {
+                let compared = compare_raw(first, second, test.raw_tolerance)?;
+                if compared.mismatches != 0 {
                     reasons.push(format!(
-                        "finite RGBA mean {mean:.6} is outside [{min:.6}, {max:.6}]"
+                        "frame {} at {}x{} is not deterministic: {} raw values differ (max abs error {:.9})",
+                        variant.frame,
+                        variant.width,
+                        variant.height,
+                        compared.mismatches,
+                        compared.max_error
+                    ));
+                }
+            } else if variant.image.pixels != repeated.image.pixels {
+                reasons.push(format!(
+                    "frame {} at {}x{} is not deterministic: RGB output differs between fresh runs",
+                    variant.frame, variant.width, variant.height
+                ));
+            }
+        }
+    }
+
+    if test.assert_resolution_independent {
+        for frame in &frames {
+            let same_frame = variants
+                .iter()
+                .filter(|variant| variant.frame == *frame)
+                .collect::<Vec<_>>();
+            let baseline = same_frame
+                .first()
+                .and_then(|variant| variant.raw.as_ref())
+                .context("resolution-independence test did not capture raw buffer data")?;
+            for variant in same_frame.iter().skip(1) {
+                let values = variant
+                    .raw
+                    .as_ref()
+                    .context("resolution-independence test did not capture raw buffer data")?;
+                let compared = compare_raw(baseline, values, test.raw_tolerance)?;
+                if compared.mismatches != 0 {
+                    let first = same_frame[0];
+                    reasons.push(format!(
+                        "frame {} fixed pass depends on output resolution: {}x{} vs {}x{} differ in {} raw values (max abs error {:.9})",
+                        frame,
+                        first.width,
+                        first.height,
+                        variant.width,
+                        variant.height,
+                        compared.mismatches,
+                        compared.max_error
                     ));
                 }
             }
         }
     }
 
+    let baseline = variants
+        .first()
+        .context("regression test produced no frame/resolution variants")?;
     let artifact_dir = loaded
         .root
         .join("target/tests")
@@ -209,7 +262,7 @@ fn run_case_inner(
             if let Some(parent) = reference_path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            save_rgb_png(&image, &reference_path)?;
+            save_rgb_png(&baseline.image, &reference_path)?;
             reference_updated = true;
         } else if !reference_path.is_file() {
             reasons.push(format!(
@@ -222,16 +275,18 @@ fn run_case_inner(
                 .decode()
                 .with_context(|| format!("failed to decode {}", reference_path.display()))?
                 .to_rgb8();
-            if expected.width() != image.width || expected.height() != image.height {
+            if expected.width() != baseline.image.width
+                || expected.height() != baseline.image.height
+            {
                 reasons.push(format!(
-                    "reference is {}x{} but actual is {}x{}",
+                    "reference is {}x{} but baseline variant is {}x{}",
                     expected.width(),
                     expected.height(),
-                    image.width,
-                    image.height
+                    baseline.image.width,
+                    baseline.image.height
                 ));
             } else {
-                let actual = top_down_rgb(&image);
+                let actual = top_down_rgb(&baseline.image);
                 let comparison = compare_rgb(expected.as_raw(), &actual, test.tolerance);
                 rmse = Some(comparison.rmse);
                 max_error = Some(comparison.max_error);
@@ -245,7 +300,7 @@ fn run_case_inner(
                 if !reasons.is_empty() {
                     fs::create_dir_all(&artifact_dir)?;
                     let actual_path = artifact_dir.join("actual.png");
-                    save_rgb_png(&image, &actual_path)?;
+                    save_rgb_png(&baseline.image, &actual_path)?;
                     artifacts.push(actual_path);
 
                     let expected_path = artifact_dir.join("expected.png");
@@ -253,10 +308,14 @@ fn run_case_inner(
                     artifacts.push(expected_path);
 
                     let mut diff_bottom_up = comparison.diff;
-                    super::images::flip_rgb_rows(&mut diff_bottom_up, image.width, image.height);
+                    super::images::flip_rgb_rows(
+                        &mut diff_bottom_up,
+                        baseline.image.width,
+                        baseline.image.height,
+                    );
                     let diff_path = artifact_dir.join("diff.png");
                     save_rgb_png(
-                        &RgbImage::new(image.width, image.height, diff_bottom_up),
+                        &RgbImage::new(baseline.image.width, baseline.image.height, diff_bottom_up),
                         &diff_path,
                     )?;
                     artifacts.push(diff_path);
@@ -268,7 +327,7 @@ fn run_case_inner(
     Ok(CaseReport {
         name: test.name.clone(),
         pass: pass.name.clone(),
-        frame,
+        frame: baseline.frame,
         passed: reasons.is_empty(),
         reasons,
         rmse,
@@ -276,6 +335,148 @@ fn run_case_inner(
         changed_fraction,
         artifacts,
         reference_updated,
+    })
+}
+
+fn test_frames(loaded: &LoadedManifest, test: &TestCase, fps: f32) -> Result<Vec<i32>> {
+    if !test.frames.is_empty() {
+        let mut frames = test.frames.clone();
+        frames.sort_unstable();
+        return Ok(frames);
+    }
+    Ok(vec![resolve_target_frame(
+        loaded, None, test.frame, test.time, fps,
+    )?])
+}
+
+fn test_resolutions(loaded: &LoadedManifest, test: &TestCase) -> Vec<(u32, u32)> {
+    if !test.resolutions.is_empty() {
+        return test
+            .resolutions
+            .iter()
+            .map(|[width, height]| (*width, *height))
+            .collect();
+    }
+    vec![(
+        test.width.unwrap_or(loaded.manifest.render.width),
+        test.height.unwrap_or(loaded.manifest.render.height),
+    )]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_variant(
+    context: &HeadlessContext,
+    loaded: &LoadedManifest,
+    pass: &crate::manifest::Pass,
+    frame: i32,
+    fps: f32,
+    width: u32,
+    height: u32,
+    uniform_values: &BTreeMap<String, crate::uniforms::UniformValue>,
+    raw_requested: bool,
+) -> Result<RenderedVariant> {
+    render::validate_dimensions(width, height)?;
+    let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
+    let media = crate::media::MediaInputs::new_headless(loaded)?;
+    let mut runtime = Runtime::new(context)?;
+    let project = build_native_project(loaded)?;
+    runtime.load_project(&project)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, uniform_values)?;
+    let final_image = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?
+        .context("test render did not produce a final image")?;
+    let image = if pass.name == loaded.manifest.final_pass().name {
+        final_image
+    } else {
+        runtime.snapshot_pass_rgb(&pass.name, pass_width, pass_height)?
+    };
+    let raw = if raw_requested {
+        Some(runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height)?)
+    } else {
+        None
+    };
+    Ok(RenderedVariant {
+        frame,
+        width,
+        height,
+        image,
+        raw,
+    })
+}
+
+fn check_numeric_assertions(
+    test: &TestCase,
+    variant: &RenderedVariant,
+    values: &[f32],
+    reasons: &mut Vec<String>,
+) {
+    let label = format!(
+        "frame {} at {}x{}",
+        variant.frame, variant.width, variant.height
+    );
+    let nan = values.iter().filter(|value| value.is_nan()).count();
+    let inf = values.iter().filter(|value| value.is_infinite()).count();
+    if test.assert_no_nan && nan != 0 {
+        reasons.push(format!("{label}: found {nan} NaN values"));
+    }
+    if test.assert_no_inf && inf != 0 {
+        reasons.push(format!("{label}: found {inf} infinite values"));
+    }
+    if let Some([min, max]) = test.mean_range {
+        let mut sum = 0.0f64;
+        let mut count = 0u64;
+        for value in values.iter().copied().filter(|value| value.is_finite()) {
+            sum += f64::from(value);
+            count += 1;
+        }
+        if count == 0 {
+            reasons.push(format!(
+                "{label}: mean_range has no finite values to inspect"
+            ));
+        } else {
+            let mean = sum / count as f64;
+            if mean < f64::from(min) || mean > f64::from(max) {
+                reasons.push(format!(
+                    "{label}: finite RGBA mean {mean:.6} is outside [{min:.6}, {max:.6}]"
+                ));
+            }
+        }
+    }
+}
+
+struct RawComparison {
+    mismatches: usize,
+    max_error: f64,
+}
+
+fn compare_raw(expected: &[f32], actual: &[f32], tolerance: f32) -> Result<RawComparison> {
+    if expected.len() != actual.len() {
+        bail!(
+            "raw regression buffers have different lengths ({} vs {})",
+            expected.len(),
+            actual.len()
+        );
+    }
+    let tolerance = f64::from(tolerance);
+    let mut mismatches = 0usize;
+    let mut max_error = 0.0f64;
+    for (expected, actual) in expected.iter().zip(actual) {
+        if expected.to_bits() == actual.to_bits() {
+            continue;
+        }
+        if !expected.is_finite() || !actual.is_finite() {
+            mismatches += 1;
+            max_error = f64::INFINITY;
+            continue;
+        }
+        let error = (f64::from(*expected) - f64::from(*actual)).abs();
+        max_error = max_error.max(error);
+        if error > tolerance {
+            mismatches += 1;
+        }
+    }
+    Ok(RawComparison {
+        mismatches,
+        max_error,
     })
 }
 

@@ -2,8 +2,9 @@ mod conversions;
 use crate::docs;
 use crate::ops;
 use crate::ops::{
-    ChannelSetOptions, InspectBufferOptions, InspectMode, InspectVisualization, Output,
-    ProfileOptions, RenderFramesOptions, RenderOptions, ReplayOptions, TestOptions,
+    ChannelSetOptions, InspectBufferOptions, InspectMode, InspectStorageOptions,
+    InspectStorageType, InspectVisualization, Output, ProfileOptions, RenderAudioOptions,
+    RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions, TestOptions,
 };
 use crate::preview;
 use crate::preview::PreviewConfig;
@@ -44,6 +45,10 @@ enum Command {
     Render(RenderArgs),
     /// Render multiple deterministic frames in one runtime, optionally as a contact sheet.
     RenderFrames(RenderFramesArgs),
+    /// Encode a deterministic animation through ffmpeg.
+    RenderVideo(RenderVideoArgs),
+    /// Render a ShaderToy Sound pass to deterministic stereo PCM WAV.
+    RenderAudio(RenderAudioArgs),
     /// Measure per-pass GPU timings and CPU submission cost.
     Profile(ProfileArgs),
     /// Run deterministic visual and numeric regression tests from [[test]] cases.
@@ -150,6 +155,9 @@ struct RenderArgs {
     /// Override a persistent 2D pass immediately before the target frame, e.g. buffer-a=fixture.png.
     #[arg(long = "set-buffer")]
     set_buffers: Vec<String>,
+    /// Override a declared custom uniform, e.g. --set wave_height=2.0.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -176,8 +184,62 @@ struct RenderFramesArgs {
     #[arg(long)]
     fps: Option<f32>,
     /// Deterministic iFrames to render, e.g. --frames 0,60,120,180.
-    #[arg(long, required = true, value_delimiter = ',', num_args = 1..)]
+    #[arg(long, value_delimiter = ',', num_args = 1.., required_unless_present = "range", conflicts_with = "range")]
     frames: Vec<i32>,
+    /// Inclusive START:END[:STEP] deterministic frame range.
+    #[arg(long, required_unless_present = "frames", conflicts_with = "frames")]
+    range: Option<String>,
+    /// Override a declared custom uniform for every rendered frame.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct RenderAudioArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Sound pass name. Required only when the project has multiple Sound passes.
+    #[arg(long)]
+    pass: Option<String>,
+    #[arg(long, default_value_t = 10.0)]
+    duration: f32,
+    #[arg(long, default_value_t = 44_100)]
+    sample_rate: u32,
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct RenderVideoArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Encoded output. Extension selects sensible defaults for mp4/webm/gif.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Render/snapshot a named pass instead of final Image.
+    #[arg(long)]
+    pass: Option<String>,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, default_value_t = 0)]
+    start_frame: i32,
+    /// Number of output frames.
+    #[arg(long, conflicts_with = "duration")]
+    frames: Option<u32>,
+    /// Output duration in seconds. Defaults to 5 seconds when --frames is omitted.
+    #[arg(long, conflicts_with = "frames")]
+    duration: Option<f32>,
+    /// Optional explicit ffmpeg video codec.
+    #[arg(long)]
+    codec: Option<String>,
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -200,6 +262,9 @@ struct ProfileArgs {
     /// Consecutive measured frames.
     #[arg(long, default_value_t = 20)]
     samples: u32,
+    /// Override a declared custom uniform during profiling.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -275,6 +340,8 @@ enum InspectCommand {
     Channels { name: String },
     /// Render and inspect a 2D buffer/compute pass's floating-point contents.
     Buffer(InspectBufferArgs),
+    /// Render and inspect a named shader-storage buffer.
+    Storage(InspectStorageArgs),
     /// Inspect a .ststate artifact.
     State { path: PathBuf },
 }
@@ -282,6 +349,9 @@ enum InspectCommand {
 #[derive(Debug, Args)]
 struct InspectBufferArgs {
     name: String,
+    /// Render-target index for MRT passes (0 is the primary output).
+    #[arg(long, default_value_t = 0)]
+    output_index: u8,
     #[arg(long)]
     width: Option<u32>,
     #[arg(long)]
@@ -298,8 +368,37 @@ struct InspectBufferArgs {
     /// Optional diagnostic PNG.
     #[arg(short, long)]
     output: Option<PathBuf>,
+    /// Optional little-endian raw RGBA32F dump.
+    #[arg(long)]
+    raw: Option<PathBuf>,
     #[arg(long, value_enum, default_value_t = InspectVisualizationArg::Auto)]
     visualization: InspectVisualizationArg,
+}
+
+#[derive(Debug, Args)]
+struct InspectStorageArgs {
+    name: String,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, conflicts_with = "time")]
+    frame: Option<i32>,
+    #[arg(long, conflicts_with = "frame")]
+    time: Option<f32>,
+    /// Byte offset into the SSBO.
+    #[arg(long, default_value_t = 0)]
+    offset: usize,
+    /// Number of typed values to print.
+    #[arg(long, default_value_t = 16)]
+    count: usize,
+    #[arg(long = "type", value_enum, default_value_t = InspectStorageTypeArg::F32)]
+    value_type: InspectStorageTypeArg,
+    /// Optional complete raw SSBO dump.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -316,6 +415,8 @@ enum StateCommand {
     Inspect { path: PathBuf },
     /// Replace one or more buffers inside an existing state using exact-size images.
     Set(StateSetArgs),
+    /// Replace one or more captured SSBOs using exact-size binary files.
+    SetStorage(StateSetStorageArgs),
 }
 
 #[derive(Debug, Args)]
@@ -334,12 +435,25 @@ struct StateCaptureArgs {
     frame: Option<i32>,
     #[arg(long, conflicts_with = "frame")]
     time: Option<f32>,
+    /// Include named shader-storage buffers in the resumable state.
+    #[arg(long)]
+    include_storage: bool,
 }
 
 #[derive(Debug, Args)]
 struct StateSetArgs {
     input: PathBuf,
     /// BUFFER=IMAGE assignments.
+    #[arg(required = true)]
+    assignments: Vec<String>,
+    #[arg(short, long)]
+    output: PathBuf,
+}
+
+#[derive(Debug, Args)]
+struct StateSetStorageArgs {
+    input: PathBuf,
+    /// STORAGE=BINARY assignments.
     #[arg(required = true)]
     assignments: Vec<String>,
     #[arg(short, long)]
@@ -435,6 +549,26 @@ impl From<InspectVisualizationArg> for InspectVisualization {
     }
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum InspectStorageTypeArg {
+    Bytes,
+    U32,
+    I32,
+    #[default]
+    F32,
+}
+
+impl From<InspectStorageTypeArg> for InspectStorageType {
+    fn from(value: InspectStorageTypeArg) -> Self {
+        match value {
+            InspectStorageTypeArg::Bytes => Self::Bytes,
+            InspectStorageTypeArg::U32 => Self::U32,
+            InspectStorageTypeArg::I32 => Self::I32,
+            InspectStorageTypeArg::F32 => Self::F32,
+        }
+    }
+}
+
 fn parse_pixel(value: &str) -> std::result::Result<(u32, u32), String> {
     let (x, y) = value
         .split_once(',')
@@ -461,6 +595,7 @@ enum PassKindArg {
     Buffer,
     Cubemap,
     Compute,
+    Sound,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -469,6 +604,8 @@ enum InputKindArg {
     Texture,
     Keyboard,
     Music,
+    Video,
+    Webcam,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
@@ -570,6 +707,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             state: args.state,
             set_buffers: args.set_buffers,
+            set_uniforms: args.set_uniforms,
         })?,
         Command::RenderFrames(args) => ops::render_frames_project(&RenderFramesOptions {
             project: args.project,
@@ -581,6 +719,29 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             height: args.height,
             fps: args.fps,
             frames: args.frames,
+            range: args.range,
+            set_uniforms: args.set_uniforms,
+        })?,
+        Command::RenderAudio(args) => ops::render_audio_project(&RenderAudioOptions {
+            project: args.project,
+            output: args.output,
+            pass: args.pass,
+            duration: args.duration,
+            sample_rate: args.sample_rate,
+            set_uniforms: args.set_uniforms,
+        })?,
+        Command::RenderVideo(args) => ops::render_video_project(&RenderVideoOptions {
+            project: args.project,
+            output: args.output,
+            pass: args.pass,
+            width: args.width,
+            height: args.height,
+            fps: args.fps,
+            start_frame: args.start_frame,
+            frames: args.frames,
+            duration: args.duration,
+            codec: args.codec,
+            set_uniforms: args.set_uniforms,
         })?,
         Command::Profile(args) => ops::profile_project(&ProfileOptions {
             project: args.project,
@@ -591,6 +752,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             warmup: args.warmup,
             samples: args.samples,
+            set_uniforms: args.set_uniforms,
         })?,
         Command::Test(args) => ops::test_project(&TestOptions {
             project: args.project,
@@ -633,6 +795,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             Some(InspectCommand::Buffer(buffer)) => ops::inspect_buffer(&InspectBufferOptions {
                 project: args.project,
                 pass: buffer.name,
+                output_index: buffer.output_index,
                 width: buffer.width,
                 height: buffer.height,
                 fps: buffer.fps,
@@ -640,8 +803,24 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 time: buffer.time,
                 pixel: buffer.pixel,
                 output: buffer.output,
+                raw: buffer.raw,
                 visualization: buffer.visualization.into(),
             })?,
+            Some(InspectCommand::Storage(storage)) => {
+                ops::inspect_storage(&InspectStorageOptions {
+                    project: args.project,
+                    name: storage.name,
+                    width: storage.width,
+                    height: storage.height,
+                    fps: storage.fps,
+                    frame: storage.frame,
+                    time: storage.time,
+                    offset: storage.offset,
+                    count: storage.count,
+                    value_type: storage.value_type.into(),
+                    output: storage.output,
+                })?
+            }
             Some(InspectCommand::State { path }) => ops::inspect_state(&path)?,
         },
         Command::State(args) => match args.command {
@@ -653,10 +832,14 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 args.fps,
                 args.frame,
                 args.time,
+                args.include_storage,
             )?,
             StateCommand::Inspect { path } => ops::inspect_state(&path)?,
             StateCommand::Set(args) => {
                 ops::set_state_buffers(&args.input, &args.output, &args.assignments)?
+            }
+            StateCommand::SetStorage(args) => {
+                ops::set_state_storage(&args.input, &args.output, &args.assignments)?
             }
         },
         Command::Pass(args) => match args.command {

@@ -147,6 +147,28 @@ void Runtime::setAudioInput(const AudioInput& input) {
     mImpl->context.setAudioInput(input);
 }
 
+Result<void> Runtime::setUniformFloats(std::string name, const float* values, const uint32_t count) {
+    try {
+        mImpl->context.setUniformFloats(std::move(name), values, count);
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::setUniformInt(std::string name, const int32_t value) {
+    try {
+        mImpl->context.setUniformInt(std::move(name), value);
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
 void Runtime::render(const RenderRegion& region) {
     mImpl->context.render(region);
 }
@@ -155,9 +177,9 @@ std::vector<uint8_t> Runtime::renderToBuffer(const Vec2 size) {
     return mImpl->context.renderToBuffer(size);
 }
 
-Result<std::vector<uint8_t>> Runtime::snapshotPassRgb(const std::string_view passName) {
+Result<std::vector<uint8_t>> Runtime::snapshotPassRgb(const std::string_view passName, const uint32_t output) {
     try {
-        return mImpl->context.snapshotPassRgb(passName);
+        return mImpl->context.snapshotPassRgb(passName, output);
     } catch(const Error& error) {
         return std::unexpected(error);
     } catch(const std::exception& error) {
@@ -165,9 +187,46 @@ Result<std::vector<uint8_t>> Runtime::snapshotPassRgb(const std::string_view pas
     }
 }
 
-Result<std::vector<float>> Runtime::snapshotPassRgba32f(const std::string_view passName) {
+Result<std::vector<float>> Runtime::snapshotPassRgba32f(const std::string_view passName, const uint32_t output) {
     try {
-        return mImpl->context.snapshotPassRgba32f(passName);
+        return mImpl->context.snapshotPassRgba32f(passName, output);
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<std::vector<uint8_t>> Runtime::snapshotStorageBuffer(const std::string_view name) {
+    try {
+        return mImpl->context.snapshotStorageBuffer(name);
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::restoreStorageBuffer(const std::string_view name, const std::vector<uint8_t>& data) {
+    try {
+        mImpl->context.restoreStorageBuffer(name, data.data(), data.size());
+        return {};
+    } catch(const Error& error) {
+        return std::unexpected(error);
+    } catch(const std::exception& error) {
+        return std::unexpected(Error(error.what()));
+    }
+}
+
+Result<void> Runtime::updateTexture(const std::string_view name, const uint32_t width, const uint32_t height,
+                                    const std::vector<uint32_t>& rgba) {
+    try {
+        if(width == 0 || height == 0)
+            throw Error("Texture update dimensions must be positive");
+        if(rgba.size() != checkedSizeProduct({ width, height }, "Texture update"))
+            throw Error("Texture update must contain width * height RGBA8 pixels");
+        mImpl->context.updateTexture(name, width, height, rgba.data());
+        return {};
     } catch(const Error& error) {
         return std::unexpected(error);
     } catch(const std::exception& error) {

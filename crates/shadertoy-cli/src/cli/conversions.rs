@@ -17,6 +17,7 @@ impl From<PassKindArg> for PassKind {
             PassKindArg::Buffer => PassKind::Buffer,
             PassKindArg::Cubemap => PassKind::Cubemap,
             PassKindArg::Compute => PassKind::Compute,
+            PassKindArg::Sound => PassKind::Sound,
         }
     }
 }
@@ -28,6 +29,8 @@ impl From<InputKindArg> for InputKind {
             InputKindArg::Texture => InputKind::Texture,
             InputKindArg::Keyboard => InputKind::Keyboard,
             InputKindArg::Music => InputKind::Music,
+            InputKindArg::Video => InputKind::Video,
+            InputKindArg::Webcam => InputKind::Webcam,
         }
     }
 }

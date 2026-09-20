@@ -10,8 +10,10 @@ pub(super) fn reload(
     height: &mut u32,
     fps: &mut f32,
     view: &mut String,
+    uniform_values: &mut BTreeMap<String, crate::uniforms::UniformValue>,
     preserve_state: bool,
 ) -> Result<()> {
+    let previous_uniform_values = preserve_state.then(|| uniform_values.clone());
     let saved = if preserve_state {
         loaded
             .as_ref()
@@ -25,6 +27,22 @@ pub(super) fn reload(
     ensure_source_files_exist(&candidate)?;
     let (project, candidate_sources) = build_native_project_with_sources(&candidate)?;
     runtime.load_project(&project)?;
+    let mut next_uniform_values = crate::uniforms::defaults(&candidate.manifest.uniforms);
+    if let Some(previous) = previous_uniform_values {
+        for (name, value) in previous {
+            if let Some(definition) = candidate
+                .manifest
+                .uniforms
+                .iter()
+                .find(|definition| definition.name() == name)
+                && definition.validate_value(&value).is_ok()
+            {
+                next_uniform_values.insert(name, value);
+            }
+        }
+    }
+    crate::uniforms::apply_to_runtime(runtime, &next_uniform_values)?;
+    *uniform_values = next_uniform_values;
 
     if loaded.is_none() {
         *width = candidate.manifest.render.width;
@@ -170,6 +188,7 @@ pub(super) fn update_status(
     fps: f32,
     paused: bool,
     view: &str,
+    uniform_values: &BTreeMap<String, crate::uniforms::UniformValue>,
     error: Option<String>,
     increment_sequence: bool,
 ) {
@@ -181,9 +200,26 @@ pub(super) fn update_status(
             .manifest
             .passes
             .iter()
-            .filter(|pass| pass.kind != PassKind::Cubemap)
+            .filter(|pass| !matches!(pass.kind, PassKind::Cubemap | PassKind::Sound))
             .map(|pass| pass.name.clone())
             .collect();
+        status.uniforms = loaded
+            .manifest
+            .uniforms
+            .iter()
+            .map(|definition| PreviewUniformStatus {
+                name: definition.name().to_string(),
+                kind: definition.kind_name().to_string(),
+                value: uniform_values
+                    .get(definition.name())
+                    .cloned()
+                    .unwrap_or_else(|| definition.default_value()),
+                min: definition.preview_min(),
+                max: definition.preview_max(),
+                step: definition.preview_step(),
+            })
+            .collect();
+        status.webcam = crate::media::manifest_uses_webcam(loaded);
     }
     status.frame = runtime.frame();
     status.time = runtime.time();

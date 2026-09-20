@@ -20,6 +20,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
 
     let loaded = LoadedManifest::load(&options.project)?;
     ensure_source_files_exist(&loaded)?;
+    let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let (width, height) = render::resolve_dimensions(&loaded, None, options.width, options.height)?;
     let fps = render::resolve_fps(&loaded, None, options.fps)?;
     let target_frame = resolve_target_frame(&loaded, None, options.frame, options.time, fps)?;
@@ -29,10 +30,15 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, &options.set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
 
-    let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[])?;
+    let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[], &media)?;
     for _ in 0..options.warmup {
         runtime.tick_fixed(1.0 / fps, fps)?;
+        let media_time = runtime.time();
+        media.update(&mut runtime, media_time)?;
         let _ = runtime.render(width, height)?;
     }
 
@@ -43,6 +49,8 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
 
     for _ in 0..options.samples {
         runtime.tick_fixed(1.0 / fps, fps)?;
+        let media_time = runtime.time();
+        media.update(&mut runtime, media_time)?;
         let started = Instant::now();
         let _ = runtime.render(width, height)?;
         cpu_samples.push(started.elapsed().as_nanos() as u64);

@@ -17,6 +17,8 @@ pub(super) fn render_loop(
     let mut fps = 60.0f32;
     let mut paused = false;
     let mut view = String::from("image");
+    let mut uniform_values = BTreeMap::new();
+    let mut media = crate::media::MediaInputs::default();
     let mut fresh = true;
     let mut force_render = true;
     let mut reload_due: Option<Instant> = None;
@@ -31,9 +33,15 @@ pub(super) fn render_loop(
         &mut height,
         &mut fps,
         &mut view,
+        &mut uniform_values,
         preserve_reload_state,
     ) {
         Ok(()) => {
+            if let Some(project) = loaded.as_ref()
+                && let Ok(next_media) = crate::media::MediaInputs::new(project)
+            {
+                media = next_media;
+            }
             update_status(
                 &shared,
                 loaded.as_ref(),
@@ -43,6 +51,7 @@ pub(super) fn render_loop(
                 fps,
                 paused,
                 &view,
+                &uniform_values,
                 None,
                 false,
             );
@@ -57,6 +66,7 @@ pub(super) fn render_loop(
                 fps,
                 paused,
                 &view,
+                &uniform_values,
                 Some(error.to_string()),
                 false,
             );
@@ -82,6 +92,7 @@ pub(super) fn render_loop(
                 &mut fps,
                 &mut paused,
                 &mut view,
+                &mut uniform_values,
                 &mut fresh,
                 &mut force_render,
                 &mut reload_due,
@@ -117,9 +128,16 @@ pub(super) fn render_loop(
                         &mut height,
                         &mut fps,
                         &mut view,
+                        &mut uniform_values,
                         preserve_reload_state,
                     ) {
                         Ok(()) => {
+                            if let Some(project) = loaded.as_ref() {
+                                match crate::media::MediaInputs::new(project) {
+                                    Ok(next_media) => media = next_media,
+                                    Err(error) => set_error(&shared, format!("{error:#}")),
+                                }
+                            }
                             fresh = true;
                             force_render = true;
                             clear_error(&shared);
@@ -147,6 +165,10 @@ pub(super) fn render_loop(
                 set_error(&shared, error.to_string());
             }
 
+            let media_time = runtime.time();
+            if let Err(error) = media.update(runtime, media_time) {
+                set_error(&shared, format!("{error:#}"));
+            }
             match runtime.render(width, height) {
                 Ok(final_image) => {
                     let selected = if let Some(project) = &loaded {
@@ -197,6 +219,7 @@ pub(super) fn render_loop(
                                     fps,
                                     paused,
                                     &view,
+                                    &uniform_values,
                                     None,
                                     true,
                                 );
@@ -247,6 +270,7 @@ pub(super) fn render_loop(
                     &mut fps,
                     &mut paused,
                     &mut view,
+                    &mut uniform_values,
                     &mut fresh,
                     &mut force_render,
                     &mut reload_due,
@@ -281,6 +305,7 @@ fn handle_control(
     fps: &mut f32,
     paused: &mut bool,
     view: &mut String,
+    uniform_values: &mut BTreeMap<String, crate::uniforms::UniformValue>,
     fresh: &mut bool,
     force_render: &mut bool,
     reload_due: &mut Option<Instant>,
@@ -316,7 +341,16 @@ fn handle_control(
             }
         }
         Control::Reset => match reload(
-            root, runtime, loaded, sources, width, height, fps, view, false,
+            root,
+            runtime,
+            loaded,
+            sources,
+            width,
+            height,
+            fps,
+            view,
+            uniform_values,
+            false,
         ) {
             Ok(()) => {
                 *fresh = true;
@@ -343,12 +377,10 @@ fn handle_control(
         }
         Control::View(pass) => {
             if let Some(project) = loaded {
-                if project
-                    .manifest
-                    .passes
-                    .iter()
-                    .any(|candidate| candidate.name == pass && candidate.kind != PassKind::Cubemap)
-                {
+                if project.manifest.passes.iter().any(|candidate| {
+                    candidate.name == pass
+                        && !matches!(candidate.kind, PassKind::Cubemap | PassKind::Sound)
+                }) {
                     *view = pass;
                     *force_render = true;
                 } else {
@@ -400,6 +432,53 @@ fn handle_control(
                     shared,
                     "time scale must be a finite log2 value in [-8, 8]".into(),
                 );
+            }
+        }
+        Control::Uniform { name, value } => {
+            let result = (|| -> Result<()> {
+                let project = loaded.as_ref().context("preview project is not loaded")?;
+                let definition = project
+                    .manifest
+                    .uniforms
+                    .iter()
+                    .find(|definition| definition.name() == name)
+                    .with_context(|| format!("unknown custom uniform '{name}'"))?;
+                definition.validate_value(&value)?;
+                let mut one = BTreeMap::new();
+                one.insert(name.clone(), value.clone());
+                crate::uniforms::apply_to_runtime(runtime, &one)?;
+                uniform_values.insert(name.clone(), value.clone());
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    *force_render = true;
+                    clear_error(shared);
+                    record_action(recorder, shared, ReplayAction::Uniform { name, value });
+                }
+                Err(error) => set_error(shared, format!("{error:#}")),
+            }
+        }
+        Control::WebcamFrame(rgba) => {
+            let result = (|| -> Result<()> {
+                let project = loaded.as_ref().context("preview project is not loaded")?;
+                if !crate::media::manifest_uses_webcam(project) {
+                    bail!("project does not declare a webcam input");
+                }
+                runtime.update_texture_rgba8(
+                    crate::media::WEBCAM_NAME,
+                    crate::media::WEBCAM_WIDTH,
+                    crate::media::WEBCAM_HEIGHT,
+                    &rgba,
+                )?;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => {
+                    *force_render = true;
+                    clear_error(shared);
+                }
+                Err(error) => set_error(shared, format!("{error:#}")),
             }
         }
         Control::Mouse {

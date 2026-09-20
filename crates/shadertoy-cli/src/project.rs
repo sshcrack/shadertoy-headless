@@ -12,16 +12,7 @@ use shadertoy::{
 use std::fs;
 use std::path::Path;
 
-pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
-    build_native_project_with_sources(loaded).map(|(project, _)| project)
-}
-
-pub fn build_native_project_with_sources(
-    loaded: &LoadedManifest,
-) -> Result<(Project, SourceGraph)> {
-    let sources = expand_all(loaded)?;
-    let mut project = Project::new(&loaded.manifest.project.name)?;
-
+pub(crate) fn add_manifest_assets(project: &mut Project, loaded: &LoadedManifest) -> Result<()> {
     for asset in &loaded.manifest.assets {
         let path = existing_project_file(&loaded.root, &asset.path, "asset", &asset.name)?;
         match asset.kind {
@@ -84,10 +75,41 @@ pub fn build_native_project_with_sources(
                 let (size, channels, data) = decode_shadertoy_volume(&bytes, &asset.name)?;
                 project.add_volume_u8(&asset.name, size, channels, data)?;
             }
+            AssetKind::Video => {
+                let (width, height, rgba) = crate::media::initial_video_frame(&path)?;
+                project.add_texture_rgba8(&asset.name, width, height, &rgba)?;
+            }
         }
     }
+    if crate::media::manifest_uses_webcam(loaded) {
+        let rgba =
+            vec![0u8; (crate::media::WEBCAM_WIDTH * crate::media::WEBCAM_HEIGHT * 4) as usize];
+        project.add_texture_rgba8(
+            crate::media::WEBCAM_NAME,
+            crate::media::WEBCAM_WIDTH,
+            crate::media::WEBCAM_HEIGHT,
+            &rgba,
+        )?;
+    }
+    Ok(())
+}
+
+pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
+    build_native_project_with_sources(loaded).map(|(project, _)| project)
+}
+
+pub fn build_native_project_with_sources(
+    loaded: &LoadedManifest,
+) -> Result<(Project, SourceGraph)> {
+    let sources = expand_all(loaded)?;
+    let mut project = Project::new(&loaded.manifest.project.name)?;
+
+    add_manifest_assets(&mut project, loaded)?;
 
     for pass in &loaded.manifest.passes {
+        if pass.kind == PassKind::Sound {
+            continue;
+        }
         let source = &sources
             .get(&pass.name)
             .expect("all manifest passes have expanded sources")
@@ -99,6 +121,7 @@ pub fn build_native_project_with_sources(
                 PassKind::Buffer => NativePassKind::Buffer,
                 PassKind::Cubemap => NativePassKind::Cubemap,
                 PassKind::Compute => NativePassKind::Compute,
+                PassKind::Sound => unreachable!("sound passes are lowered separately"),
             },
             source,
         )?;
@@ -145,6 +168,9 @@ pub fn build_native_project_with_sources(
     }
 
     for pass in &loaded.manifest.passes {
+        if pass.kind == PassKind::Sound {
+            continue;
+        }
         for input in &pass.inputs {
             let kind = loaded.manifest.infer_input_kind(input)?;
             project.add_input_output(
@@ -157,6 +183,7 @@ pub fn build_native_project_with_sources(
                     InputKind::Volume => NativeInputKind::Volume,
                     InputKind::Keyboard => NativeInputKind::Keyboard,
                     InputKind::Music => NativeInputKind::Music,
+                    InputKind::Video | InputKind::Webcam => NativeInputKind::Texture,
                 },
                 &input.source,
                 input.output.into(),
@@ -228,7 +255,7 @@ fn decode_shadertoy_volume<'a>(bytes: &'a [u8], name: &str) -> Result<(u32, u32,
     Ok((x, channels, &bytes[20..]))
 }
 
-fn existing_project_file(
+pub(crate) fn existing_project_file(
     root: &Path,
     relative: &str,
     kind: &str,
