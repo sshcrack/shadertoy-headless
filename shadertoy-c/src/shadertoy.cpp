@@ -475,6 +475,9 @@ int st_project_set_pass_resolution(st_project* project, const char* passName, co
             throw std::runtime_error("Pass name must not be empty");
         if(width == 0 || height == 0)
             throw std::runtime_error("Pass resolution must be positive");
+        if(width > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+           height > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))
+            throw std::runtime_error("Pass resolution exceeds the OpenGL dimension range");
         const auto pass = std::find_if(project->description.passes.begin(), project->description.passes.end(),
                                        [&](const auto& value) { return value.name == passName; });
         if(pass == project->description.passes.end())

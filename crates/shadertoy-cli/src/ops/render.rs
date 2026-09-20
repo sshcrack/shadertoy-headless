@@ -191,27 +191,28 @@ fn resolve_dimensions(
         let width = width.unwrap_or(state.header.width);
         let height = height.unwrap_or(state.header.height);
         validate_dimensions(width, height)?;
-        if (width, height) != (state.header.width, state.header.height) {
-            for name in &state.header.buffers {
-                let pass = loaded
-                    .manifest
-                    .passes
-                    .iter()
-                    .find(|pass| pass.name == *name)
-                    .with_context(|| format!("state references unknown buffer pass '{name}'"))?;
-                if pass.kind != PassKind::Buffer {
-                    bail!("state buffer '{name}' is no longer a buffer pass");
-                }
-                if pass.width.is_none() || pass.height.is_none() {
-                    bail!(
-                        "resumable state contains output-sized buffer '{}'; rendering at {}x{} instead of {}x{} would discard its feedback",
-                        name,
-                        width,
-                        height,
-                        state.header.width,
-                        state.header.height
-                    );
-                }
+        for name in &state.header.buffers {
+            let pass = loaded
+                .manifest
+                .passes
+                .iter()
+                .find(|pass| pass.name == *name)
+                .with_context(|| format!("state references unknown buffer pass '{name}'"))?;
+            if pass.kind != PassKind::Buffer {
+                bail!("state buffer '{name}' is no longer a buffer pass");
+            }
+
+            let saved = state.buffer_dimensions(name)?;
+            let expected = loaded.manifest.pass_dimensions(pass, width, height);
+            if (saved.width, saved.height) != expected {
+                bail!(
+                    "state buffer '{}' is {}x{} but the current pass expects {}x{}; restoring it would discard or reinterpret feedback",
+                    name,
+                    saved.width,
+                    saved.height,
+                    expected.0,
+                    expected.1
+                );
             }
         }
         return Ok((width, height));

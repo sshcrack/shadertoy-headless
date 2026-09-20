@@ -284,3 +284,143 @@ fn fixed_pass_state_and_overrides_use_pass_dimensions() {
     ]);
     assert!(!rejected.status.success());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn state_restore_rejects_buffer_resolution_semantic_changes() {
+    let temp = TempRoot::new("state-resolution-change");
+    let project = temp.0.join("project");
+    write_project(&project);
+    let project_arg = project.to_string_lossy().into_owned();
+
+    let state_path = temp.0.join("fixed.ststate");
+    let state_arg = state_path.to_string_lossy().into_owned();
+    let captured = shadertoy(&[
+        "state",
+        "capture",
+        "--project",
+        &project_arg,
+        "--frame",
+        "1",
+        "-o",
+        &state_arg,
+    ]);
+    assert!(captured.status.success(), "{captured:?}");
+
+    let manifest_path = project.join("ShaderToy.toml");
+    let manifest = std::fs::read_to_string(&manifest_path).expect("read manifest");
+    let manifest = manifest.replacen("width = 2\nheight = 2\n", "", 1);
+    std::fs::write(&manifest_path, manifest).expect("make spectrum output-sized");
+
+    let output_path = temp.0.join("should-not-render.png");
+    let output_arg = output_path.to_string_lossy().into_owned();
+    let resumed = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--state",
+        &state_arg,
+        "--frame",
+        "2",
+        "-o",
+        &output_arg,
+    ]);
+    assert!(!resumed.status.success(), "{resumed:?}");
+    let stderr = String::from_utf8_lossy(&resumed.stderr);
+    assert!(
+        stderr.contains("state buffer 'spectrum' is 2x2")
+            && stderr.contains("current pass expects 7x5"),
+        "{stderr}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn fixed_pass_reports_dynamic_input_resolution() {
+    let temp = TempRoot::new("dynamic-input-resolution");
+    let project = temp.0.join("project");
+    std::fs::create_dir_all(project.join("shaders")).expect("create shader directory");
+    std::fs::write(
+        project.join("ShaderToy.toml"),
+        r#"format = 1
+
+[project]
+name = "fixed-dynamic-input-resolution"
+
+[render]
+width = 7
+height = 5
+fps = 60.0
+preview_time = 0.0
+
+[[pass]]
+name = "dynamic"
+kind = "buffer"
+source = "shaders/dynamic.frag"
+
+[[pass]]
+name = "fixed"
+kind = "buffer"
+source = "shaders/fixed.frag"
+width = 2
+height = 2
+
+[[pass.input]]
+channel = 0
+source = "dynamic"
+filter = "nearest"
+wrap = "clamp"
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[pass.input]]
+channel = 0
+source = "fixed"
+filter = "nearest"
+wrap = "clamp"
+"#,
+    )
+    .expect("write manifest");
+    std::fs::write(
+        project.join("shaders/dynamic.frag"),
+        "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.0, 0.0, 0.0, 1.0); }",
+    )
+    .expect("write dynamic shader");
+    std::fs::write(
+        project.join("shaders/fixed.frag"),
+        "void mainImage(out vec4 c, in vec2 p) { c = vec4(iChannelResolution[0].xy / 10.0, 0.0, 1.0); }",
+    )
+    .expect("write fixed shader");
+    std::fs::write(
+        project.join("shaders/image.frag"),
+        "void mainImage(out vec4 c, in vec2 p) { c = texture(iChannel0, vec2(0.5)); }",
+    )
+    .expect("write image shader");
+
+    let project_arg = project.to_string_lossy().into_owned();
+    let output_path = temp.0.join("fixed.png");
+    let output_arg = output_path.to_string_lossy().into_owned();
+    let rendered = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--frame",
+        "0",
+        "--pass",
+        "fixed",
+        "-o",
+        &output_arg,
+    ]);
+    assert!(rendered.status.success(), "{rendered:?}");
+
+    let image = image::open(&output_path)
+        .expect("open fixed pass render")
+        .to_rgb8();
+    assert_eq!(image.dimensions(), (2, 2));
+    let pixel = image.get_pixel(0, 0).0;
+    assert!((i16::from(pixel[0]) - 179).abs() <= 2, "{pixel:?}");
+    assert!((i16::from(pixel[1]) - 128).abs() <= 2, "{pixel:?}");
+}

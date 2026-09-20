@@ -84,3 +84,25 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     assert!((i16::from(pixel[0]) - 51).abs() <= 1, "red={}", pixel[0]);
     assert!((i16::from(pixel[1]) - 51).abs() <= 1, "green={}", pixel[1]);
 }
+
+#[test]
+fn fixed_resolution_rejects_dimensions_outside_opengl_range() {
+    let mut project = Project::new("fixed-resolution-range").expect("create project");
+    project
+        .add_pass(
+            "buffer",
+            PassKind::Buffer,
+            "void mainImage(out vec4 c, in vec2 p) { c = vec4(0.0); }",
+        )
+        .expect("add buffer");
+
+    let too_large = (i32::MAX as u32) + 1;
+    let error = match project.set_pass_resolution("buffer", too_large, 1) {
+        Ok(_) => panic!("oversized fixed pass must fail before OpenGL allocation"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("OpenGL dimension range"),
+        "{error}"
+    );
+}

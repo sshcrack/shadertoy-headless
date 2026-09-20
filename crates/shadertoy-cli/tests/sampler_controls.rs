@@ -151,3 +151,85 @@ fn channels_can_sample_the_same_pass_with_independent_filter_and_wrap_modes() {
     // texel, so their red values average to 0.5.
     assert!((i16::from(pixel[2]) - 128).abs() <= 3, "{pixel:?}");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn mipmap_filter_builds_and_samples_the_pass_mipmap_chain() {
+    let temp = TempRoot::new("mipmap");
+    let project = temp.0.join("project");
+    std::fs::create_dir_all(project.join("shaders")).expect("create shader directory");
+    std::fs::write(
+        project.join("ShaderToy.toml"),
+        r#"format = 1
+
+[project]
+name = "sampler-mipmap-test"
+
+[render]
+width = 1
+height = 1
+fps = 60.0
+preview_time = 0.0
+
+[[pass]]
+name = "source"
+kind = "buffer"
+source = "shaders/source.frag"
+width = 4
+height = 4
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[pass.input]]
+channel = 0
+source = "source"
+filter = "mipmap"
+wrap = "clamp"
+"#,
+    )
+    .expect("write manifest");
+    std::fs::write(
+        project.join("shaders/source.frag"),
+        r#"void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    float checker = mod(floor(fragCoord.x) + floor(fragCoord.y), 2.0);
+    fragColor = checker < 0.5
+        ? vec4(1.0, 0.0, 0.0, 1.0)
+        : vec4(0.0, 0.0, 1.0, 1.0);
+}
+"#,
+    )
+    .expect("write source shader");
+    std::fs::write(
+        project.join("shaders/image.frag"),
+        r#"void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    fragColor = textureLod(iChannel0, vec2(0.5), 2.0);
+}
+"#,
+    )
+    .expect("write image shader");
+
+    let project_arg = project.to_string_lossy().into_owned();
+    let output_path = temp.0.join("mipmap.png");
+    let output_arg = output_path.to_string_lossy().into_owned();
+    let rendered = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--frame",
+        "0",
+        "-o",
+        &output_arg,
+    ]);
+    assert!(rendered.status.success(), "{rendered:?}");
+
+    let image = image::open(&output_path)
+        .expect("open mipmap render")
+        .to_rgb8();
+    let pixel = image.get_pixel(0, 0).0;
+    assert!((i16::from(pixel[0]) - 128).abs() <= 3, "{pixel:?}");
+    assert!(pixel[1] <= 3, "{pixel:?}");
+    assert!((i16::from(pixel[2]) - 128).abs() <= 3, "{pixel:?}");
+}

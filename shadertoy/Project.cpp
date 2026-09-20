@@ -7,6 +7,8 @@
 #include "shadertoy/Error.hpp"
 #include "shadertoy/Support.hpp"
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -102,6 +104,9 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
                 throw Error("Pass fixed resolution must specify both width and height: " + pass.name);
             if((pass.width != 0 || pass.height != 0) && pass.kind != ProjectPassKind::Buffer)
                 throw Error("Fixed pass resolution is only supported for buffer passes: " + pass.name);
+            if(pass.width > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+               pass.height > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))
+                throw Error("Pass fixed resolution exceeds the OpenGL dimension range: " + pass.name);
 
             auto node = std::make_unique<GLSLShader>(pass.source, passNodeType(pass.kind));
             node->name = pass.name;
