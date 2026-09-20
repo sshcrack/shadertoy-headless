@@ -61,6 +61,7 @@
       "type": "object",
       "properties": {
         "kind": {
+          "description": "Asset decoder/layout selected for this file. Cubemap assets are horizontal six-face strips; volume assets use the ShaderToy 20-byte binary header documented by `shadertoy docs assets`.",
           "$ref": "#/$defs/AssetKind"
         },
         "name": {
@@ -68,7 +69,7 @@
           "type": "string"
         },
         "path": {
-          "description": "Asset file path relative to the project root.",
+          "description": "Asset file path relative to the project root. See `shadertoy docs assets` for cubemap and volume on-disk layouts.",
           "type": "string"
         }
       },

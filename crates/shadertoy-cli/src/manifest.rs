@@ -296,8 +296,9 @@ pub enum AssetKind {
 pub struct Asset {
     /// Unique asset name used by pass inputs.
     pub name: String,
+    /// Asset decoder/layout selected for this file. Cubemap assets are horizontal six-face strips; volume assets use the ShaderToy 20-byte binary header documented by `shadertoy docs assets`.
     pub kind: AssetKind,
-    /// Asset file path relative to the project root.
+    /// Asset file path relative to the project root. See `shadertoy docs assets` for cubemap and volume on-disk layouts.
     pub path: String,
 }
 

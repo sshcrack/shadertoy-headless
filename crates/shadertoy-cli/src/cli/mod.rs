@@ -371,6 +371,11 @@ struct InspectBufferArgs {
     /// Optional little-endian raw RGBA32F dump.
     #[arg(long)]
     raw: Option<PathBuf>,
+    /// Diagnostic PNG mapping: auto, rgb, signed, or magnitude.
+    ///
+    /// auto uses rgb for values inside 0..1 and signed otherwise; signed centers
+    /// zero at 0.5 using the largest absolute RGB value; magnitude writes
+    /// normalized vector length as grayscale.
     #[arg(long, value_enum, default_value_t = InspectVisualizationArg::Auto)]
     visualization: InspectVisualizationArg,
 }
@@ -501,6 +506,7 @@ enum ChannelCommand {
     /// Set/replace one iChannel binding.
     Set {
         pass: String,
+        /// iChannel index, 0..3.
         channel: u8,
         source: String,
         #[arg(long, value_enum)]
@@ -516,12 +522,16 @@ enum ChannelCommand {
         wrap: WrapArg,
     },
     /// Remove one iChannel binding.
-    Remove { pass: String, channel: u8 },
+    Remove {
+        pass: String,
+        /// iChannel index, 0..3.
+        channel: u8,
+    },
 }
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, import, manifest, passes, buffers, channels, state, or preview.
+    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).

@@ -20,7 +20,7 @@ shadertoy preview --record target/session.strec
 shadertoy replay target/session.strec -o target/replay.png
 ```
 
-The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, buffers, channels, state, and preview guidance.
+The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
 
 Import a public ShaderToy into a fully local editable project:
 

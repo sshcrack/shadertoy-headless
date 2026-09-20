@@ -223,7 +223,7 @@ shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtu
 
 Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; matrix cases can cover multiple frames/resolutions, repeat fresh runs with `assert_deterministic`, and verify fixed simulation grids with `assert_resolution_independent`. `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
 
-Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, buffers, channels, state, and preview.
+Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, glsl, assets, buffers, channels, state, and preview. `shadertoy docs glsl` documents the generated shader prelude and entry-point contract; `shadertoy docs assets` documents on-disk cubemap and volume formats.
 
 ### Schema-backed ShaderToy.toml
 

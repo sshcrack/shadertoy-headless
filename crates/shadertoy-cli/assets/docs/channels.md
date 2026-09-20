@@ -50,3 +50,36 @@ preview: the browser asks for camera permission, downsamples frames to 320x240,
 and sends RGBA frames to the native renderer over the existing WebSocket.
 Headless render/test/replay and preview recording reject webcam input because a
 live camera cannot be deterministic.
+
+Keyboard and music texture layout
+---------------------------------
+
+The reserved source "keyboard" is a 256x3 sampler2D. Key codes are x texels
+0..255. Use texelFetch for exact key state:
+
+  float down    = texelFetch(iChannel0, ivec2(key, 0), 0).r;
+  float pressed = texelFetch(iChannel0, ivec2(key, 1), 0).r;
+  float toggled = texelFetch(iChannel0, ivec2(key, 2), 0).r;
+
+Row 0 is 1 while the key is held. Row 1 is a one-frame press pulse. Row 2
+toggles between 0 and 1 on each press. The texture stores 0/1 in all RGBA
+components.
+
+The reserved source "music" is a 512x2 sampler2D:
+
+  row 0  normalized spectrum, low frequencies on the left
+  row 1  waveform encoded from -1..1 into 0..1
+
+The GLSL prelude also provides sampleAudioSpectrum() and sampleAudioWaveform();
+the latter maps row 1 back to -1..1.
+
+The headless CLI does not capture live host audio. A music channel therefore
+uses deterministic synthetic silence unless an embedding host supplies audio:
+spectrum samples are 0, waveform samples are centered at 0.5,
+iAudioAvailable is 0, and iAudioSilence is 1. This makes check/render/test/state
+runs repeatable instead of depending on microphone or system-audio state.
+
+For the sampler type selected for every input kind and the complete GLSL
+prelude contract, see:
+
+  shadertoy docs glsl

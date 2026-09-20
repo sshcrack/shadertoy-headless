@@ -43,3 +43,15 @@ remain readable. A
 state containing only fixed-size persistent passes can be resumed at a different
 output resolution; output-sized feedback buffers still require the captured
 resolution so their state is not silently discarded.
+
+Cubemap limitation
+------------------
+
+.ststate captures persistent 2D buffer and compute targets only. Cubemap pass
+faces are not included in state artifacts, and cubemap passes cannot be
+replaced with render --set-buffer or state set. Named-pass PNG snapshots
+likewise support the final Image pass and 2D buffer/compute passes, not cubemap
+passes.
+
+Use ordinary cubemap assets for fixed cube data, or move debuggable persistent
+state into a 2D buffer/compute pass when capture/override is required.

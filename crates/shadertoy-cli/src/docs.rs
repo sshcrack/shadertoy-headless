@@ -15,12 +15,14 @@ pub fn topic(name: &str, schema: bool) -> Result<String> {
         "import" => crate::include_file!("docs/import.md"),
         "manifest" => crate::include_file!("docs/manifest.md"),
         "passes" => crate::include_file!("docs/passes.md"),
+        "glsl" => crate::include_file!("docs/glsl.md"),
+        "assets" => crate::include_file!("docs/assets.md"),
         "buffers" => crate::include_file!("docs/buffers.md"),
         "channels" => crate::include_file!("docs/channels.md"),
         "state" => crate::include_file!("docs/state.md"),
         "preview" => crate::include_file!("docs/preview.md"),
         other => bail!(
-            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, buffers, channels, state, or preview"
+            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, or preview"
         ),
     };
     Ok(text.trim().to_string())
