@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.1.8
+
+- Synchronized CLI help, repository/crate READMEs, built-in documentation references, and generated-project guidance with the current import, fixed-buffer/sampler, inspection/profiling, regression-test, and record/replay workflows.
+
 ## 2.1.7
 
 - Added RGBA32F buffer inspection with per-channel statistics, NaN/Inf detection, pixel probing, and diagnostic visualizations.

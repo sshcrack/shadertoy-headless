@@ -171,7 +171,9 @@ When something is wrong, the same interface drills down instead of requiring ren
 shadertoy inspect graph --json
 shadertoy inspect pass buffer-a --json
 shadertoy inspect channels image --json
+shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --json
 shadertoy render --pass buffer-a -o target/buffer-a.png
+shadertoy profile --frame 120 --samples 30 --json
 ~~~
 
 shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
@@ -183,7 +185,9 @@ shadertoy state inspect target/frame300.ststate --json
 shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtures/known.png   -o target/debug.png
 ~~~
 
-Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, manifest, passes, buffers, channels, state, and preview.
+Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
+
+Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, buffers, channels, state, and preview.
 
 ### Schema-backed ShaderToy.toml
 

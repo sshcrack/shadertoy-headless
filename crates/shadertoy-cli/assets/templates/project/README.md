@@ -17,12 +17,15 @@ For the concise agent guide:
 shadertoy docs agent
 ```
 
-For project and channel semantics:
+For project and runtime semantics:
 
 ```sh
 shadertoy docs project
+shadertoy docs passes
 shadertoy docs buffers
 shadertoy docs channels
+shadertoy docs state
+shadertoy docs preview
 ```
 
 For the exact manifest schema:

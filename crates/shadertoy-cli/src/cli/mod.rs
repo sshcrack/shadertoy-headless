@@ -404,7 +404,7 @@ enum ChannelCommand {
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, manifest, passes, buffers, channels, state, or preview.
+    /// agent, project, import, manifest, passes, buffers, channels, state, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).
