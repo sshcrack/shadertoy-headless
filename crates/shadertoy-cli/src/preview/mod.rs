@@ -1,6 +1,8 @@
 use crate::manifest::{LoadedManifest, PassKind};
 use crate::ops::rgb_png_bytes;
-use crate::project::{build_native_project, ensure_source_files_exist};
+use crate::project::{build_native_project_with_sources, ensure_source_files_exist};
+use crate::replay::{ReplayAction, ReplayRecorder};
+use crate::source::{SourceGraph, expand_pass};
 use anyhow::{Context, Result, bail};
 use axum::body::Bytes;
 use axum::extract::{
@@ -15,7 +17,8 @@ use futures_util::StreamExt;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use shadertoy::{HeadlessContext, Runtime};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::io::IsTerminal;
 use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
@@ -42,6 +45,7 @@ pub struct PreviewConfig {
     pub no_open: bool,
     pub token: Option<String>,
     pub preserve_reload_state: bool,
+    pub record: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,7 +98,7 @@ struct Shared {
 
 #[derive(Debug)]
 enum Control {
-    Reload,
+    FilesChanged(Vec<PathBuf>),
     Pause,
     Resume,
     Reset,
@@ -170,6 +174,11 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
     let loaded = LoadedManifest::load(&config.project)?;
     validate_preview_dimensions(&loaded)?;
     let root = loaded.root.clone();
+    let recorder = config
+        .record
+        .clone()
+        .map(|path| ReplayRecorder::create(path, &loaded))
+        .transpose()?;
     let initial_status = PreviewStatus {
         project: loaded.manifest.project.name.clone(),
         width: loaded.manifest.render.width,
@@ -201,17 +210,26 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     let watcher_tx = control_tx.clone();
     let watch_root = root.clone();
+    let ignored_record_paths = config
+        .record
+        .as_ref()
+        .and_then(|path| fs::canonicalize(path).ok())
+        .map(|path| vec![path.clone(), path.with_extension("strec.tmp")])
+        .unwrap_or_default();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else {
             return;
         };
-        if reload_event_kind(&event.kind)
-            && event
+        if reload_event_kind(&event.kind) {
+            let paths = event
                 .paths
-                .iter()
-                .any(|path| relevant_watch_path(&watch_root, path))
-        {
-            let _ = watcher_tx.send(Control::Reload);
+                .into_iter()
+                .filter(|path| relevant_watch_path(&watch_root, path))
+                .filter(|path| !ignored_record_paths.iter().any(|ignored| ignored == path))
+                .collect::<Vec<_>>();
+            if !paths.is_empty() {
+                let _ = watcher_tx.send(Control::FilesChanged(paths));
+            }
         }
     })
     .context("failed to create project file watcher")?;
@@ -303,6 +321,7 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         control_rx,
         config.preserve_reload_state,
         &mut runtime,
+        recorder,
     );
 
     let _ = server_shutdown_tx.send(());

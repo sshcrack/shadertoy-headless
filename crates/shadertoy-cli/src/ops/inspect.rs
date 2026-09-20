@@ -135,3 +135,236 @@ pub fn inspect_project(path: &Path, mode: InspectMode) -> Result<Output> {
         }
     }
 }
+
+pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
+    let loaded = LoadedManifest::load(&options.project)?;
+    ensure_source_files_exist(&loaded)?;
+    let pass = loaded
+        .manifest
+        .passes
+        .iter()
+        .find(|pass| pass.name == options.pass)
+        .with_context(|| format!("unknown pass '{}'", options.pass))?;
+    if pass.kind != PassKind::Buffer {
+        bail!("runtime buffer inspection requires a 2D buffer pass");
+    }
+
+    let (width, height) =
+        super::render::resolve_dimensions(&loaded, None, options.width, options.height)?;
+    let fps = super::render::resolve_fps(&loaded, None, options.fps)?;
+    let frame = resolve_target_frame(&loaded, None, options.frame, options.time, fps)?;
+    let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
+
+    if let Some((x, y)) = options.pixel
+        && (x >= pass_width || y >= pass_height)
+    {
+        bail!(
+            "--pixel {x},{y} is outside pass '{}' dimensions {}x{}",
+            pass.name,
+            pass_width,
+            pass_height
+        );
+    }
+
+    let context = HeadlessContext::new(64, 64)
+        .context("failed to create headless OpenGL context for buffer inspection")?;
+    let mut runtime = Runtime::new(&context)?;
+    let project = build_native_project(&loaded)?;
+    runtime.load_project(&project)?;
+    let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[])?;
+    let values = runtime.snapshot_pass_rgba32f(&pass.name, pass_width, pass_height)?;
+
+    let stats = BufferStats::from_rgba(&values);
+    let pixel = options.pixel.map(|(x, y)| {
+        let offset = ((y as usize * pass_width as usize) + x as usize) * 4;
+        [
+            values[offset],
+            values[offset + 1],
+            values[offset + 2],
+            values[offset + 3],
+        ]
+    });
+
+    if let Some(path) = &options.output {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let image = visualize_buffer(
+            pass_width,
+            pass_height,
+            &values,
+            options.visualization,
+            &stats,
+        );
+        save_rgb_png(&image, path)?;
+    }
+
+    let mut human = format!(
+        "Buffer: {}\nFormat: RGBA32F\nResolution: {}x{}\nFrame: {} ({:.3}s)\nNaN: {}  Inf: {}\n",
+        pass.name,
+        pass_width,
+        pass_height,
+        runtime.frame(),
+        runtime.time(),
+        stats.nan_count,
+        stats.inf_count,
+    );
+    for channel in 0..4 {
+        human.push_str(&format!(
+            "{}: min={:.6} max={:.6} mean={:.6}\n",
+            ["R", "G", "B", "A"][channel],
+            stats.min[channel],
+            stats.max[channel],
+            stats.mean[channel],
+        ));
+    }
+    if let (Some((x, y)), Some(value)) = (options.pixel, pixel) {
+        human.push_str(&format!(
+            "Pixel {x},{y}: [{:.6}, {:.6}, {:.6}, {:.6}]\n",
+            value[0], value[1], value[2], value[3]
+        ));
+    }
+    if let Some(path) = &options.output {
+        human.push_str(&format!("Visualization: {}\n", path.display()));
+    }
+
+    Ok(Output {
+        human: human.trim_end().to_string(),
+        json: json!({
+            "ok": true,
+            "project": loaded.manifest.project.name,
+            "pass": pass.name,
+            "format": "rgba32f",
+            "width": pass_width,
+            "height": pass_height,
+            "frame": runtime.frame(),
+            "time": runtime.time(),
+            "stats": {
+                "min": stats.min,
+                "max": stats.max,
+                "mean": stats.mean,
+                "nan": stats.nan_count,
+                "inf": stats.inf_count,
+            },
+            "pixel": options.pixel.map(|coordinates| json!({
+                "x": coordinates.0,
+                "y": coordinates.1,
+                "rgba": pixel.expect("pixel value exists with pixel coordinates"),
+            })),
+            "output": options.output,
+        }),
+    })
+}
+
+struct BufferStats {
+    min: [f32; 4],
+    max: [f32; 4],
+    mean: [f64; 4],
+    finite_count: [u64; 4],
+    nan_count: u64,
+    inf_count: u64,
+}
+
+impl BufferStats {
+    fn from_rgba(values: &[f32]) -> Self {
+        let mut result = Self {
+            min: [f32::INFINITY; 4],
+            max: [f32::NEG_INFINITY; 4],
+            mean: [0.0; 4],
+            finite_count: [0; 4],
+            nan_count: 0,
+            inf_count: 0,
+        };
+        for pixel in values.chunks_exact(4) {
+            for (channel, value) in pixel.iter().copied().enumerate() {
+                if value.is_nan() {
+                    result.nan_count += 1;
+                } else if value.is_infinite() {
+                    result.inf_count += 1;
+                } else {
+                    result.min[channel] = result.min[channel].min(value);
+                    result.max[channel] = result.max[channel].max(value);
+                    result.mean[channel] += f64::from(value);
+                    result.finite_count[channel] += 1;
+                }
+            }
+        }
+        for channel in 0..4 {
+            if result.finite_count[channel] == 0 {
+                result.min[channel] = f32::NAN;
+                result.max[channel] = f32::NAN;
+                result.mean[channel] = f64::NAN;
+            } else {
+                result.mean[channel] /= result.finite_count[channel] as f64;
+            }
+        }
+        result
+    }
+}
+
+fn visualize_buffer(
+    width: u32,
+    height: u32,
+    values: &[f32],
+    requested: InspectVisualization,
+    stats: &BufferStats,
+) -> RgbImage {
+    let visualization = match requested {
+        InspectVisualization::Auto
+            if stats.min[..3].iter().any(|value| *value < 0.0)
+                || stats.max[..3].iter().any(|value| *value > 1.0) =>
+        {
+            InspectVisualization::Signed
+        }
+        InspectVisualization::Auto => InspectVisualization::Rgb,
+        other => other,
+    };
+
+    let signed_scale = stats.min[..3]
+        .iter()
+        .chain(&stats.max[..3])
+        .filter(|value| value.is_finite())
+        .map(|value| value.abs())
+        .fold(0.0f32, f32::max)
+        .max(f32::EPSILON);
+    let magnitude_scale = values
+        .chunks_exact(4)
+        .map(|pixel| {
+            let rgb = [
+                if pixel[0].is_finite() { pixel[0] } else { 0.0 },
+                if pixel[1].is_finite() { pixel[1] } else { 0.0 },
+                if pixel[2].is_finite() { pixel[2] } else { 0.0 },
+            ];
+            (rgb[0] * rgb[0] + rgb[1] * rgb[1] + rgb[2] * rgb[2]).sqrt()
+        })
+        .fold(0.0f32, f32::max)
+        .max(f32::EPSILON);
+
+    let mut pixels = Vec::with_capacity(width as usize * height as usize * 3);
+    let to_byte = |value: f32| -> u8 {
+        if value.is_nan() {
+            return 255;
+        }
+        (value.clamp(0.0, 1.0) * 255.0).round() as u8
+    };
+    for pixel in values.chunks_exact(4) {
+        let rgb = match visualization {
+            InspectVisualization::Auto | InspectVisualization::Rgb => {
+                [pixel[0], pixel[1], pixel[2]]
+            }
+            InspectVisualization::Signed => [
+                0.5 + 0.5 * pixel[0] / signed_scale,
+                0.5 + 0.5 * pixel[1] / signed_scale,
+                0.5 + 0.5 * pixel[2] / signed_scale,
+            ],
+            InspectVisualization::Magnitude => {
+                let magnitude = (pixel[0] * pixel[0] + pixel[1] * pixel[1] + pixel[2] * pixel[2])
+                    .sqrt()
+                    / magnitude_scale;
+                [magnitude; 3]
+            }
+        };
+        pixels.extend(rgb.map(to_byte));
+    }
+    RgbImage::new(width, height, pixels)
+}

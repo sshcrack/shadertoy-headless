@@ -5,6 +5,7 @@ pub(super) fn reload(
     root: &Path,
     runtime: &mut Runtime<'_>,
     loaded: &mut Option<LoadedManifest>,
+    sources: &mut Option<SourceGraph>,
     width: &mut u32,
     height: &mut u32,
     fps: &mut f32,
@@ -22,7 +23,7 @@ pub(super) fn reload(
 
     let candidate = LoadedManifest::load(root)?;
     ensure_source_files_exist(&candidate)?;
-    let project = build_native_project(&candidate)?;
+    let (project, candidate_sources) = build_native_project_with_sources(&candidate)?;
     runtime.load_project(&project)?;
 
     if loaded.is_none() {
@@ -59,7 +60,73 @@ pub(super) fn reload(
         *view = final_pass;
     }
     *loaded = Some(candidate);
+    *sources = Some(candidate_sources);
     Ok(())
+}
+
+pub(super) fn reload_changed_sources(
+    root: &Path,
+    runtime: &mut Runtime<'_>,
+    loaded: &LoadedManifest,
+    sources: &mut SourceGraph,
+    changed: &BTreeSet<PathBuf>,
+) -> Result<bool> {
+    let manifest_path = root.join(crate::manifest::MANIFEST_NAME);
+    if changed.iter().any(|path| same_path(path, &manifest_path)) {
+        return Ok(false);
+    }
+
+    let mut impacted = Vec::new();
+    for pass in &loaded.manifest.passes {
+        let Some(current) = sources.get(&pass.name) else {
+            return Ok(false);
+        };
+        if changed.iter().any(|path| {
+            current
+                .dependencies
+                .iter()
+                .any(|dependency| same_path(path, dependency))
+        }) {
+            impacted.push(pass);
+        }
+    }
+
+    if impacted.is_empty() {
+        let source_like = changed.iter().all(|path| {
+            matches!(
+                path.extension().and_then(|extension| extension.to_str()),
+                Some("glsl" | "frag" | "vert")
+            )
+        });
+        return Ok(source_like);
+    }
+
+    let mut replacements = Vec::with_capacity(impacted.len());
+    for pass in impacted {
+        replacements.push((pass.name.clone(), expand_pass(loaded, pass)?));
+    }
+
+    let mut applied: Vec<String> = Vec::new();
+    for (name, replacement) in &replacements {
+        if let Err(error) = runtime.reload_pass_source(name, &replacement.text) {
+            for previous_name in applied.iter().rev() {
+                if let Some(previous) = sources.get(previous_name) {
+                    let _ = runtime.reload_pass_source(previous_name, &previous.text);
+                }
+            }
+            return Err(error.into());
+        }
+        applied.push(name.clone());
+    }
+    for (name, replacement) in replacements {
+        sources.insert(name, replacement);
+    }
+    Ok(true)
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    let normalize = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    normalize(left) == normalize(right)
 }
 
 fn save_runtime_state(

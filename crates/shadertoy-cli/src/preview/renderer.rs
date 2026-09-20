@@ -1,4 +1,4 @@
-use super::state::{clear_error, reload, set_error, update_status};
+use super::state::{clear_error, reload, reload_changed_sources, set_error, update_status};
 use super::*;
 
 pub(super) fn render_loop(
@@ -7,8 +7,11 @@ pub(super) fn render_loop(
     controls: mpsc::Receiver<Control>,
     preserve_reload_state: bool,
     runtime: &mut Runtime<'_>,
+    mut recorder: Option<ReplayRecorder>,
 ) {
     let mut loaded: Option<LoadedManifest> = None;
+    let mut sources: Option<SourceGraph> = None;
+    let mut changed_paths = BTreeSet::new();
     let mut width = 1280u32;
     let mut height = 720u32;
     let mut fps = 60.0f32;
@@ -23,6 +26,7 @@ pub(super) fn render_loop(
         &root,
         runtime,
         &mut loaded,
+        &mut sources,
         &mut width,
         &mut height,
         &mut fps,
@@ -69,7 +73,10 @@ pub(super) fn render_loop(
                 &root,
                 &shared,
                 runtime,
+                &mut recorder,
                 &mut loaded,
+                &mut sources,
+                &mut changed_paths,
                 &mut width,
                 &mut height,
                 &mut fps,
@@ -88,25 +95,45 @@ pub(super) fn render_loop(
             && Instant::now() >= due
         {
             reload_due = None;
-            match reload(
-                &root,
-                runtime,
-                &mut loaded,
-                &mut width,
-                &mut height,
-                &mut fps,
-                &mut view,
-                preserve_reload_state,
-            ) {
-                Ok(()) => {
-                    fresh = true;
+            let changed = std::mem::take(&mut changed_paths);
+            let incremental = match (&loaded, &mut sources) {
+                (Some(current), Some(current_sources)) => {
+                    reload_changed_sources(&root, runtime, current, current_sources, &changed)
+                }
+                _ => Ok(false),
+            };
+            match incremental {
+                Ok(true) => {
                     force_render = true;
                     clear_error(&shared);
                 }
+                Ok(false) => {
+                    match reload(
+                        &root,
+                        runtime,
+                        &mut loaded,
+                        &mut sources,
+                        &mut width,
+                        &mut height,
+                        &mut fps,
+                        &mut view,
+                        preserve_reload_state,
+                    ) {
+                        Ok(()) => {
+                            fresh = true;
+                            force_render = true;
+                            clear_error(&shared);
+                        }
+                        Err(error) => {
+                            // Full project reload compiles before replacing the active pipeline.
+                            // Keep rendering the last good project and frame.
+                            set_error(&shared, format!("{error:#}"));
+                        }
+                    }
+                }
                 Err(error) => {
-                    // Runtime::load_project compiles before replacing the active pipeline.
-                    // Keep rendering the last good project and frame.
-                    set_error(&shared, error.to_string());
+                    // Per-pass reload is transactional and rolls back earlier impacted passes.
+                    set_error(&shared, format!("{error:#}"));
                 }
             }
         }
@@ -178,6 +205,16 @@ pub(super) fn render_loop(
                             Err(error) => set_error(&shared, error.to_string()),
                         }
                     }
+                    if let Some(recorder) = &mut recorder
+                        && let Err(error) = recorder.record_frame(
+                            runtime.frame(),
+                            runtime.time(),
+                            runtime.time_delta(),
+                            runtime.frame_rate(),
+                        )
+                    {
+                        set_error(&shared, format!("replay recording failed: {error:#}"));
+                    }
                     let _ = runtime.clear_key_transients();
                 }
                 Err(error) => set_error(&shared, error.to_string()),
@@ -201,7 +238,10 @@ pub(super) fn render_loop(
                     &root,
                     &shared,
                     runtime,
+                    &mut recorder,
                     &mut loaded,
+                    &mut sources,
+                    &mut changed_paths,
                     &mut width,
                     &mut height,
                     &mut fps,
@@ -219,6 +259,11 @@ pub(super) fn render_loop(
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
+    if let Some(recorder) = &mut recorder
+        && let Err(error) = recorder.flush()
+    {
+        set_error(&shared, format!("replay recording flush failed: {error:#}"));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -227,7 +272,10 @@ fn handle_control(
     root: &Path,
     shared: &Shared,
     runtime: &mut Runtime<'_>,
+    recorder: &mut Option<ReplayRecorder>,
     loaded: &mut Option<LoadedManifest>,
+    sources: &mut Option<SourceGraph>,
+    changed_paths: &mut BTreeSet<PathBuf>,
     width: &mut u32,
     height: &mut u32,
     fps: &mut f32,
@@ -240,7 +288,15 @@ fn handle_control(
 ) -> bool {
     match control {
         Control::Shutdown => return false,
-        Control::Reload => {
+        Control::FilesChanged(paths) => {
+            if let Some(recorder) = recorder
+                && let Err(error) = recorder.invalidate(
+                    "project files changed during recording; restart preview to capture a reproducible session",
+                )
+            {
+                set_error(shared, format!("replay recording invalidation failed: {error:#}"));
+            }
+            changed_paths.extend(paths);
             *reload_due = Some(Instant::now() + Duration::from_millis(120));
         }
         Control::Pause => {
@@ -259,11 +315,14 @@ fn handle_control(
                 *next_frame = Instant::now();
             }
         }
-        Control::Reset => match reload(root, runtime, loaded, width, height, fps, view, false) {
+        Control::Reset => match reload(
+            root, runtime, loaded, sources, width, height, fps, view, false,
+        ) {
             Ok(()) => {
                 *fresh = true;
                 *force_render = true;
                 clear_error(shared);
+                record_action(recorder, shared, ReplayAction::Reset);
             }
             Err(error) => set_error(shared, error.to_string()),
         },
@@ -318,6 +377,14 @@ fn handle_control(
                 // output-sized buffers will resize on their next render.
                 *force_render = true;
                 clear_error(shared);
+                record_action(
+                    recorder,
+                    shared,
+                    ReplayAction::Resolution {
+                        width: new_width,
+                        height: new_height,
+                    },
+                );
             }
         }
         Control::TimeScale(value) => {
@@ -326,6 +393,7 @@ fn handle_control(
                     set_error(shared, error.to_string());
                 } else {
                     *force_render = true;
+                    record_action(recorder, shared, ReplayAction::TimeScale { value });
                 }
             } else {
                 set_error(
@@ -342,8 +410,20 @@ fn handle_control(
         } => {
             if let Err(error) = runtime.set_mouse(x, y, down, clicked) {
                 set_error(shared, error.to_string());
-            } else if *paused {
-                *force_render = true;
+            } else {
+                record_action(
+                    recorder,
+                    shared,
+                    ReplayAction::Mouse {
+                        x,
+                        y,
+                        down,
+                        clicked,
+                    },
+                );
+                if *paused {
+                    *force_render = true;
+                }
             }
         }
         Control::Key {
@@ -353,10 +433,29 @@ fn handle_control(
         } => {
             if let Err(error) = runtime.set_key(code, down, pressed) {
                 set_error(shared, error.to_string());
-            } else if *paused {
-                *force_render = true;
+            } else {
+                record_action(
+                    recorder,
+                    shared,
+                    ReplayAction::Key {
+                        code,
+                        down,
+                        pressed,
+                    },
+                );
+                if *paused {
+                    *force_render = true;
+                }
             }
         }
     }
     true
+}
+
+fn record_action(recorder: &mut Option<ReplayRecorder>, shared: &Shared, action: ReplayAction) {
+    if let Some(recorder) = recorder
+        && let Err(error) = recorder.record(action)
+    {
+        set_error(shared, format!("replay recording failed: {error:#}"));
+    }
 }

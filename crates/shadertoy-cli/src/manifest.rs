@@ -19,10 +19,14 @@ pub struct Manifest {
     pub project: ProjectSection,
     #[serde(default)]
     pub render: RenderSection,
+    #[serde(default)]
+    pub shader: ShaderSection,
     #[serde(default, rename = "asset", skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<Asset>,
     #[serde(rename = "pass")]
     pub passes: Vec<Pass>,
+    #[serde(default, rename = "test", skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<TestCase>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -57,6 +61,14 @@ pub struct RenderSection {
     pub preview_time: f32,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct ShaderSection {
+    /// Project-relative directories searched after the including file's directory for quoted #include paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub include_dirs: Vec<String>,
+}
+
 impl Default for RenderSection {
     fn default() -> Self {
         Self {
@@ -66,6 +78,36 @@ impl Default for RenderSection {
             preview_time: 1.0,
         }
     }
+}
+
+fn default_test_tolerance() -> f32 {
+    0.002
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TestCase {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pass: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    #[serde(default = "default_test_tolerance")]
+    pub tolerance: f32,
+    #[serde(default)]
+    pub assert_no_nan: bool,
+    #[serde(default)]
+    pub assert_no_inf: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_range: Option<[f32; 2]>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -188,6 +230,7 @@ impl Manifest {
                 source_id: None,
             },
             render: RenderSection::default(),
+            shader: ShaderSection::default(),
             assets: Vec::new(),
             passes: vec![Pass {
                 name: "image".into(),
@@ -197,6 +240,7 @@ impl Manifest {
                 height: None,
                 inputs: Vec::new(),
             }],
+            tests: Vec::new(),
         }
     }
 
@@ -211,6 +255,7 @@ impl Manifest {
                 source_id: None,
             },
             render: RenderSection::default(),
+            shader: ShaderSection::default(),
             assets: Vec::new(),
             passes: vec![
                 Pass {
@@ -244,6 +289,7 @@ impl Manifest {
                     }],
                 },
             ],
+            tests: Vec::new(),
         }
     }
 
@@ -272,6 +318,9 @@ impl Manifest {
         }
         if !self.render.preview_time.is_finite() || self.render.preview_time < 0.0 {
             bail!("render.preview_time must be a finite non-negative number");
+        }
+        for include_dir in &self.shader.include_dirs {
+            validate_project_relative_path(include_dir, "shader.include_dirs entry")?;
         }
         if self.passes.is_empty() {
             bail!("project must contain at least one [[pass]]");
@@ -436,6 +485,83 @@ impl Manifest {
                 }
             }
         }
+        let mut test_names = HashSet::new();
+        for test in &self.tests {
+            if test.name.trim().is_empty() {
+                bail!("test name must not be empty");
+            }
+            if !test_names.insert(test.name.as_str()) {
+                bail!("duplicate test name '{}'", test.name);
+            }
+            if test.frame.is_some() && test.time.is_some() {
+                bail!(
+                    "test '{}' must use either frame or time, not both",
+                    test.name
+                );
+            }
+            if test.frame.is_some_and(|frame| frame < 0) {
+                bail!("test '{}' frame must be non-negative", test.name);
+            }
+            if test
+                .time
+                .is_some_and(|time| !time.is_finite() || time < 0.0)
+            {
+                bail!("test '{}' time must be finite and non-negative", test.name);
+            }
+            match (test.width, test.height) {
+                (None, None) => {}
+                (Some(width), Some(height))
+                    if width > 0
+                        && height > 0
+                        && width <= MAX_RENDER_DIMENSION
+                        && height <= MAX_RENDER_DIMENSION => {}
+                (Some(_), Some(_)) => bail!(
+                    "test '{}' dimensions must be positive and at most {}",
+                    test.name,
+                    MAX_RENDER_DIMENSION
+                ),
+                _ => bail!(
+                    "test '{}' must specify both width and height or neither",
+                    test.name
+                ),
+            }
+            if !test.tolerance.is_finite() || !(0.0..=1.0).contains(&test.tolerance) {
+                bail!(
+                    "test '{}' tolerance must be finite and in [0, 1]",
+                    test.name
+                );
+            }
+            if let Some(reference) = &test.reference {
+                validate_project_relative_path(
+                    reference,
+                    &format!("reference for test '{}'", test.name),
+                )?;
+            }
+            if let Some(pass) = &test.pass
+                && !self.passes.iter().any(|candidate| candidate.name == *pass)
+            {
+                bail!("test '{}' references unknown pass '{}'", test.name, pass);
+            }
+            if let Some([min, max]) = test.mean_range
+                && (!min.is_finite() || !max.is_finite() || min > max)
+            {
+                bail!(
+                    "test '{}' mean_range must contain finite [min, max]",
+                    test.name
+                );
+            }
+            if test.reference.is_none()
+                && !test.assert_no_nan
+                && !test.assert_no_inf
+                && test.mean_range.is_none()
+            {
+                bail!(
+                    "test '{}' must define a reference or at least one numeric assertion",
+                    test.name
+                );
+            }
+        }
+
         Ok(())
     }
 

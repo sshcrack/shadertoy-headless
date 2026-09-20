@@ -2,7 +2,7 @@ use super::browser::BrowserCapture;
 use super::model::{RenderPass, Sampler, ShaderInput, ShaderToyEntry};
 use crate::manifest::{
     Asset, AssetKind, Filter, FrameRef, Input, InputKind, Manifest, Pass, PassKind, ProjectSection,
-    RenderSection, Wrap,
+    RenderSection, ShaderSection, Wrap,
 };
 use crate::scaffold::write_manifest;
 use anyhow::{Context, Result, bail};
@@ -130,8 +130,10 @@ pub fn materialize_capture(
             source_id: Some(capture.shader_id.clone()),
         },
         render: RenderSection::default(),
+        shader: ShaderSection::default(),
         assets: builder.assets,
         passes: builder.manifest_passes,
+        tests: Vec::new(),
     };
     manifest.validate_structure()?;
     write_manifest(&staged_root, &manifest)?;

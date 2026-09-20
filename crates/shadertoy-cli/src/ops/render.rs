@@ -181,7 +181,7 @@ fn apply_overrides(runtime: &mut Runtime<'_>, overrides: &[BufferOverride]) -> R
     Ok(())
 }
 
-fn resolve_dimensions(
+pub(super) fn resolve_dimensions(
     loaded: &LoadedManifest,
     state: Option<&StateFile>,
     width: Option<u32>,
@@ -224,7 +224,7 @@ fn resolve_dimensions(
     Ok((width, height))
 }
 
-fn resolve_fps(
+pub(super) fn resolve_fps(
     loaded: &LoadedManifest,
     state: Option<&StateFile>,
     fps: Option<f32>,

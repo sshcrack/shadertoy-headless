@@ -53,6 +53,8 @@ public:
     [[nodiscard]] bool isRunning() const noexcept;
     [[nodiscard]] bool isValid() const noexcept;
     [[nodiscard]] float time() const noexcept;
+    [[nodiscard]] float timeDelta() const noexcept;
+    [[nodiscard]] float frameRate() const noexcept;
     [[nodiscard]] float timeScale() const noexcept;
     void setTimeScale(float log2Scale) noexcept;
 
@@ -70,6 +72,7 @@ public:
     void setProfilingEnabled(bool enabled);
     [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
+    void setReplayState(float timeSeconds, float timeDelta, int32_t frame, float frameRate);
     [[nodiscard]] int32_t frame() const noexcept;
     [[nodiscard]] Vec4 mouseStatus() const noexcept;
 

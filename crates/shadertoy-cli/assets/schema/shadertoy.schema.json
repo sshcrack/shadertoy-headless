@@ -32,6 +32,16 @@
         "preview_time": 1.0,
         "width": 1280
       }
+    },
+    "shader": {
+      "$ref": "#/$defs/ShaderSection",
+      "default": {}
+    },
+    "test": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TestCase"
+      }
     }
   },
   "additionalProperties": false,
@@ -269,6 +279,98 @@
         }
       },
       "additionalProperties": false
+    },
+    "ShaderSection": {
+      "type": "object",
+      "properties": {
+        "include_dirs": {
+          "description": "Project-relative directories searched after the including file's directory for quoted #include paths.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TestCase": {
+      "type": "object",
+      "properties": {
+        "assert_no_inf": {
+          "type": "boolean",
+          "default": false
+        },
+        "assert_no_nan": {
+          "type": "boolean",
+          "default": false
+        },
+        "frame": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mean_range": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "name": {
+          "type": "string"
+        },
+        "pass": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "time": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "tolerance": {
+          "type": "number",
+          "format": "float",
+          "default": 0.0020000000949949026
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
     },
     "Wrap": {
       "type": "string",

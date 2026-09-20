@@ -2,6 +2,7 @@ use crate::manifest::{
     AssetKind, Filter, FrameRef, InputKind, LoadedManifest, PassKind, Wrap,
     validate_project_relative_path,
 };
+use crate::source::{SourceGraph, expand_all};
 use anyhow::{Context, Result, bail};
 use image::ImageReader;
 use shadertoy::{
@@ -12,6 +13,13 @@ use std::fs;
 use std::path::Path;
 
 pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
+    build_native_project_with_sources(loaded).map(|(project, _)| project)
+}
+
+pub fn build_native_project_with_sources(
+    loaded: &LoadedManifest,
+) -> Result<(Project, SourceGraph)> {
+    let sources = expand_all(loaded)?;
     let mut project = Project::new(&loaded.manifest.project.name)?;
 
     for asset in &loaded.manifest.assets {
@@ -80,15 +88,10 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
     }
 
     for pass in &loaded.manifest.passes {
-        let source_path =
-            existing_project_file(&loaded.root, &pass.source, "shader source", &pass.name)?;
-        let source = fs::read_to_string(&source_path).with_context(|| {
-            format!(
-                "failed to read source for pass '{}' at {}",
-                pass.name,
-                source_path.display()
-            )
-        })?;
+        let source = &sources
+            .get(&pass.name)
+            .expect("all manifest passes have expanded sources")
+            .text;
         project.add_pass(
             &pass.name,
             match pass.kind {
@@ -96,7 +99,7 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
                 PassKind::Buffer => NativePassKind::Buffer,
                 PassKind::Cubemap => NativePassKind::Cubemap,
             },
-            &source,
+            source,
         )?;
         if let (Some(width), Some(height)) = (pass.width, pass.height) {
             project.set_pass_resolution(&pass.name, width, height)?;
@@ -132,7 +135,7 @@ pub fn build_native_project(loaded: &LoadedManifest) -> Result<Project> {
         }
     }
 
-    Ok(project)
+    Ok((project, sources))
 }
 
 pub fn ensure_source_files_exist(loaded: &LoadedManifest) -> Result<()> {

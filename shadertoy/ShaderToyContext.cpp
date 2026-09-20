@@ -199,8 +199,13 @@ const std::vector<PassTiming>& ShaderToyContext::lastPassTimings() const {
 }
 
 void ShaderToyContext::setFixedState(const float timeSeconds, const int32_t frame, const float frameRate) {
+    setReplayState(timeSeconds, 0.0f, frame, frameRate);
+}
+
+void ShaderToyContext::setReplayState(const float timeSeconds, const float timeDelta, const int32_t frame,
+                                      const float frameRate) {
     mTime = std::max(0.0f, timeSeconds);
-    mTimeDelta = 0.0f;
+    mTimeDelta = std::max(0.0f, timeDelta);
     mFrameCount = std::max(0, frame);
     mFrameRate = std::max(0.0f, frameRate);
     mRunning = true;

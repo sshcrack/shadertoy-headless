@@ -60,6 +60,10 @@ public:
     void setProfilingEnabled(bool enabled);
     [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
+    void setReplayState(float timeSeconds, float timeDelta, int32_t frame, float frameRate);
+    [[nodiscard]] float getTimeDelta() const noexcept {
+        return mTimeDelta;
+    }
     [[nodiscard]] int32_t getFrame() const noexcept {
         return mFrameCount;
     }

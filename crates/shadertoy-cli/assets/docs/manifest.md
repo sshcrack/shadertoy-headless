@@ -16,3 +16,41 @@ Semantic checks that JSON Schema cannot express (for example graph cycles and
 whether a referenced pass exists) are enforced by:
 
   shadertoy check
+
+
+Shared GLSL includes
+--------------------
+
+Quoted includes are expanded before native compilation:
+
+  [shader]
+  include_dirs = ["shaders/lib"]
+
+  # in shaders/ocean.frag
+  #include "waves.glsl"
+
+Resolution order is the including file's directory first, followed by
+shader.include_dirs. Include paths must remain inside the project root. Cycles,
+missing includes, and root escapes are validation errors.
+
+Regression tests
+----------------
+
+Deterministic tests live in the same manifest:
+
+  [[test]]
+  name = "ocean-frame-120"
+  frame = 120
+  reference = "tests/ocean-frame-120.png"
+  tolerance = 0.002
+
+  [[test]]
+  name = "spectrum-finite"
+  pass = "spectrum"
+  frame = 120
+  assert_no_nan = true
+  assert_no_inf = true
+  mean_range = [-10.0, 10.0]
+
+Run shadertoy test; shadertoy test --update intentionally rewrites visual
+reference PNGs.

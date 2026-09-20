@@ -119,6 +119,14 @@ float Runtime::time() const noexcept {
     return mImpl->context.getTime();
 }
 
+float Runtime::timeDelta() const noexcept {
+    return mImpl->context.getTimeDelta();
+}
+
+float Runtime::frameRate() const noexcept {
+    return mImpl->context.getFrameRate();
+}
+
 float Runtime::timeScale() const noexcept {
     return mImpl->context.getTimeScale();
 }
@@ -220,6 +228,11 @@ const std::vector<PassTiming>& Runtime::lastPassTimings() const {
 
 void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, const float frameRate) {
     mImpl->context.setFixedState(timeSeconds, frameValue, frameRate);
+}
+
+void Runtime::setReplayState(const float timeSeconds, const float timeDelta, const int32_t frameValue,
+                             const float frameRate) {
+    mImpl->context.setReplayState(timeSeconds, timeDelta, frameValue, frameRate);
 }
 
 int32_t Runtime::frame() const noexcept {

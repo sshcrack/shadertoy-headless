@@ -78,9 +78,40 @@ impl<'context> Runtime<'context> {
         Ok(())
     }
 
+    pub fn set_replay_state(
+        &mut self,
+        time_seconds: f32,
+        time_delta: f32,
+        frame: i32,
+        frame_rate: f32,
+    ) -> Result<()> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and its context is current.
+        unsafe {
+            sys::st_runtime_set_replay_state(
+                self.handle.as_ptr(),
+                time_seconds,
+                time_delta,
+                frame,
+                frame_rate,
+            )
+        };
+        Ok(())
+    }
+
     pub fn time(&self) -> f32 {
         // SAFETY: reading the runtime's scalar time does not mutate GL state.
         unsafe { sys::st_runtime_time(self.handle.as_ptr()) }
+    }
+
+    pub fn time_delta(&self) -> f32 {
+        // SAFETY: reading the runtime's scalar time delta does not mutate GL state.
+        unsafe { sys::st_runtime_time_delta(self.handle.as_ptr()) }
+    }
+
+    pub fn frame_rate(&self) -> f32 {
+        // SAFETY: reading the runtime's scalar frame rate does not mutate GL state.
+        unsafe { sys::st_runtime_frame_rate(self.handle.as_ptr()) }
     }
 
     pub fn frame(&self) -> i32 {

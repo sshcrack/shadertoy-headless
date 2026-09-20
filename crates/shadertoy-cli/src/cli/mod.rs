@@ -1,7 +1,10 @@
 mod conversions;
 use crate::docs;
 use crate::ops;
-use crate::ops::{ChannelSetOptions, InspectMode, Output, RenderFramesOptions, RenderOptions};
+use crate::ops::{
+    ChannelSetOptions, InspectBufferOptions, InspectMode, InspectVisualization, Output,
+    ProfileOptions, RenderFramesOptions, RenderOptions, ReplayOptions, TestOptions,
+};
 use crate::preview;
 use crate::preview::PreviewConfig;
 use anyhow::Result;
@@ -41,6 +44,12 @@ enum Command {
     Render(RenderArgs),
     /// Render multiple deterministic frames in one runtime, optionally as a contact sheet.
     RenderFrames(RenderFramesArgs),
+    /// Measure per-pass GPU timings and CPU submission cost.
+    Profile(ProfileArgs),
+    /// Run deterministic visual and numeric regression tests from [[test]] cases.
+    Test(TestArgs),
+    /// Reproduce a recorded preview-input timeline.
+    Replay(ReplayArgs),
     /// Run a native-rendered live preview web server with hot reload.
     Preview(PreviewArgs),
     /// Inspect project structure progressively, from summary to pass/channel detail.
@@ -172,6 +181,58 @@ struct RenderFramesArgs {
 }
 
 #[derive(Debug, Args)]
+struct ProfileArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, conflicts_with = "time")]
+    frame: Option<i32>,
+    #[arg(long, conflicts_with = "frame")]
+    time: Option<f32>,
+    /// Unmeasured frames rendered before sampling.
+    #[arg(long, default_value_t = 3)]
+    warmup: u32,
+    /// Consecutive measured frames.
+    #[arg(long, default_value_t = 20)]
+    samples: u32,
+}
+
+#[derive(Debug, Args)]
+struct ReplayArgs {
+    /// .strec recording produced by preview --record.
+    recording: PathBuf,
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    #[arg(long)]
+    pass: Option<String>,
+    /// Recorded timeline frame. Defaults to the final captured frame.
+    #[arg(long)]
+    frame: Option<u64>,
+    /// Replay despite a source/manifest/asset fingerprint mismatch.
+    #[arg(long)]
+    allow_project_changes: bool,
+}
+
+#[derive(Debug, Args)]
+struct TestArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Rewrite visual reference images from the current deterministic render.
+    #[arg(long)]
+    update: bool,
+    /// Run only test names containing this substring.
+    #[arg(long)]
+    filter: Option<String>,
+}
+
+#[derive(Debug, Args)]
 struct PreviewArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
@@ -191,6 +252,9 @@ struct PreviewArgs {
     /// Reset time/buffer state on every successful hot reload.
     #[arg(long)]
     reset_on_reload: bool,
+    /// Record shader-affecting preview input and exact rendered frame/time markers.
+    #[arg(long, value_name = "PATH")]
+    record: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -209,8 +273,33 @@ enum InspectCommand {
     Pass { name: String },
     /// Inspect one pass's iChannel bindings.
     Channels { name: String },
+    /// Render and inspect a 2D buffer's floating-point contents.
+    Buffer(InspectBufferArgs),
     /// Inspect a .ststate artifact.
     State { path: PathBuf },
+}
+
+#[derive(Debug, Args)]
+struct InspectBufferArgs {
+    name: String,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, conflicts_with = "time")]
+    frame: Option<i32>,
+    #[arg(long, conflicts_with = "frame")]
+    time: Option<f32>,
+    /// Shader-coordinate pixel (x,y) to print.
+    #[arg(long, value_parser = parse_pixel)]
+    pixel: Option<(u32, u32)>,
+    /// Optional diagnostic PNG.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = InspectVisualizationArg::Auto)]
+    visualization: InspectVisualizationArg,
 }
 
 #[derive(Debug, Args)]
@@ -324,6 +413,39 @@ struct DocsArgs {
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
+enum InspectVisualizationArg {
+    #[default]
+    Auto,
+    Rgb,
+    Signed,
+    Magnitude,
+}
+
+impl From<InspectVisualizationArg> for InspectVisualization {
+    fn from(value: InspectVisualizationArg) -> Self {
+        match value {
+            InspectVisualizationArg::Auto => Self::Auto,
+            InspectVisualizationArg::Rgb => Self::Rgb,
+            InspectVisualizationArg::Signed => Self::Signed,
+            InspectVisualizationArg::Magnitude => Self::Magnitude,
+        }
+    }
+}
+
+fn parse_pixel(value: &str) -> std::result::Result<(u32, u32), String> {
+    let (x, y) = value
+        .split_once(',')
+        .ok_or_else(|| "pixel must be formatted as X,Y".to_string())?;
+    let x = x
+        .parse::<u32>()
+        .map_err(|_| "pixel X must be an unsigned integer".to_string())?;
+    let y = y
+        .parse::<u32>()
+        .map_err(|_| "pixel Y must be an unsigned integer".to_string())?;
+    Ok((x, y))
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
 enum TemplateArg {
     #[default]
     Minimal,
@@ -388,8 +510,17 @@ pub fn run() -> ExitCode {
     let result = dispatch(cli.command, json_mode);
     match result {
         Ok(Some(output)) => {
+            let success = output
+                .json
+                .get("ok")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true);
             emit(output, json_mode);
-            ExitCode::SUCCESS
+            if success {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
         }
         Ok(None) => ExitCode::SUCCESS,
         Err(error) => {
@@ -447,6 +578,29 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             fps: args.fps,
             frames: args.frames,
         })?,
+        Command::Profile(args) => ops::profile_project(&ProfileOptions {
+            project: args.project,
+            width: args.width,
+            height: args.height,
+            fps: args.fps,
+            frame: args.frame,
+            time: args.time,
+            warmup: args.warmup,
+            samples: args.samples,
+        })?,
+        Command::Test(args) => ops::test_project(&TestOptions {
+            project: args.project,
+            update: args.update,
+            filter: args.filter,
+        })?,
+        Command::Replay(args) => ops::replay_project(&ReplayOptions {
+            project: args.project,
+            recording: args.recording,
+            output: args.output,
+            pass: args.pass,
+            frame: args.frame,
+            allow_project_changes: args.allow_project_changes,
+        })?,
         Command::Preview(args) => {
             preview::run(
                 PreviewConfig {
@@ -457,6 +611,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                     no_open: args.no_open,
                     token: args.token,
                     preserve_reload_state: !args.reset_on_reload,
+                    record: args.record,
                 },
                 json_mode,
             )?;
@@ -471,6 +626,18 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             Some(InspectCommand::Channels { name }) => {
                 ops::inspect_project(&args.project, InspectMode::Channels(name))?
             }
+            Some(InspectCommand::Buffer(buffer)) => ops::inspect_buffer(&InspectBufferOptions {
+                project: args.project,
+                pass: buffer.name,
+                width: buffer.width,
+                height: buffer.height,
+                fps: buffer.fps,
+                frame: buffer.frame,
+                time: buffer.time,
+                pixel: buffer.pixel,
+                output: buffer.output,
+                visualization: buffer.visualization.into(),
+            })?,
             Some(InspectCommand::State { path }) => ops::inspect_state(&path)?,
         },
         Command::State(args) => match args.command {

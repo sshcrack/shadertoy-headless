@@ -652,8 +652,22 @@ void st_runtime_set_fixed_state(st_runtime* runtime, const float timeSeconds, co
         runtime->runtime.setFixedState(timeSeconds, frame, frameRate);
 }
 
+void st_runtime_set_replay_state(st_runtime* runtime, const float timeSeconds, const float timeDelta, const int32_t frame,
+                                 const float frameRate) {
+    if(runtime)
+        runtime->runtime.setReplayState(timeSeconds, timeDelta, frame, frameRate);
+}
+
 float st_runtime_time(const st_runtime* runtime) {
     return runtime ? runtime->runtime.time() : 0.0f;
+}
+
+float st_runtime_time_delta(const st_runtime* runtime) {
+    return runtime ? runtime->runtime.timeDelta() : 0.0f;
+}
+
+float st_runtime_frame_rate(const st_runtime* runtime) {
+    return runtime ? runtime->runtime.frameRate() : 0.0f;
 }
 
 int32_t st_runtime_frame(const st_runtime* runtime) {

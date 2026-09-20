@@ -25,6 +25,7 @@ supported remote assets local.
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
      shadertoy inspect pass buffer-a --json
+     shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --json
      shadertoy render --pass buffer-a -o target/buffer-a.png
 
 6. Freeze a feedback state when a bug appears:
@@ -36,9 +37,22 @@ supported remote assets local.
        --set-buffer buffer-a=fixtures/a.png \
        -o target/debug.png
 
-8. Use live native-rendered review when iterating:
-     shadertoy preview
+8. Profile expensive passes on the real GPU path:
+     shadertoy profile --frame 120 --warmup 5 --samples 30 --json
 
-On Linux, check/render/render-frames/state capture/preview use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY.
+9. Define deterministic [[test]] cases in ShaderToy.toml and run:
+     shadertoy test
+   Use --update deliberately to write visual baselines.
+
+10. Use live native-rendered review when iterating:
+     shadertoy preview
+    Shared GLSL can use quoted #include directives; preview recompiles only passes
+    affected by a changed source/include and keeps existing feedback targets alive.
+
+11. Record an input-sensitive preview bug, then reproduce it without the browser:
+     shadertoy preview --record target/repro.strec
+     shadertoy replay target/repro.strec -o target/replayed.png
+
+On Linux, check/render/render-frames/state capture/preview/profile/test/replay use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY.
 
 Do not edit target/. It is disposable generated output.
