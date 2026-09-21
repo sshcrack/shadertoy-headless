@@ -15,7 +15,7 @@ if(SHADERTOY_BUILD_C_API OR SHADERTOY_BUILD_C_API_STATIC)
     list(APPEND VCPKG_MANIFEST_FEATURES c-api)
 endif()
 
-project(shadertoy VERSION 2.2.4 HOMEPAGE_URL "https://github.com/sshcrack/shadertoy" LANGUAGES CXX)
+project(shadertoy VERSION 2.2.5 HOMEPAGE_URL "https://github.com/sshcrack/shadertoy" LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CTest)
