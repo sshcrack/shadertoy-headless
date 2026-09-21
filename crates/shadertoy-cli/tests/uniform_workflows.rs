@@ -299,3 +299,247 @@ fn blind_sweep_requires_judgment_before_reveal_and_reports_mapping_afterward() {
     assert!(!early_reveal_again.status.success());
     assert!(String::from_utf8_lossy(&early_reveal_again.stderr).contains("no judgment yet"));
 }
+
+fn write_solid_png(path: &Path, rgb: [u8; 3]) {
+    let pixels = [rgb, rgb, rgb, rgb]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    image::save_buffer(path, &pixels, 2, 2, image::ColorType::Rgb8).expect("write test PNG");
+}
+
+#[test]
+fn blind_create_anonymizes_existing_image_sets_until_reveal() {
+    let temp = TempRoot::new("blind-existing-images");
+    let old = temp.path().join("old");
+    let new = temp.path().join("new");
+    std::fs::create_dir_all(&old).expect("create old image set");
+    std::fs::create_dir_all(&new).expect("create new image set");
+    write_solid_png(&old.join("frame-000.png"), [255, 0, 0]);
+    write_solid_png(&old.join("frame-001.png"), [192, 0, 0]);
+    write_solid_png(&new.join("frame-000.png"), [0, 255, 0]);
+    write_solid_png(&new.join("frame-001.png"), [0, 192, 0]);
+
+    let output_dir = temp.path().join("blind");
+    std::fs::create_dir_all(output_dir.join("variants/C")).expect("create stale blind output");
+    write_solid_png(&output_dir.join("variants/C/stale.png"), [0, 0, 255]);
+    let old_arg = old.to_string_lossy().into_owned();
+    let new_arg = new.to_string_lossy().into_owned();
+    let output_arg = output_dir.to_string_lossy().into_owned();
+    let created = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &old_arg,
+        &new_arg,
+        "--output-dir",
+        &output_arg,
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&created.stdout).expect("parse blind-create JSON");
+    assert_eq!(report["variant_count"], 2);
+    assert_eq!(report["images_per_variant"], 2);
+    assert_eq!(report["width"], 2);
+    assert_eq!(report["height"], 2);
+    assert!(output_dir.join("variants/A/image-000.png").exists());
+    assert!(output_dir.join("variants/A/image-001.png").exists());
+    assert!(output_dir.join("variants/B/image-000.png").exists());
+    assert!(!output_dir.join("variants/C").exists());
+    assert!(output_dir.join("blind-contact-sheet.png").exists());
+
+    let public_json = serde_json::to_string(&report).expect("serialize public report");
+    let public_session =
+        std::fs::read_to_string(output_dir.join("blind-session.json")).expect("read session");
+    let sealed_mapping =
+        std::fs::read(output_dir.join(".blind-mapping.bin")).expect("read sealed mapping");
+    for source in [&old_arg, &new_arg] {
+        assert!(
+            !public_json.contains(source),
+            "public report leaked {source}"
+        );
+        assert!(
+            !public_session.contains(source),
+            "public session leaked {source}"
+        );
+        assert!(
+            !sealed_mapping
+                .windows(source.len())
+                .any(|window| window == source.as_bytes()),
+            "sealed mapping leaked plaintext source {source}"
+        );
+    }
+
+    let session = output_dir.join("blind-session.json");
+    let session_arg = session.to_string_lossy().into_owned();
+    let label = report["variants"][0]["label"]
+        .as_str()
+        .expect("blind label")
+        .to_string();
+    let judged = shadertoy(&[
+        "blind",
+        "judge",
+        &session_arg,
+        "--pick",
+        &label,
+        "--reason",
+        "Preferred the blinded result.",
+    ]);
+    assert!(judged.status.success(), "{judged:?}");
+
+    let revealed = shadertoy(&["--json", "blind", "reveal", &session_arg]);
+    assert!(revealed.status.success(), "{revealed:?}");
+    let reveal: serde_json::Value =
+        serde_json::from_slice(&revealed.stdout).expect("parse reveal JSON");
+    let mapping = reveal["result"]["mapping"]
+        .as_array()
+        .expect("mapping array");
+    assert_eq!(mapping.len(), 2);
+    let identities = mapping
+        .iter()
+        .map(|entry| entry["set"][0].as_str().expect("source identity"))
+        .collect::<Vec<_>>();
+    assert!(
+        identities
+            .iter()
+            .any(|value| value == &format!("source={old_arg}"))
+    );
+    assert!(
+        identities
+            .iter()
+            .any(|value| value == &format!("source={new_arg}"))
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn blind_create_renders_projects_and_sttf_builds() {
+    let temp = TempRoot::new("blind-render-sources");
+    let project_a = temp.path().join("project-a");
+    let project_b = temp.path().join("project-b");
+    write_uniform_project(&project_a);
+    write_uniform_project(&project_b);
+
+    let project_a_arg = project_a.to_string_lossy().into_owned();
+    let project_b_arg = project_b.to_string_lossy().into_owned();
+    let project_output = temp.path().join("project-blind");
+    let project_output_arg = project_output.to_string_lossy().into_owned();
+    let projects = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &project_a_arg,
+        &project_b_arg,
+        "--frames",
+        "0,1",
+        "--output-dir",
+        &project_output_arg,
+    ]);
+    assert!(projects.status.success(), "{projects:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&projects.stdout).expect("parse project blind JSON");
+    assert_eq!(report["images_per_variant"], 2);
+    assert!(project_output.join("blind-contact-sheet.png").exists());
+
+    let build_a = temp.path().join("a.sttf");
+    let build_b = temp.path().join("b.sttf");
+    let build_a_arg = build_a.to_string_lossy().into_owned();
+    let build_b_arg = build_b.to_string_lossy().into_owned();
+    assert!(
+        shadertoy(&["build", "--project", &project_a_arg, "-o", &build_a_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shadertoy(&["build", "--project", &project_b_arg, "-o", &build_b_arg])
+            .status
+            .success()
+    );
+
+    let build_output = temp.path().join("build-blind");
+    let build_output_arg = build_output.to_string_lossy().into_owned();
+    let builds = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &build_a_arg,
+        &build_b_arg,
+        "--frames",
+        "0,1",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--output-dir",
+        &build_output_arg,
+    ]);
+    assert!(builds.status.success(), "{builds:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&builds.stdout).expect("parse STTF blind JSON");
+    assert_eq!(report["images_per_variant"], 2);
+    assert_eq!(report["width"], 1);
+    assert_eq!(report["height"], 1);
+}
+
+#[test]
+fn blind_create_materializes_git_revisions_without_leaking_refs() {
+    let temp = TempRoot::new("blind-git-refs");
+    let repo = temp.path().join("repo");
+    std::fs::create_dir_all(repo.join("renders")).expect("create git fixture");
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(output.status.success(), "{output:?}");
+        output
+    };
+    git(&["init", "--quiet"]);
+    git(&["config", "user.email", "tests@example.invalid"]);
+    git(&["config", "user.name", "ShaderToy Tests"]);
+
+    write_solid_png(&repo.join("renders/frame.png"), [255, 0, 0]);
+    git(&["add", "renders/frame.png"]);
+    git(&["commit", "--quiet", "-m", "old"]);
+    let old_ref = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout)
+        .expect("old ref UTF-8")
+        .trim()
+        .to_string();
+
+    write_solid_png(&repo.join("renders/frame.png"), [0, 255, 0]);
+    git(&["add", "renders/frame.png"]);
+    git(&["commit", "--quiet", "-m", "new"]);
+    let new_ref = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout)
+        .expect("new ref UTF-8")
+        .trim()
+        .to_string();
+
+    let old_source = format!("git:{old_ref}::renders");
+    let new_source = format!("git:{new_ref}::renders");
+    let repo_arg = repo.to_string_lossy().into_owned();
+    let output_dir = temp.path().join("blind");
+    let output_arg = output_dir.to_string_lossy().into_owned();
+    let created = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &old_source,
+        &new_source,
+        "--git-root",
+        &repo_arg,
+        "--output-dir",
+        &output_arg,
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&created.stdout).expect("parse git blind JSON");
+    assert_eq!(report["variant_count"], 2);
+    assert_eq!(report["images_per_variant"], 1);
+    let public = serde_json::to_string(&report).expect("serialize public report");
+    assert!(!public.contains(&old_ref));
+    assert!(!public.contains(&new_ref));
+    assert!(output_dir.join("variants/A/image-000.png").exists());
+    assert!(output_dir.join("variants/B/image-000.png").exists());
+}

@@ -198,8 +198,9 @@ shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
 shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
 shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
-shadertoy blind judge target/sweep/blind-session.json --pick B --reason "preferred breakup"
-shadertoy blind reveal target/sweep/blind-session.json
+shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
+shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "preferred breakup"
+shadertoy blind reveal target/old-vs-new/blind-session.json
 shadertoy preview
 ~~~
 
@@ -216,7 +217,7 @@ shadertoy render --pass buffer-a -o target/buffer-a.png
 shadertoy profile --frame 120 --samples 30 --json
 ~~~
 
-`profile` reports mean, median, p95, min, and max timing statistics for each GPU pass plus aggregate GPU/CPU render-call timings. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes/anonymizes variants as A/B/C, keeps the parameter mapping out of the public session metadata, requires a recorded blind judge choice plus rationale before blind reveal, and writes a combined reveal report.
+`profile` reports mean, median, p95, min, and max timing statistics for each GPU pass plus aggregate GPU/CPU render-call timings. Per-pass GPU timing deliberately isolates pass completion while profiling so deferred compute work is attributed to the pass that issued it rather than a later consumer; cross-pass GPU overlap is therefore disabled in this diagnostic mode, and very small pass timings can include pass-boundary synchronization overhead. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes parameter variants, while `blind create` does the same for arbitrary images/render directories, ShaderToy projects, STTF builds, or `git:REF::SUBDIR` sources. Both keep the real mapping out of public session metadata until `blind judge` records a choice and rationale, after which `blind reveal` writes the combined report.
 
 shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
 

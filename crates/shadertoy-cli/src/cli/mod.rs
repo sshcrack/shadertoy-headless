@@ -2,10 +2,10 @@ mod conversions;
 use crate::docs;
 use crate::ops;
 use crate::ops::{
-    BlindJudgeOptions, BlindRevealOptions, ChannelSetOptions, InspectBufferOptions, InspectMode,
-    InspectStorageOptions, InspectStorageType, InspectVisualization, Output, ProfileOptions,
-    RenderAudioOptions, RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions,
-    SweepOptions, TestOptions,
+    BlindCreateOptions, BlindJudgeOptions, BlindRevealOptions, ChannelSetOptions,
+    InspectBufferOptions, InspectMode, InspectStorageOptions, InspectStorageType,
+    InspectVisualization, Output, ProfileOptions, RenderAudioOptions, RenderFramesOptions,
+    RenderOptions, RenderVideoOptions, ReplayOptions, SweepOptions, TestOptions,
 };
 use crate::preview;
 use crate::preview::PreviewConfig;
@@ -50,11 +50,11 @@ enum Command {
     RenderVideo(RenderVideoArgs),
     /// Render a ShaderToy Sound pass to deterministic stereo PCM WAV.
     RenderAudio(RenderAudioArgs),
-    /// Measure per-pass GPU timings and CPU submission cost.
+    /// Measure isolated per-pass GPU timings and profiled CPU render-call cost.
     Profile(ProfileArgs),
     /// Render a Cartesian product of custom-uniform values for visual comparison.
     Sweep(SweepArgs),
-    /// Record and reveal judgments for blinded sweep comparisons.
+    /// Create, judge, and reveal blinded visual comparisons.
     Blind(BlindArgs),
     /// Run deterministic visual and numeric regression tests from [[test]] cases.
     Test(TestArgs),
@@ -317,15 +317,39 @@ struct BlindArgs {
 
 #[derive(Debug, Subcommand)]
 enum BlindCommand {
-    /// Commit a visual preference and reasoning while the parameter mapping remains sealed.
+    /// Create a blinded comparison from images, render directories, ShaderToy projects, STTF builds, or git refs.
+    Create(BlindCreateArgs),
+    /// Commit a visual preference and reasoning while the source/parameter mapping remains sealed.
     Judge(BlindJudgeArgs),
-    /// Reveal the parameter mapping after a judgment has been recorded.
+    /// Reveal the source/parameter mapping after a judgment has been recorded.
     Reveal(BlindRevealArgs),
 }
 
 #[derive(Debug, Args)]
+struct BlindCreateArgs {
+    /// Sources to blind. Paths auto-detect images, image directories, ShaderToy projects, and .sttf builds. Use git:REF or git:REF::SUBDIR for git revisions.
+    #[arg(required = true, num_args = 2..)]
+    sources: Vec<String>,
+    /// Output directory. Defaults to target/blind-comparison.
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+    /// Deterministic frames for project/STTF sources.
+    #[arg(long, value_delimiter = ',', default_value = "0")]
+    frames: Vec<i32>,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    /// Git repository root for git:REF sources. Defaults to the containing repository.
+    #[arg(long)]
+    git_root: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
 struct BlindJudgeArgs {
-    /// blind-session.json path or its containing sweep directory.
+    /// blind-session.json path or its containing comparison directory.
     session: PathBuf,
     /// Anonymous variant label to select, e.g. A or B.
     #[arg(long)]
@@ -344,7 +368,7 @@ struct BlindJudgeArgs {
 
 #[derive(Debug, Args)]
 struct BlindRevealArgs {
-    /// blind-session.json path or its containing sweep directory.
+    /// blind-session.json path or its containing comparison directory.
     session: PathBuf,
 }
 
@@ -870,6 +894,15 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             sweep_uniforms: args.sweep_uniforms,
         })?,
         Command::Blind(args) => match args.command {
+            BlindCommand::Create(args) => ops::create_blind_comparison(&BlindCreateOptions {
+                sources: args.sources,
+                output_dir: args.output_dir,
+                frames: args.frames,
+                width: args.width,
+                height: args.height,
+                fps: args.fps,
+                git_root: args.git_root,
+            })?,
             BlindCommand::Judge(args) => ops::judge_blind(&BlindJudgeOptions {
                 session: args.session,
                 pick: args.pick,

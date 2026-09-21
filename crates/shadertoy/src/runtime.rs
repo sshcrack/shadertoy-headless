@@ -36,6 +36,13 @@ impl<'context> Runtime<'context> {
         check(unsafe { sys::st_runtime_load_project(self.handle.as_ptr(), project.as_ptr()) })
     }
 
+    pub fn load_sttf(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        self.context.make_current()?;
+        let path = CString::new(path.as_ref().to_string_lossy().as_bytes())?;
+        // SAFETY: runtime handle and C string are valid across the call.
+        check(unsafe { sys::st_runtime_load_sttf(self.handle.as_ptr(), path.as_ptr()) })
+    }
+
     pub fn save_sttf(&self, path: impl AsRef<Path>) -> Result<()> {
         self.context.make_current()?;
         let path = CString::new(path.as_ref().to_string_lossy().as_bytes())?;

@@ -63,7 +63,7 @@ struct BlindJudgment {
 impl BlindPlan {
     pub(super) fn new(variant_count: usize, entropy_context: &str) -> Result<Self> {
         if variant_count < 2 {
-            bail!("blind comparison requires at least two sweep variants");
+            bail!("blind comparison requires at least two variants");
         }
 
         let now = SystemTime::now()
@@ -132,7 +132,7 @@ pub(super) fn write_blind_session(
     spec: &BlindSessionSpec<'_>,
 ) -> Result<PathBuf> {
     if spec.outputs.len() != plan.order.len() || spec.variants.len() != plan.order.len() {
-        bail!("blind session variant metadata does not match the rendered sweep");
+        bail!("blind session variant metadata does not match the rendered comparison");
     }
 
     let session_path = spec.output_dir.join("blind-session.json");
@@ -143,7 +143,7 @@ pub(super) fn write_blind_session(
     let judgment = spec.output_dir.join(&judgment_name);
     let reveal = spec.output_dir.join(&reveal_name);
 
-    // A fresh blind sweep starts a fresh decision lifecycle even when reusing an output directory.
+    // A fresh blind comparison starts a fresh decision lifecycle even when reusing an output directory.
     for stale in [&judgment, &reveal] {
         if stale.exists() {
             fs::remove_file(stale).with_context(|| {

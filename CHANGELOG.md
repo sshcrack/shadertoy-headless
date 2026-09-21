@@ -4,6 +4,13 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.7
+
+- Fixed per-pass GPU profiling attribution for deferred compute work by isolating pass completion while profiling, so compute-heavy passes no longer report near-zero time while their cost is charged to a later consumer.
+- Added `shadertoy blind create` for source-agnostic A/B/C comparisons of individual images, image/render directories, ShaderToy project directories, STTF builds, and Git revisions, with whole render sets kept together under one anonymous label.
+- Added direct STTF loading to the Rust/C runtime bridge so built artifacts can participate in deterministic render comparisons.
+
+
 ## 2.2.6
 
 - Added bias-resistant blind parameter sweeps with randomized A/B/C variant labels and a public contact sheet/session report that omits parameter assignments.

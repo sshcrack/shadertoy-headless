@@ -219,22 +219,46 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn profiling_reports_per_pass_gpu_timings() {
+fn profiling_reports_attributed_compute_and_image_gpu_timings() {
     let _egl_guard = EGL_TEST_LOCK.lock().expect("lock EGL test context");
     let context = HeadlessContext::new(64, 64).expect("create headless OpenGL context");
     let mut project = Project::new("profiling").expect("create project");
     project
         .add_pass(
+            "compute",
+            PassKind::Compute,
+            r#"
+void mainCompute(ivec2 coord) {
+    float value = float(coord.x + coord.y) * 0.001;
+    for (int i = 0; i < 256; ++i)
+        value = sin(value + float(i) * 0.0001);
+    imageStore(iOutput, coord, vec4(value, value, value, 1.0));
+}
+"#,
+        )
+        .expect("add compute")
+        .set_pass_resolution("compute", 256, 256)
+        .expect("set compute dimensions")
+        .add_pass(
             "image",
             PassKind::Image,
             r#"
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 uv = fragCoord / iResolution.xy;
-    fragColor = vec4(uv, 0.25 + 0.25 * sin(iTime), 1.0);
+    fragColor = texture(iChannel0, fragCoord / iResolution.xy);
 }
 "#,
         )
-        .expect("add image");
+        .expect("add image")
+        .add_input(
+            "image",
+            0,
+            InputKind::Pass,
+            "compute",
+            false,
+            Filter::Linear,
+            Wrap::Clamp,
+        )
+        .expect("wire compute result");
 
     let mut runtime = Runtime::new(&context).expect("create runtime");
     runtime.load_project(&project).expect("load project");
@@ -242,8 +266,20 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     runtime.render(32, 16).expect("render profiled frame");
 
     let timings = runtime.pass_timings().expect("read timings");
-    assert_eq!(timings.len(), 1);
-    assert_eq!(timings[0].name, "image");
-    assert_eq!((timings[0].width, timings[0].height), (32, 16));
-    assert!(timings[0].gpu_nanoseconds > 0);
+    assert_eq!(timings.len(), 2);
+    let compute = timings
+        .iter()
+        .find(|timing| timing.name == "compute")
+        .expect("compute timing");
+    let image = timings
+        .iter()
+        .find(|timing| timing.name == "image")
+        .expect("image timing");
+    assert_eq!((compute.width, compute.height), (256, 256));
+    assert_eq!((image.width, image.height), (32, 16));
+    assert!(
+        compute.gpu_nanoseconds > 0,
+        "active compute work must be attributed to the compute pass"
+    );
+    assert!(image.gpu_nanoseconds > 0);
 }

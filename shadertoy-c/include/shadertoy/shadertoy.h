@@ -99,6 +99,7 @@ ST_NATIVE_EXPORT int st_project_add_volume_u8(st_project* project, const char* n
 ST_NATIVE_EXPORT st_runtime* st_runtime_create(void);
 ST_NATIVE_EXPORT void st_runtime_destroy(st_runtime* runtime);
 ST_NATIVE_EXPORT int st_runtime_load_project(st_runtime* runtime, const st_project* project);
+ST_NATIVE_EXPORT int st_runtime_load_sttf(st_runtime* runtime, const char* path);
 ST_NATIVE_EXPORT int st_runtime_save_sttf(const st_runtime* runtime, const char* path);
 ST_NATIVE_EXPORT void st_runtime_tick(st_runtime* runtime, float frame_rate);
 ST_NATIVE_EXPORT void st_runtime_tick_fixed(st_runtime* runtime, float delta_seconds, float frame_rate);

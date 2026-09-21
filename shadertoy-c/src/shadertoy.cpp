@@ -766,6 +766,18 @@ int st_runtime_load_project(st_runtime* runtime, const st_project* project) {
     });
 }
 
+int st_runtime_load_sttf(st_runtime* runtime, const char* path) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!path || !*path)
+            throw std::runtime_error("Input path must not be empty");
+        auto result = runtime->runtime.loadSTTF(path);
+        if(!result)
+            throw result.error();
+    });
+}
+
 int st_runtime_save_sttf(const st_runtime* runtime, const char* path) {
     return guard([&] {
         if(!runtime)

@@ -29,8 +29,10 @@ supported remote assets local.
      shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
    To avoid value/expectation bias, prefer a blind comparison when choosing a visual variant:
      shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
-     shadertoy blind judge target/sweep/blind-session.json --pick B --reason "concise visual rationale"
-     shadertoy blind reveal target/sweep/blind-session.json
+   To blind old-vs-new images, projects, builds, or git revisions:
+     shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
+     shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "concise visual rationale"
+     shadertoy blind reveal target/old-vs-new/blind-session.json
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
@@ -51,7 +53,7 @@ supported remote assets local.
 
 8. Profile expensive passes on the real GPU path:
      shadertoy profile --frame 120 --warmup 5 --samples 30 --json
-   Reports include mean, median, p95, min, and max timing statistics.
+   Reports include mean, median, p95, min, and max timing statistics. Profiling isolates GPU pass completion so deferred compute work is attributed to the issuing pass; cross-pass overlap is intentionally disabled and sub-millisecond values can include synchronization-boundary overhead.
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
      shadertoy test

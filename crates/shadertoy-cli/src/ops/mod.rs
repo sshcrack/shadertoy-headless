@@ -1,4 +1,5 @@
 mod blind;
+mod blind_create;
 mod images;
 mod importer;
 mod inspect;
@@ -26,6 +27,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub use blind::{judge_blind, reveal_blind};
+pub use blind_create::create_blind_comparison;
 pub use images::rgb_png_bytes;
 pub use importer::import_project;
 pub use inspect::{inspect_buffer, inspect_project, inspect_storage};
@@ -92,6 +94,17 @@ pub struct ProfileOptions {
     pub warmup: u32,
     pub samples: u32,
     pub set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlindCreateOptions {
+    pub sources: Vec<String>,
+    pub output_dir: Option<PathBuf>,
+    pub frames: Vec<i32>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f32>,
+    pub git_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]

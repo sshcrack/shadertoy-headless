@@ -92,6 +92,9 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         first_sample_frame,
         runtime.frame()
     );
+    human.push_str(
+        "Timing mode: isolated passes (cross-pass GPU overlap disabled; boundary sync overhead included)\n",
+    );
     human.push_str("Pass                         Resolution       mean       min       max\n");
     for (name, pass_width, pass_height, stats) in &pass_rows {
         human.push_str(&format!(
@@ -138,6 +141,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             "first_sample_frame": first_sample_frame,
             "last_sample_frame": runtime.frame(),
             "passes": json_passes,
+            "timing_mode": "isolated_passes",
             "gpu_pass_total_mean_ms": total_gpu_mean_ns / 1_000_000.0,
             "gpu_pass_total": {
                 "mean_ms": gpu_total.mean_ns / 1_000_000.0,

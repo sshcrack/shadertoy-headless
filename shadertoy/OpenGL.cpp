@@ -1275,12 +1275,21 @@ class OpenGLPipeline final : public Pipeline {
         GLuint query{};
         glGenQueries(1, &query);
         auto queryGuard = scopeExit([&] { glDeleteQueries(1, &query); });
+
+        // Some drivers report near-zero timer-query durations for asynchronous
+        // compute unless execution is completed before the query closes. Profiling
+        // deliberately serializes each pass so the work is charged to the pass
+        // that issued it rather than a later consumer. The pre-pass finish keeps
+        // earlier uploads/work outside the interval.
+        glFinish();
         glBeginQuery(GL_TIME_ELAPSED, query);
         pass.render(frameBufferSize, clipMin, clipMax, size, uniform,
                     pass.getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
+        glFinish();
         glEndQuery(GL_TIME_ELAPSED);
         GLuint64 elapsed{};
         glGetQueryObjectui64v(query, GL_QUERY_RESULT, &elapsed);
+
         mLastPassTimings.push_back(PassTiming{
             std::string(pass.getName()),
             static_cast<uint64_t>(elapsed),
