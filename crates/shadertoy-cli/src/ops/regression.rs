@@ -495,7 +495,7 @@ fn compare_rgb(expected: &[u8], actual: &[u8], tolerance: f32) -> Comparison {
     let mut changed_pixels = 0usize;
     let mut diff = Vec::with_capacity(expected.len());
 
-    for (expected_pixel, actual_pixel) in expected.chunks_exact(3).zip(actual.chunks_exact(3)) {
+    for (expected_pixel, actual_pixel) in expected.as_chunks::<3>().0.iter().zip(actual.as_chunks::<3>().0.iter()) {
         let mut pixel_changed = false;
         for channel in 0..3 {
             let delta =

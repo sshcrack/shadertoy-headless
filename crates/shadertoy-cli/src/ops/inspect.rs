@@ -452,7 +452,7 @@ impl BufferStats {
             nan_count: 0,
             inf_count: 0,
         };
-        for pixel in values.chunks_exact(4) {
+        for pixel in values.as_chunks::<4>().0 {
             for (channel, value) in pixel.iter().copied().enumerate() {
                 if value.is_nan() {
                     result.nan_count += 1;
@@ -505,7 +505,7 @@ fn visualize_buffer(
         .fold(0.0f32, f32::max)
         .max(f32::EPSILON);
     let magnitude_scale = values
-        .chunks_exact(4)
+        .as_chunks::<4>().0.iter()
         .map(|pixel| {
             let rgb = [
                 if pixel[0].is_finite() { pixel[0] } else { 0.0 },
@@ -524,7 +524,7 @@ fn visualize_buffer(
         }
         (value.clamp(0.0, 1.0) * 255.0).round() as u8
     };
-    for pixel in values.chunks_exact(4) {
+    for pixel in values.as_chunks::<4>().0 {
         let rgb = match visualization {
             InspectVisualization::Auto | InspectVisualization::Rgb => {
                 [pixel[0], pixel[1], pixel[2]]

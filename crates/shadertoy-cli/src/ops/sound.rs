@@ -64,7 +64,7 @@ pub fn render_audio_project(options: &RenderAudioOptions) -> Result<Output> {
         let _ = runtime.render(1, 1)?;
         let values = runtime.snapshot_pass_rgba32f(SOUND_COMPUTE_PASS, SOUND_CHUNK_SAMPLES, 1)?;
         let count = (sample_count - offset).min(SOUND_CHUNK_SAMPLES);
-        for sample in values.chunks_exact(4).take(count as usize) {
+        for sample in values.as_chunks::<4>().0.iter().take(count as usize) {
             for value in [sample[0], sample[1]] {
                 let pcm = float_to_pcm16(value);
                 file.write_all(&pcm.to_le_bytes())?;
