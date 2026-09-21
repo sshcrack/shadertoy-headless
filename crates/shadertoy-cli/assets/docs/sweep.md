@@ -24,3 +24,11 @@ the outputs. --pass can compare a named 2D buffer/compute pass instead of Image.
 The command caps Cartesian expansion at 256 variants to avoid accidental
 explosive renders. All sweep values are parsed and range-checked using the
 project's declared [[uniform]] definitions.
+
+For bias-resistant visual selection, add --blind:
+
+  shadertoy sweep --blind --frame 120 --set u_foam_gain=0.8,1.0,1.2
+
+This randomizes/anonymizes variants as A/B/C, writes a blind contact sheet, and
+seals the A/B/C-to-parameter mapping until a judgment is recorded. Continue with
+shadertoy blind judge, then shadertoy blind reveal. See shadertoy docs blind.

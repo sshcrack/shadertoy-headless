@@ -1,3 +1,4 @@
+mod blind;
 mod images;
 mod importer;
 mod inspect;
@@ -24,6 +25,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub use blind::{judge_blind, reveal_blind};
 pub use images::rgb_png_bytes;
 pub use importer::import_project;
 pub use inspect::{inspect_buffer, inspect_project, inspect_storage};
@@ -93,11 +95,25 @@ pub struct ProfileOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct BlindJudgeOptions {
+    pub session: PathBuf,
+    pub pick: String,
+    pub reason: Option<String>,
+    pub reason_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlindRevealOptions {
+    pub session: PathBuf,
+}
+
+#[derive(Debug, Clone)]
 pub struct SweepOptions {
     pub project: PathBuf,
     pub output_dir: Option<PathBuf>,
     pub contact_sheet: Option<PathBuf>,
     pub no_contact_sheet: bool,
+    pub blind: bool,
     pub columns: Option<u32>,
     pub pass: Option<String>,
     pub width: Option<u32>,

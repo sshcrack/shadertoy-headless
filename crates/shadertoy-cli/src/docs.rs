@@ -21,9 +21,10 @@ pub fn topic(name: &str, schema: bool) -> Result<String> {
         "channels" => crate::include_file!("docs/channels.md"),
         "state" => crate::include_file!("docs/state.md"),
         "sweep" => crate::include_file!("docs/sweep.md"),
+        "blind" => crate::include_file!("docs/blind.md"),
         "preview" => crate::include_file!("docs/preview.md"),
         other => bail!(
-            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, or preview"
+            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, or preview"
         ),
     };
     Ok(text.trim().to_string())

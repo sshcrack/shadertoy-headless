@@ -13,6 +13,9 @@ shadertoy render -o target/frame.png
 shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
 shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
+shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
+shadertoy blind judge target/sweep/blind-session.json --pick B --reason "preferred breakup"
+shadertoy blind reveal target/sweep/blind-session.json
 shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --set foam_gain=1.0
 shadertoy inspect storage particle-state --frame 120 --type f32 --count 16
 shadertoy profile --frame 120 --samples 30
@@ -21,7 +24,7 @@ shadertoy preview --record target/session.strec
 shadertoy replay target/session.strec -o target/replay.png
 ```
 
-The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
+The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
 
 Import a public ShaderToy into a fully local editable project:
 
@@ -51,7 +54,7 @@ everywhere, deterministic rendering/state-capture/runtime-inspection commands ac
 `--set name=value`, preview exposes matching controls, and `[[test]]` cases can override
 them independently. `shadertoy sweep --set gain=0.8,1.0,1.2` renders parameter variants
 and a contact sheet without temporary project copies. `profile` reports mean, median,
-p95, min, and max timing statistics.
+p95, min, and max timing statistics. Blind sweeps anonymize and shuffle variants; blind judge records the preference and rationale before blind reveal exposes the parameter mapping and writes a combined report.
 
 Buffer passes can opt into fixed `width`/`height` render targets for stable
 simulation grids, while each iChannel can independently choose

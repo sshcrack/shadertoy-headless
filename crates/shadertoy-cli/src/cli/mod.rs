@@ -2,10 +2,10 @@ mod conversions;
 use crate::docs;
 use crate::ops;
 use crate::ops::{
-    ChannelSetOptions, InspectBufferOptions, InspectMode, InspectStorageOptions,
-    InspectStorageType, InspectVisualization, Output, ProfileOptions, RenderAudioOptions,
-    RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions, SweepOptions,
-    TestOptions,
+    BlindJudgeOptions, BlindRevealOptions, ChannelSetOptions, InspectBufferOptions, InspectMode,
+    InspectStorageOptions, InspectStorageType, InspectVisualization, Output, ProfileOptions,
+    RenderAudioOptions, RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions,
+    SweepOptions, TestOptions,
 };
 use crate::preview;
 use crate::preview::PreviewConfig;
@@ -54,6 +54,8 @@ enum Command {
     Profile(ProfileArgs),
     /// Render a Cartesian product of custom-uniform values for visual comparison.
     Sweep(SweepArgs),
+    /// Record and reveal judgments for blinded sweep comparisons.
+    Blind(BlindArgs),
     /// Run deterministic visual and numeric regression tests from [[test]] cases.
     Test(TestArgs),
     /// Reproduce a recorded preview-input timeline.
@@ -281,8 +283,11 @@ struct SweepArgs {
     #[arg(long, conflicts_with = "no_contact_sheet")]
     contact_sheet: Option<PathBuf>,
     /// Skip contact-sheet generation.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "blind")]
     no_contact_sheet: bool,
+    /// Randomize/anonymize variants as A/B/C and seal the parameter mapping until judged.
+    #[arg(long, conflicts_with = "no_contact_sheet")]
+    blind: bool,
     /// Contact-sheet column count. Defaults to a near-square layout.
     #[arg(long)]
     columns: Option<u32>,
@@ -302,6 +307,45 @@ struct SweepArgs {
     /// Sweep a declared custom uniform. Scalars use commas; vectors use semicolons between vectors.
     #[arg(long = "set", value_name = "NAME=VALUES", required = true)]
     sweep_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct BlindArgs {
+    #[command(subcommand)]
+    command: BlindCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum BlindCommand {
+    /// Commit a visual preference and reasoning while the parameter mapping remains sealed.
+    Judge(BlindJudgeArgs),
+    /// Reveal the parameter mapping after a judgment has been recorded.
+    Reveal(BlindRevealArgs),
+}
+
+#[derive(Debug, Args)]
+struct BlindJudgeArgs {
+    /// blind-session.json path or its containing sweep directory.
+    session: PathBuf,
+    /// Anonymous variant label to select, e.g. A or B.
+    #[arg(long)]
+    pick: String,
+    /// Reasoning for the preference. Stored before the mapping can be revealed.
+    #[arg(
+        long,
+        required_unless_present = "reason_file",
+        conflicts_with = "reason_file"
+    )]
+    reason: Option<String>,
+    /// Read the reasoning from a UTF-8 text/Markdown file.
+    #[arg(long, required_unless_present = "reason", conflicts_with = "reason")]
+    reason_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct BlindRevealArgs {
+    /// blind-session.json path or its containing sweep directory.
+    session: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -577,7 +621,7 @@ enum ChannelCommand {
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, or preview.
+    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).
@@ -815,6 +859,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             output_dir: args.output_dir,
             contact_sheet: args.contact_sheet,
             no_contact_sheet: args.no_contact_sheet,
+            blind: args.blind,
             columns: args.columns,
             pass: args.pass,
             width: args.width,
@@ -824,6 +869,17 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             sweep_uniforms: args.sweep_uniforms,
         })?,
+        Command::Blind(args) => match args.command {
+            BlindCommand::Judge(args) => ops::judge_blind(&BlindJudgeOptions {
+                session: args.session,
+                pick: args.pick,
+                reason: args.reason,
+                reason_file: args.reason_file,
+            })?,
+            BlindCommand::Reveal(args) => ops::reveal_blind(&BlindRevealOptions {
+                session: args.session,
+            })?,
+        },
         Command::Test(args) => ops::test_project(&TestOptions {
             project: args.project,
             update: args.update,

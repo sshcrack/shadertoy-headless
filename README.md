@@ -197,6 +197,9 @@ shadertoy render -o target/check.png
 shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
 shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
+shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
+shadertoy blind judge target/sweep/blind-session.json --pick B --reason "preferred breakup"
+shadertoy blind reveal target/sweep/blind-session.json
 shadertoy preview
 ~~~
 
@@ -213,7 +216,7 @@ shadertoy render --pass buffer-a -o target/buffer-a.png
 shadertoy profile --frame 120 --samples 30 --json
 ~~~
 
-`profile` reports mean, median, p95, min, and max timing statistics for each GPU pass plus aggregate GPU/CPU render-call timings. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas.
+`profile` reports mean, median, p95, min, and max timing statistics for each GPU pass plus aggregate GPU/CPU render-call timings. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes/anonymizes variants as A/B/C, keeps the parameter mapping out of the public session metadata, requires a recorded blind judge choice plus rationale before blind reveal, and writes a combined reveal report.
 
 shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
 
@@ -226,7 +229,7 @@ shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtu
 
 Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; matrix cases can cover multiple frames/resolutions, repeat fresh runs with `assert_deterministic`, and verify fixed simulation grids with `assert_resolution_independent`. `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
 
-Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, and preview. `shadertoy docs glsl` documents the generated shader prelude and entry-point contract; `shadertoy docs assets` documents on-disk cubemap and volume formats.
+Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, and preview. `shadertoy docs glsl` documents the generated shader prelude and entry-point contract; `shadertoy docs assets` documents on-disk cubemap and volume formats.
 
 ### Schema-backed ShaderToy.toml
 
