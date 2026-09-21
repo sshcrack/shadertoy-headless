@@ -20,6 +20,10 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
     let fps = render::resolve_fps(&loaded, None, options.fps)?;
     let target_frame = resolve_target_frame(&loaded, None, options.frame, options.time, fps)?;
 
+    if options.blind && options.no_contact_sheet {
+        bail!("--blind requires a contact sheet; remove --no-contact-sheet");
+    }
+
     let selected_pass = options
         .pass
         .as_deref()
@@ -45,12 +49,13 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
     let contact_path = if options.no_contact_sheet {
         None
     } else {
-        Some(
-            options
-                .contact_sheet
-                .clone()
-                .unwrap_or_else(|| output_dir.join("contact-sheet.png")),
-        )
+        Some(options.contact_sheet.clone().unwrap_or_else(|| {
+            output_dir.join(if options.blind {
+                "blind-contact-sheet.png"
+            } else {
+                "contact-sheet.png"
+            })
+        }))
     };
     let mut contact_sheet = contact_path
         .as_ref()
@@ -65,13 +70,32 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
         })
         .transpose()?;
 
+    let entropy_context = format!(
+        "{}|{}|{}|{}|{}",
+        loaded.root.display(),
+        selected_pass,
+        target_frame,
+        selected_width,
+        options.sweep_uniforms.join("|")
+    );
+    let blind_plan = options
+        .blind
+        .then(|| blind::BlindPlan::new(variants.len(), &entropy_context))
+        .transpose()?;
+    let render_order = blind_plan
+        .as_ref()
+        .map(|plan| plan.order().to_vec())
+        .unwrap_or_else(|| (0..variants.len()).collect());
+
     let context = HeadlessContext::new(64, 64)
         .context("failed to create headless OpenGL context for parameter sweep")?;
     let project = build_native_project(&loaded)?;
     let final_pass = loaded.manifest.final_pass().name.as_str();
     let mut outputs = Vec::with_capacity(variants.len());
+    let mut output_paths = Vec::with_capacity(variants.len());
 
-    for (index, assignments) in variants.iter().enumerate() {
+    for (position, original_index) in render_order.iter().copied().enumerate() {
+        let assignments = &variants[original_index];
         let mut runtime = Runtime::new(&context)?;
         runtime.load_project(&project)?;
         let values = crate::uniforms::parse_assignments(&loaded.manifest.uniforms, assignments)?;
@@ -84,16 +108,29 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
         } else {
             runtime.snapshot_pass_rgb(selected_pass, selected_width, selected_height)?
         };
-        let path = output_dir.join(format!("variant-{index:03}.png"));
+        let path = if let Some(plan) = &blind_plan {
+            output_dir.join(format!("{}.png", plan.label(position)))
+        } else {
+            output_dir.join(format!("variant-{original_index:03}.png"))
+        };
         save_rgb_png(&image, &path)?;
         if let Some(sheet) = &mut contact_sheet {
-            sheet.blit(index, &image)?;
+            sheet.blit(position, &image)?;
         }
-        outputs.push(json!({
-            "index": index,
-            "output": path,
-            "set": assignments,
-        }));
+
+        if let Some(plan) = &blind_plan {
+            outputs.push(json!({
+                "label": plan.label(position),
+                "output": path,
+            }));
+        } else {
+            outputs.push(json!({
+                "index": original_index,
+                "output": path,
+                "set": assignments,
+            }));
+        }
+        output_paths.push(path);
     }
 
     let contact_sheet_output = if let Some(sheet) = contact_sheet {
@@ -107,8 +144,48 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
         .collect::<Vec<_>>()
         .join(", ");
 
-    Ok(Output {
-        human: format!(
+    let blind_session = if let Some(plan) = &blind_plan {
+        let contact_sheet = contact_sheet_output
+            .as_deref()
+            .context("blind sweep did not produce a contact sheet")?;
+        Some(blind::write_blind_session(
+            plan,
+            &blind::BlindSessionSpec {
+                output_dir: &output_dir,
+                project: &loaded.manifest.project.name,
+                frame: target_frame,
+                pass: selected_pass,
+                width: selected_width,
+                height: selected_height,
+                contact_sheet,
+                outputs: &output_paths,
+                variants: &variants,
+            },
+        )?)
+    } else {
+        None
+    };
+
+    let human = if let Some(session) = &blind_session {
+        format!(
+            "Rendered {} blinded sweep variants [{}] at frame {}{} -> {}; inspect {} and record a judgment with 'shadertoy blind judge {} --pick LABEL --reason ...' before revealing",
+            variants.len(),
+            names,
+            target_frame,
+            options
+                .pass
+                .as_ref()
+                .map(|name| format!(" pass '{name}'"))
+                .unwrap_or_default(),
+            contact_sheet_output
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| output_dir.display().to_string()),
+            session.display(),
+            session.display(),
+        )
+    } else {
+        format!(
             "Rendered {} sweep variants for [{}] at frame {}{} -> {}{}",
             variants.len(),
             names,
@@ -123,7 +200,11 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
                 .as_ref()
                 .map(|path| format!("; contact sheet {}", path.display()))
                 .unwrap_or_default(),
-        ),
+        )
+    };
+
+    Ok(Output {
+        human,
         json: json!({
             "ok": true,
             "project": loaded.manifest.project.name,
@@ -135,6 +216,8 @@ pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
             "frame": target_frame,
             "pass": selected_pass,
             "variant_count": variants.len(),
+            "blind": options.blind,
+            "blind_session": blind_session,
             "variants": outputs,
         }),
     })

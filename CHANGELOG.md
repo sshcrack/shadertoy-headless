@@ -4,6 +4,12 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.6
+
+- Added bias-resistant blind parameter sweeps with randomized A/B/C variant labels and a public contact sheet/session report that omits parameter assignments.
+- Added shadertoy blind judge to commit a selected anonymous variant plus rationale before the parameter mapping can be revealed.
+- Added shadertoy blind reveal to unlock the mapping only after judgment and write a combined blind-reveal.json report containing the decision, selected settings, and full mapping.
+
 ## 2.2.5
 
 - Added `--set NAME=VALUE` custom-uniform overrides to `state capture`, `inspect buffer`, and `inspect storage`, completing override support across deterministic runtime inspection/state-capture workflows.

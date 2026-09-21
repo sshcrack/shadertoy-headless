@@ -27,6 +27,10 @@ supported remote assets local.
      shadertoy render-video --frames 180 -o target/clip.mp4
    For parameter/art-direction comparisons:
      shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
+   To avoid value/expectation bias, prefer a blind comparison when choosing a visual variant:
+     shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
+     shadertoy blind judge target/sweep/blind-session.json --pick B --reason "concise visual rationale"
+     shadertoy blind reveal target/sweep/blind-session.json
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
