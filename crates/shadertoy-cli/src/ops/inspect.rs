@@ -505,7 +505,9 @@ fn visualize_buffer(
         .fold(0.0f32, f32::max)
         .max(f32::EPSILON);
     let magnitude_scale = values
-        .as_chunks::<4>().0.iter()
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|pixel| {
             let rgb = [
                 if pixel[0].is_finite() { pixel[0] } else { 0.0 },
