@@ -4,7 +4,8 @@ use crate::ops;
 use crate::ops::{
     ChannelSetOptions, InspectBufferOptions, InspectMode, InspectStorageOptions,
     InspectStorageType, InspectVisualization, Output, ProfileOptions, RenderAudioOptions,
-    RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions, TestOptions,
+    RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions, SweepOptions,
+    TestOptions,
 };
 use crate::preview;
 use crate::preview::PreviewConfig;
@@ -51,6 +52,8 @@ enum Command {
     RenderAudio(RenderAudioArgs),
     /// Measure per-pass GPU timings and CPU submission cost.
     Profile(ProfileArgs),
+    /// Render a Cartesian product of custom-uniform values for visual comparison.
+    Sweep(SweepArgs),
     /// Run deterministic visual and numeric regression tests from [[test]] cases.
     Test(TestArgs),
     /// Reproduce a recorded preview-input timeline.
@@ -268,6 +271,40 @@ struct ProfileArgs {
 }
 
 #[derive(Debug, Args)]
+struct SweepArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Directory for variant PNGs. Defaults to PROJECT/target/sweep.
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+    /// Contact-sheet path. Defaults to OUTPUT_DIR/contact-sheet.png.
+    #[arg(long, conflicts_with = "no_contact_sheet")]
+    contact_sheet: Option<PathBuf>,
+    /// Skip contact-sheet generation.
+    #[arg(long)]
+    no_contact_sheet: bool,
+    /// Contact-sheet column count. Defaults to a near-square layout.
+    #[arg(long)]
+    columns: Option<u32>,
+    /// Render/snapshot a named 2D buffer/compute pass instead of the final Image pass.
+    #[arg(long)]
+    pass: Option<String>,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, conflicts_with = "time")]
+    frame: Option<i32>,
+    #[arg(long, conflicts_with = "frame")]
+    time: Option<f32>,
+    /// Sweep a declared custom uniform. Scalars use commas; vectors use semicolons between vectors.
+    #[arg(long = "set", value_name = "NAME=VALUES", required = true)]
+    sweep_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Args)]
 struct ReplayArgs {
     /// .strec recording produced by preview --record.
     recording: PathBuf,
@@ -378,6 +415,9 @@ struct InspectBufferArgs {
     /// normalized vector length as grayscale.
     #[arg(long, value_enum, default_value_t = InspectVisualizationArg::Auto)]
     visualization: InspectVisualizationArg,
+    /// Override a declared custom uniform during inspection.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -404,6 +444,9 @@ struct InspectStorageArgs {
     /// Optional complete raw SSBO dump.
     #[arg(short, long)]
     output: Option<PathBuf>,
+    /// Override a declared custom uniform during inspection.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -443,6 +486,9 @@ struct StateCaptureArgs {
     /// Include named shader-storage buffers in the resumable state.
     #[arg(long)]
     include_storage: bool,
+    /// Override a declared custom uniform while producing the captured state.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -531,7 +577,7 @@ enum ChannelCommand {
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, or preview.
+    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).
@@ -764,6 +810,20 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             samples: args.samples,
             set_uniforms: args.set_uniforms,
         })?,
+        Command::Sweep(args) => ops::sweep_project(&SweepOptions {
+            project: args.project,
+            output_dir: args.output_dir,
+            contact_sheet: args.contact_sheet,
+            no_contact_sheet: args.no_contact_sheet,
+            columns: args.columns,
+            pass: args.pass,
+            width: args.width,
+            height: args.height,
+            fps: args.fps,
+            frame: args.frame,
+            time: args.time,
+            sweep_uniforms: args.sweep_uniforms,
+        })?,
         Command::Test(args) => ops::test_project(&TestOptions {
             project: args.project,
             update: args.update,
@@ -815,6 +875,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 output: buffer.output,
                 raw: buffer.raw,
                 visualization: buffer.visualization.into(),
+                set_uniforms: buffer.set_uniforms,
             })?,
             Some(InspectCommand::Storage(storage)) => {
                 ops::inspect_storage(&InspectStorageOptions {
@@ -829,6 +890,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                     count: storage.count,
                     value_type: storage.value_type.into(),
                     output: storage.output,
+                    set_uniforms: storage.set_uniforms,
                 })?
             }
             Some(InspectCommand::State { path }) => ops::inspect_state(&path)?,
@@ -843,6 +905,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 args.frame,
                 args.time,
                 args.include_storage,
+                &args.set_uniforms,
             )?,
             StateCommand::Inspect { path } => ops::inspect_state(&path)?,
             StateCommand::Set(args) => {

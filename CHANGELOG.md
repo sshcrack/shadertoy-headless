@@ -4,6 +4,12 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.5
+
+- Added `--set NAME=VALUE` custom-uniform overrides to `state capture`, `inspect buffer`, and `inspect storage`, completing override support across deterministic runtime inspection/state-capture workflows.
+- Added `shadertoy sweep` for bounded Cartesian custom-uniform sweeps with deterministic variant PNGs, named-pass support, JSON metadata, and contact-sheet generation.
+- Expanded profiler statistics with median and p95 for each GPU pass, aggregate GPU timing, and CPU render-call timing while preserving the existing mean field for compatibility.
+
 ## 2.2.2
 
 - Re-verified the complete v2.2 advanced GPU pipeline on the applied release branch, including compute passes, typed render targets, MRT routing, persistent/shared SSBOs, fixed-size passes, state capture/restore, sampler controls, and headless EGL rendering.

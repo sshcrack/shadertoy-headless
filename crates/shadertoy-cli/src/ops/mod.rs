@@ -9,6 +9,7 @@ mod render;
 mod replay;
 mod sound;
 mod state;
+mod sweep;
 mod video;
 
 use crate::manifest::{LoadedManifest, PassKind};
@@ -34,6 +35,7 @@ pub use render::{render_frames_project, render_project};
 pub use replay::replay_project;
 pub use sound::render_audio_project;
 pub use state::{capture_state, inspect_state, set_state_buffers, set_state_storage};
+pub use sweep::sweep_project;
 pub use video::render_video_project;
 
 use images::{BufferOverride, flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
@@ -88,6 +90,22 @@ pub struct ProfileOptions {
     pub warmup: u32,
     pub samples: u32,
     pub set_uniforms: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SweepOptions {
+    pub project: PathBuf,
+    pub output_dir: Option<PathBuf>,
+    pub contact_sheet: Option<PathBuf>,
+    pub no_contact_sheet: bool,
+    pub columns: Option<u32>,
+    pub pass: Option<String>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f32>,
+    pub frame: Option<i32>,
+    pub time: Option<f32>,
+    pub sweep_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +170,7 @@ pub struct InspectBufferOptions {
     pub output: Option<PathBuf>,
     pub raw: Option<PathBuf>,
     pub visualization: InspectVisualization,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -175,6 +194,7 @@ pub struct InspectStorageOptions {
     pub count: usize,
     pub value_type: InspectStorageType,
     pub output: Option<PathBuf>,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

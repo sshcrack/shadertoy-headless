@@ -45,6 +45,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
     runtime.set_profiling(true)?;
     let first_sample_frame = runtime.frame().saturating_add(1);
     let mut cpu_samples = Vec::with_capacity(options.samples as usize);
+    let mut gpu_total_samples = Vec::with_capacity(options.samples as usize);
     let mut passes: BTreeMap<String, TimingAggregate> = BTreeMap::new();
 
     for _ in 0..options.samples {
@@ -54,7 +55,14 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         let started = Instant::now();
         let _ = runtime.render(width, height)?;
         cpu_samples.push(started.elapsed().as_nanos() as u64);
-        for timing in runtime.pass_timings()? {
+        let timings = runtime.pass_timings()?;
+        gpu_total_samples.push(
+            timings
+                .iter()
+                .map(|timing| timing.gpu_nanoseconds)
+                .sum::<u64>(),
+        );
+        for timing in timings {
             let aggregate = passes.entry(timing.name).or_default();
             aggregate.width = timing.width;
             aggregate.height = timing.height;
@@ -71,7 +79,8 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         })
         .collect::<Vec<_>>();
     let cpu = timing_stats(&cpu_samples);
-    let total_gpu_mean_ns: f64 = pass_rows.iter().map(|(_, _, _, stats)| stats.mean_ns).sum();
+    let gpu_total = timing_stats(&gpu_total_samples);
+    let total_gpu_mean_ns = gpu_total.mean_ns;
     let persistent_buffer_bytes = estimated_persistent_buffer_bytes(&loaded, width, height)?;
 
     let mut human = format!(
@@ -108,6 +117,8 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
                 "height": pass_height,
                 "samples": stats.count,
                 "mean_ms": stats.mean_ns / 1_000_000.0,
+                "median_ms": stats.median_ns / 1_000_000.0,
+                "p95_ms": stats.p95_ns / 1_000_000.0,
                 "min_ms": stats.min_ns as f64 / 1_000_000.0,
                 "max_ms": stats.max_ns as f64 / 1_000_000.0,
             })
@@ -128,8 +139,17 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             "last_sample_frame": runtime.frame(),
             "passes": json_passes,
             "gpu_pass_total_mean_ms": total_gpu_mean_ns / 1_000_000.0,
+            "gpu_pass_total": {
+                "mean_ms": gpu_total.mean_ns / 1_000_000.0,
+                "median_ms": gpu_total.median_ns / 1_000_000.0,
+                "p95_ms": gpu_total.p95_ns / 1_000_000.0,
+                "min_ms": gpu_total.min_ns as f64 / 1_000_000.0,
+                "max_ms": gpu_total.max_ns as f64 / 1_000_000.0,
+            },
             "cpu_render": {
                 "mean_ms": cpu.mean_ns / 1_000_000.0,
+                "median_ms": cpu.median_ns / 1_000_000.0,
+                "p95_ms": cpu.p95_ns / 1_000_000.0,
                 "min_ms": cpu.min_ns as f64 / 1_000_000.0,
                 "max_ms": cpu.max_ns as f64 / 1_000_000.0,
             },
@@ -141,6 +161,8 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
 struct TimingStats {
     count: usize,
     mean_ns: f64,
+    median_ns: f64,
+    p95_ns: f64,
     min_ns: u64,
     max_ns: u64,
 }
@@ -153,9 +175,24 @@ fn timing_stats(samples: &[u64]) -> TimingStats {
     } else {
         samples.iter().map(|value| *value as f64).sum::<f64>() / samples.len() as f64
     };
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let median_ns = match sorted.len() {
+        0 => 0.0,
+        len if len % 2 == 1 => sorted[len / 2] as f64,
+        len => (sorted[len / 2 - 1] as f64 + sorted[len / 2] as f64) / 2.0,
+    };
+    let p95_ns = if sorted.is_empty() {
+        0.0
+    } else {
+        let rank = ((sorted.len() as f64 * 0.95).ceil() as usize).clamp(1, sorted.len());
+        sorted[rank - 1] as f64
+    };
     TimingStats {
         count: samples.len(),
         mean_ns,
+        median_ns,
+        p95_ns,
         min_ns,
         max_ns,
     }
@@ -233,10 +270,14 @@ mod tests {
         let empty = timing_stats(&[]);
         assert_eq!(empty.count, 0);
         assert_eq!(empty.mean_ns, 0.0);
+        assert_eq!(empty.median_ns, 0.0);
+        assert_eq!(empty.p95_ns, 0.0);
 
-        let values = timing_stats(&[10, 20, 30]);
+        let values = timing_stats(&[10, 20, 30, 40]);
         assert_eq!(values.min_ns, 10);
-        assert_eq!(values.max_ns, 30);
-        assert_eq!(values.mean_ns, 20.0);
+        assert_eq!(values.max_ns, 40);
+        assert_eq!(values.mean_ns, 25.0);
+        assert_eq!(values.median_ns, 25.0);
+        assert_eq!(values.p95_ns, 40.0);
     }
 }

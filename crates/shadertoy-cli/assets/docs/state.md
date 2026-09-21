@@ -22,7 +22,9 @@ Captured SSBOs can be replaced from exact-size binary files:
 The captured texture/timing state is deterministic and independent of wall-clock playback.
 
 Capture:
-  shadertoy state capture --frame 300 -o target/frame300.ststate
+  shadertoy state capture --frame 300 --set storm=1.0 -o target/frame300.ststate
+
+Declared custom uniforms accept the same --set NAME=VALUE overrides used by render, profiling, and runtime inspection. The override affects the deterministic frames used to build the captured buffer/SSBO state.
 
 Inspect:
   shadertoy state inspect target/frame300.ststate --json

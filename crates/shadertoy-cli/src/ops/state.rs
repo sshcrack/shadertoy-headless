@@ -10,6 +10,7 @@ pub fn capture_state(
     frame: Option<i32>,
     time: Option<f32>,
     include_storage: bool,
+    set_uniforms: &[String],
 ) -> Result<Output> {
     let loaded = LoadedManifest::load(project_path)?;
     ensure_source_files_exist(&loaded)?;
@@ -26,10 +27,9 @@ pub fn capture_state(
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
-    crate::uniforms::apply_to_runtime(
-        &mut runtime,
-        &crate::uniforms::defaults(&loaded.manifest.uniforms),
-    )?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
     let _ = render_from_zero(&mut runtime, target_frame, fps, width, height, &[], &media)?;
 
     let mut buffers = BTreeMap::new();

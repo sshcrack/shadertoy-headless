@@ -180,10 +180,9 @@ pub fn inspect_buffer(options: &InspectBufferOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
-    crate::uniforms::apply_to_runtime(
-        &mut runtime,
-        &crate::uniforms::defaults(&loaded.manifest.uniforms),
-    )?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, &options.set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
     let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?;
     let values = runtime.snapshot_pass_output_rgba32f(
         &pass.name,
@@ -319,10 +318,9 @@ pub fn inspect_storage(options: &InspectStorageOptions) -> Result<Output> {
     let mut runtime = Runtime::new(&context)?;
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
-    crate::uniforms::apply_to_runtime(
-        &mut runtime,
-        &crate::uniforms::defaults(&loaded.manifest.uniforms),
-    )?;
+    let uniform_values =
+        crate::uniforms::parse_assignments(&loaded.manifest.uniforms, &options.set_uniforms)?;
+    crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
     let _ = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?;
     let data = runtime.snapshot_storage_buffer(&options.name, declared_size)?;
 

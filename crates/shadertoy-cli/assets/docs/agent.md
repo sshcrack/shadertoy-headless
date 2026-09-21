@@ -25,6 +25,8 @@ supported remote assets local.
      shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
    For an encoded deterministic clip:
      shadertoy render-video --frames 180 -o target/clip.mp4
+   For parameter/art-direction comparisons:
+     shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
@@ -35,7 +37,7 @@ supported remote assets local.
      shadertoy render --pass buffer-a -o target/buffer-a.png
 
 6. Freeze a feedback state when a bug appears:
-     shadertoy state capture --frame 300 --include-storage -o target/frame300.ststate
+     shadertoy state capture --frame 300 --include-storage --set storm=1.0 -o target/frame300.ststate
      shadertoy state inspect target/frame300.ststate --json
 
 7. Replace a buffer with a known image to isolate a pass:
@@ -45,6 +47,7 @@ supported remote assets local.
 
 8. Profile expensive passes on the real GPU path:
      shadertoy profile --frame 120 --warmup 5 --samples 30 --json
+   Reports include mean, median, p95, min, and max timing statistics.
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
      shadertoy test

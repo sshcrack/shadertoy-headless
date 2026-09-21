@@ -503,7 +503,7 @@ fn normalize_frames(frames: &[i32]) -> Result<Vec<i32>> {
     Ok(normalized)
 }
 
-struct ContactSheet {
+pub(super) struct ContactSheet {
     path: PathBuf,
     columns: u32,
     width: u32,
@@ -514,7 +514,7 @@ struct ContactSheet {
 }
 
 impl ContactSheet {
-    fn blit(&mut self, index: usize, image: &RgbImage) -> Result<()> {
+    pub(super) fn blit(&mut self, index: usize, image: &RgbImage) -> Result<()> {
         if image.width != self.width || image.height != self.height {
             bail!("contact-sheet frame dimensions changed during rendering");
         }
@@ -535,7 +535,7 @@ impl ContactSheet {
         Ok(())
     }
 
-    fn save(self) -> Result<PathBuf> {
+    pub(super) fn save(self) -> Result<PathBuf> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -552,7 +552,7 @@ impl ContactSheet {
     }
 }
 
-fn prepare_contact_sheet(
+pub(super) fn prepare_contact_sheet(
     path: &Path,
     frame_count: usize,
     requested_columns: Option<u32>,
