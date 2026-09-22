@@ -40,6 +40,7 @@ use web::{frame_png, index, status, validate_remote_auth, websocket};
 #[derive(Debug, Clone)]
 pub struct PreviewConfig {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub host: String,
     pub port: u16,
     pub open: bool,
@@ -62,6 +63,8 @@ pub struct PreviewUniformStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct PreviewStatus {
     pub project: String,
+    pub preset: Option<String>,
+    pub presets: Vec<String>,
     pub sequence: u64,
     pub frame: i32,
     pub time: f32,
@@ -82,6 +85,8 @@ impl Default for PreviewStatus {
     fn default() -> Self {
         Self {
             project: String::new(),
+            preset: None,
+            presets: Vec::new(),
             sequence: 0,
             frame: 0,
             time: 0.0,
@@ -118,6 +123,7 @@ enum Control {
     Resume,
     Reset,
     Step,
+    Preset(Option<String>),
     View(String),
     Resolution(u32, u32),
     TimeScale(f32),
@@ -147,6 +153,9 @@ enum BrowserControl {
     Resume,
     Reset,
     Step,
+    Preset {
+        preset: Option<String>,
+    },
     View {
         pass: String,
     },
@@ -195,7 +204,7 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
     }
     validate_remote_auth(&config)?;
 
-    let loaded = LoadedManifest::load(&config.project)?;
+    let loaded = LoadedManifest::load_with_preset(&config.project, config.preset.as_deref())?;
     validate_preview_dimensions(&loaded)?;
     if config.record.is_some() && crate::media::manifest_uses_webcam(&loaded) {
         bail!(
@@ -210,6 +219,8 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         .transpose()?;
     let initial_status = PreviewStatus {
         project: loaded.manifest.project.name.clone(),
+        preset: config.preset.clone(),
+        presets: loaded.manifest.presets.keys().cloned().collect(),
         width: loaded.manifest.render.width,
         height: loaded.manifest.render.height,
         fps: loaded.manifest.render.fps,
@@ -361,6 +372,7 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     render_loop(
         root,
+        config.preset,
         shared,
         control_rx,
         config.preserve_reload_state,

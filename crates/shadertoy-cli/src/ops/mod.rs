@@ -54,6 +54,7 @@ pub struct Output {
 #[derive(Debug, Clone)]
 pub struct RenderOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub output: Option<PathBuf>,
     pub pass: Option<String>,
     pub width: Option<u32>,
@@ -86,6 +87,7 @@ pub struct TestOptions {
 #[derive(Debug, Clone)]
 pub struct ProfileOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub fps: Option<f32>,
@@ -93,6 +95,7 @@ pub struct ProfileOptions {
     pub time: Option<f32>,
     pub warmup: u32,
     pub samples: u32,
+    pub sync_per_pass: bool,
     pub set_uniforms: Vec<String>,
 }
 
@@ -123,6 +126,7 @@ pub struct BlindRevealOptions {
 #[derive(Debug, Clone)]
 pub struct SweepOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub output_dir: Option<PathBuf>,
     pub contact_sheet: Option<PathBuf>,
     pub no_contact_sheet: bool,
@@ -150,6 +154,7 @@ pub struct RenderAudioOptions {
 #[derive(Debug, Clone)]
 pub struct RenderVideoOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub output: Option<PathBuf>,
     pub pass: Option<String>,
     pub width: Option<u32>,
@@ -165,6 +170,7 @@ pub struct RenderVideoOptions {
 #[derive(Debug, Clone)]
 pub struct RenderFramesOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub output_dir: Option<PathBuf>,
     pub contact_sheet: Option<PathBuf>,
     pub columns: Option<u32>,

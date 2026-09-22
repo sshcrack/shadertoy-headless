@@ -43,8 +43,8 @@ pub fn init_project(path: &Path, template: Template) -> Result<Output> {
     })
 }
 
-pub fn check_project(path: &Path) -> Result<Output> {
-    let loaded = LoadedManifest::load(path)?;
+pub fn check_project(path: &Path, preset: Option<&str>) -> Result<Output> {
+    let loaded = LoadedManifest::load_with_preset(path, preset)?;
     ensure_source_files_exist(&loaded)?;
 
     let context = HeadlessContext::new(64, 64)
@@ -77,8 +77,8 @@ pub fn check_project(path: &Path) -> Result<Output> {
     })
 }
 
-pub fn build_project(path: &Path, output: Option<&Path>) -> Result<Output> {
-    let loaded = LoadedManifest::load(path)?;
+pub fn build_project(path: &Path, output: Option<&Path>, preset: Option<&str>) -> Result<Output> {
+    let loaded = LoadedManifest::load_with_preset(path, preset)?;
     ensure_source_files_exist(&loaded)?;
     if loaded
         .manifest

@@ -5,7 +5,10 @@ Native PNG frames are pushed as binary WebSocket messages and drawn to a canvas;
 there is no per-frame HTTP image polling. The preview reports a rolling end-to-end
 actual FPS based on frames successfully decoded and drawn by the browser, alongside
 the configured target FPS. ShaderToy.toml, shader sources, and assets are watched
-for changes.
+for changes. `shadertoy preview --preset NAME` applies a named manifest quality
+preset and keeps that preset active across full hot reloads. When presets exist,
+the browser exposes a Quality preset selector (including the base manifest) and can
+switch tiers live without restarting preview.
 
 Shader/source edits use an include-aware dependency graph. A successful source
 reload recompiles only affected passes and leaves existing render targets and

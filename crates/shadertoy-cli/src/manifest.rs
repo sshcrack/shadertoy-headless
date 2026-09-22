@@ -31,6 +31,9 @@ pub struct Manifest {
     pub passes: Vec<Pass>,
     #[serde(default, rename = "test", skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<TestCase>,
+    /// Named quality/configuration presets applied on top of this manifest.
+    #[serde(default, rename = "preset", skip_serializing_if = "BTreeMap::is_empty")]
+    pub presets: BTreeMap<String, Preset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -82,6 +85,34 @@ impl Default for RenderSection {
             preview_time: 1.0,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct Preset {
+    /// Scale applied to the manifest's default output width/height.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub render_scale: Option<f32>,
+    /// Overrides keyed by pass name, e.g. [preset.low.pass.surface].
+    #[serde(default, rename = "pass", skip_serializing_if = "BTreeMap::is_empty")]
+    pub passes: BTreeMap<String, PresetPass>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct PresetPass {
+    /// Fixed pass width override. Must be paired with height.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Fixed pass height override. Must be paired with width.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// Compute dispatch count override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<u32>,
+    /// Compute local workgroup override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_size: Option<[u32; 3]>,
 }
 
 fn default_test_tolerance() -> f32 {
@@ -337,6 +368,7 @@ impl Manifest {
                 inputs: Vec::new(),
             }],
             tests: Vec::new(),
+            presets: BTreeMap::new(),
         }
     }
 
@@ -399,6 +431,7 @@ impl Manifest {
                 },
             ],
             tests: Vec::new(),
+            presets: BTreeMap::new(),
         }
     }
 
@@ -431,6 +464,7 @@ impl Manifest {
         for include_dir in &self.shader.include_dirs {
             validate_project_relative_path(include_dir, "shader.include_dirs entry")?;
         }
+        self.validate_presets()?;
         validate_definitions(&self.uniforms)?;
         if self.passes.is_empty() {
             bail!("project must contain at least one [[pass]]");
@@ -933,6 +967,124 @@ impl Manifest {
         Ok(())
     }
 
+    fn validate_presets(&self) -> Result<()> {
+        for (name, preset) in &self.presets {
+            if name.trim().is_empty() {
+                bail!("preset name must not be empty");
+            }
+            if let Some(scale) = preset.render_scale {
+                if !scale.is_finite() || scale <= 0.0 {
+                    bail!("preset '{name}' render_scale must be finite and positive");
+                }
+                let width = scaled_dimension(self.render.width, scale)
+                    .with_context(|| format!("preset '{name}' render_scale"))?;
+                let height = scaled_dimension(self.render.height, scale)
+                    .with_context(|| format!("preset '{name}' render_scale"))?;
+                if width > MAX_RENDER_DIMENSION || height > MAX_RENDER_DIMENSION {
+                    bail!(
+                        "preset '{name}' render_scale produces dimensions above the {MAX_RENDER_DIMENSION} pixel safety limit"
+                    );
+                }
+            }
+            for (pass_name, override_) in &preset.passes {
+                let pass = self
+                    .passes
+                    .iter()
+                    .find(|pass| pass.name == *pass_name)
+                    .with_context(|| {
+                        format!("preset '{name}' references unknown pass '{pass_name}'")
+                    })?;
+                match (override_.width, override_.height) {
+                    (None, None) => {}
+                    (Some(width), Some(height)) => {
+                        if !matches!(pass.kind, PassKind::Buffer | PassKind::Compute) {
+                            bail!(
+                                "preset '{name}' can only override dimensions for buffer/compute pass '{pass_name}'"
+                            );
+                        }
+                        if width == 0
+                            || height == 0
+                            || width > MAX_RENDER_DIMENSION
+                            || height > MAX_RENDER_DIMENSION
+                        {
+                            bail!(
+                                "preset '{name}' pass '{pass_name}' dimensions must be positive and at most {MAX_RENDER_DIMENSION}"
+                            );
+                        }
+                    }
+                    _ => bail!(
+                        "preset '{name}' pass '{pass_name}' must specify both width and height or neither"
+                    ),
+                }
+                if let Some(iterations) = override_.iterations {
+                    if pass.kind != PassKind::Compute {
+                        bail!(
+                            "preset '{name}' iterations override is only valid for compute pass '{pass_name}'"
+                        );
+                    }
+                    if iterations == 0 || iterations > 4096 {
+                        bail!("preset '{name}' pass '{pass_name}' iterations must be in 1..=4096");
+                    }
+                }
+                if let Some([x, y, z]) = override_.local_size {
+                    if pass.kind != PassKind::Compute {
+                        bail!(
+                            "preset '{name}' local_size override is only valid for compute pass '{pass_name}'"
+                        );
+                    }
+                    if x == 0
+                        || y == 0
+                        || z != 1
+                        || u64::from(x) * u64::from(y) * u64::from(z) > 1024
+                    {
+                        bail!(
+                            "preset '{name}' pass '{pass_name}' local_size must be positive, use z=1, and have at most 1024 invocations"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn apply_preset(&mut self, name: &str) -> Result<()> {
+        let preset = self.presets.get(name).cloned().with_context(|| {
+            format!(
+                "unknown preset '{name}'; available presets: {}",
+                if self.presets.is_empty() {
+                    "<none>".to_string()
+                } else {
+                    self.presets.keys().cloned().collect::<Vec<_>>().join(", ")
+                }
+            )
+        })?;
+
+        if let Some(scale) = preset.render_scale {
+            self.render.width = scaled_dimension(self.render.width, scale)
+                .with_context(|| format!("preset '{name}' render_scale"))?;
+            self.render.height = scaled_dimension(self.render.height, scale)
+                .with_context(|| format!("preset '{name}' render_scale"))?;
+        }
+        for (pass_name, override_) in preset.passes {
+            let pass = self
+                .passes
+                .iter_mut()
+                .find(|pass| pass.name == pass_name)
+                .expect("preset pass names are validated before application");
+            if let (Some(width), Some(height)) = (override_.width, override_.height) {
+                pass.width = Some(width);
+                pass.height = Some(height);
+            }
+            if let Some(iterations) = override_.iterations {
+                pass.iterations = iterations;
+            }
+            if let Some(local_size) = override_.local_size {
+                pass.local_size = Some(local_size);
+            }
+        }
+        Ok(())
+    }
+
     pub fn infer_input_kind(&self, input: &Input) -> Result<InputKind> {
         if let Some(kind) = input.kind {
             return Ok(kind);
@@ -989,16 +1141,31 @@ impl Manifest {
 
 impl LoadedManifest {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        Self::load_with_preset(path, None)
+    }
+
+    pub fn load_with_preset(path: impl AsRef<Path>, preset: Option<&str>) -> Result<Self> {
         let root = find_project_root(path.as_ref())?;
         let manifest_path = root.join(MANIFEST_NAME);
         let source = fs::read_to_string(&manifest_path)
             .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-        let manifest: Manifest = toml::from_str(&source)
+        let mut manifest: Manifest = toml::from_str(&source)
             .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
         manifest.validate_structure()?;
+        if let Some(preset) = preset {
+            manifest.apply_preset(preset)?;
+        }
         crate::project_schema::refresh_existing(&root)?;
         Ok(Self { root, manifest })
     }
+}
+
+fn scaled_dimension(base: u32, scale: f32) -> Result<u32> {
+    let value = (base as f64 * scale as f64).round();
+    if !value.is_finite() || value < 1.0 || value > u32::MAX as f64 {
+        bail!("scaled render dimension is outside the supported range");
+    }
+    Ok(value as u32)
 }
 
 pub fn find_project_root(start: &Path) -> Result<PathBuf> {

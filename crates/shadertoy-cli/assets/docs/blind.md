@@ -11,8 +11,9 @@ Source auto-detection prefers a ShaderToy project, then a unique STTF build,
 then PNG/JPEG images. This keeps project texture assets from being mistaken for
 comparison inputs. Image-only directories are searched recursively and sorted
 deterministically. Every source must contain the same number of images at the
-same dimensions. The contact sheet uses anonymous variants A/B/C as columns and
-corresponding source images as rows.
+same dimensions unless every source uses the explicit `project:` form below.
+The contact sheet uses anonymous variants A/B/C as columns and corresponding
+source images as rows.
 
 Project directories and built STTF artifacts can be rendered at matching frames:
 
@@ -24,6 +25,19 @@ Project directories and built STTF artifacts can be rendered at matching frames:
 
 Project sources use their manifest render defaults unless width/height/fps are
 overridden. STTF sources default to 1280x720 at 60 fps unless overridden.
+
+Named quality presets can be compared directly without temporary project copies:
+
+  shadertoy blind create \
+    'project:.@preset=high' \
+    'project:.@preset=medium' \
+    'project:.@preset=low' \
+    --frames 60,180,300
+
+When all inputs use explicit `project:` sources, differing preset output scales
+are normalized to the largest source resolution for the blinded contact sheet
+and variant images. The sources must keep the same aspect ratio. This
+normalization is intentionally not applied to ordinary image/path comparisons.
 
 Git revisions can be compared without manually checking them out:
 

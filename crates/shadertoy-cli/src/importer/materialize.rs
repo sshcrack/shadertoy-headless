@@ -135,6 +135,7 @@ pub fn materialize_capture(
         assets: builder.assets,
         passes: builder.manifest_passes,
         tests: Vec::new(),
+        presets: std::collections::BTreeMap::new(),
     };
     manifest.validate_structure()?;
     write_manifest(&staged_root, &manifest)?;

@@ -286,8 +286,16 @@ void Runtime::setProfilingEnabled(const bool enabled) {
     mImpl->context.setProfilingEnabled(enabled);
 }
 
+void Runtime::setProfilingSyncPerPass(const bool enabled) {
+    mImpl->context.setProfilingSyncPerPass(enabled);
+}
+
 const std::vector<PassTiming>& Runtime::lastPassTimings() const {
     return mImpl->context.lastPassTimings();
+}
+
+uint64_t Runtime::lastFrameGpuNanoseconds() const {
+    return mImpl->context.lastFrameGpuNanoseconds();
 }
 
 void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, const float frameRate) {

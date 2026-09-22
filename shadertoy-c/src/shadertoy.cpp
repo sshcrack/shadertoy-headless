@@ -1113,6 +1113,15 @@ void st_runtime_set_profiling(st_runtime* runtime, const int enabled) {
         runtime->runtime.setProfilingEnabled(enabled != 0);
 }
 
+void st_runtime_set_profiling_sync_per_pass(st_runtime* runtime, const int enabled) {
+    if(runtime)
+        runtime->runtime.setProfilingSyncPerPass(enabled != 0);
+}
+
+uint64_t st_runtime_profile_frame_gpu_nanoseconds(const st_runtime* runtime) {
+    return runtime ? runtime->runtime.lastFrameGpuNanoseconds() : 0U;
+}
+
 size_t st_runtime_profile_pass_count(const st_runtime* runtime) {
     return runtime ? runtime->runtime.lastPassTimings().size() : 0U;
 }

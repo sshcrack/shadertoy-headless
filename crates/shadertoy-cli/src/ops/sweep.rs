@@ -11,7 +11,7 @@ struct SweepDimension {
 }
 
 pub fn sweep_project(options: &SweepOptions) -> Result<Output> {
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let dimensions = parse_sweep_dimensions(&loaded.manifest.uniforms, &options.sweep_uniforms)?;

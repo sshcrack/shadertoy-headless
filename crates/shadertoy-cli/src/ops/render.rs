@@ -1,7 +1,7 @@
 use super::*;
 
 pub fn render_project(options: &RenderOptions) -> Result<Output> {
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let state = options.state.as_ref().map(StateFile::load).transpose()?;
@@ -350,7 +350,7 @@ const MAX_BATCH_FRAMES: usize = 1024;
 const MAX_CONTACT_SHEET_BYTES: usize = 256 * 1024 * 1024;
 
 pub fn render_frames_project(options: &RenderFramesOptions) -> Result<Output> {
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let requested_frames = if let Some(range) = &options.range {

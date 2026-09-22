@@ -50,7 +50,7 @@ enum Command {
     RenderVideo(RenderVideoArgs),
     /// Render a ShaderToy Sound pass to deterministic stereo PCM WAV.
     RenderAudio(RenderAudioArgs),
-    /// Measure isolated per-pass GPU timings and profiled CPU render-call cost.
+    /// Measure per-pass and whole-frame GPU timings plus profiled CPU render-call cost.
     Profile(ProfileArgs),
     /// Render a Cartesian product of custom-uniform values for visual comparison.
     Sweep(SweepArgs),
@@ -107,6 +107,9 @@ struct ProjectPathArgs {
     /// Project directory (or any path inside it).
     #[arg(long, value_name = "PATH")]
     project: Option<PathBuf>,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
 }
 
 impl ProjectPathArgs {
@@ -126,6 +129,9 @@ struct BuildArgs {
     /// Project directory (or any path inside it).
     #[arg(long, value_name = "PATH")]
     project: Option<PathBuf>,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Output STTF path. Defaults to target/PROJECT.sttf.
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -136,6 +142,9 @@ struct RenderArgs {
     /// Project directory (or any path inside it).
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Output PNG path. Defaults to target/render.png.
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -170,6 +179,9 @@ struct RenderFramesArgs {
     /// Project directory (or any path inside it).
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Directory for individual PNG frames. Defaults to PROJECT/target/frames.
     #[arg(long)]
     output_dir: Option<PathBuf>,
@@ -220,6 +232,9 @@ struct RenderAudioArgs {
 struct RenderVideoArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Encoded output. Extension selects sensible defaults for mp4/webm/gif.
     #[arg(short, long)]
     output: Option<PathBuf>,
@@ -251,6 +266,9 @@ struct RenderVideoArgs {
 struct ProfileArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     #[arg(long)]
     width: Option<u32>,
     #[arg(long)]
@@ -267,6 +285,9 @@ struct ProfileArgs {
     /// Consecutive measured frames.
     #[arg(long, default_value_t = 20)]
     samples: u32,
+    /// Also complete each end-timestamp before continuing; slower maximum-isolation diagnostics.
+    #[arg(long)]
+    sync_per_pass: bool,
     /// Override a declared custom uniform during profiling.
     #[arg(long = "set", value_name = "NAME=VALUE")]
     set_uniforms: Vec<String>,
@@ -276,6 +297,9 @@ struct ProfileArgs {
 struct SweepArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     /// Directory for variant PNGs. Defaults to PROJECT/target/sweep.
     #[arg(long)]
     output_dir: Option<PathBuf>,
@@ -327,7 +351,7 @@ enum BlindCommand {
 
 #[derive(Debug, Args)]
 struct BlindCreateArgs {
-    /// Sources to blind. Paths auto-detect images, image directories, ShaderToy projects, and .sttf builds. Use git:REF or git:REF::SUBDIR for git revisions.
+    /// Sources to blind. Paths auto-detect images, image directories, ShaderToy projects, and .sttf builds. Use project:PATH@preset=NAME for a quality preset, or git:REF / git:REF::SUBDIR for revisions.
     #[arg(required = true, num_args = 2..)]
     sources: Vec<String>,
     /// Output directory. Defaults to target/blind-comparison.
@@ -406,6 +430,9 @@ struct TestArgs {
 struct PreviewArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
     #[arg(long, default_value_t = 4321)]
@@ -811,17 +838,18 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         Command::New(args) => ops::new_project(&args.path, args.template.into())?,
         Command::Init(args) => ops::init_project(&args.path, args.template.into())?,
         Command::Import(args) => ops::import_project(&args.source, args.output.as_deref())?,
-        Command::Check(args) => ops::check_project(&args.resolved())?,
+        Command::Check(args) => ops::check_project(&args.resolved(), args.preset.as_deref())?,
         Command::Build(args) => {
             let project = args
                 .project
                 .clone()
                 .or_else(|| args.path.clone())
                 .unwrap_or_else(|| PathBuf::from("."));
-            ops::build_project(&project, args.output.as_deref())?
+            ops::build_project(&project, args.output.as_deref(), args.preset.as_deref())?
         }
         Command::Render(args) => ops::render_project(&RenderOptions {
             project: args.project,
+            preset: args.preset,
             output: args.output,
             pass: args.pass,
             width: args.width,
@@ -835,6 +863,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         })?,
         Command::RenderFrames(args) => ops::render_frames_project(&RenderFramesOptions {
             project: args.project,
+            preset: args.preset,
             output_dir: args.output_dir,
             contact_sheet: args.contact_sheet,
             columns: args.columns,
@@ -856,6 +885,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         })?,
         Command::RenderVideo(args) => ops::render_video_project(&RenderVideoOptions {
             project: args.project,
+            preset: args.preset,
             output: args.output,
             pass: args.pass,
             width: args.width,
@@ -869,6 +899,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         })?,
         Command::Profile(args) => ops::profile_project(&ProfileOptions {
             project: args.project,
+            preset: args.preset,
             width: args.width,
             height: args.height,
             fps: args.fps,
@@ -876,10 +907,12 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             warmup: args.warmup,
             samples: args.samples,
+            sync_per_pass: args.sync_per_pass,
             set_uniforms: args.set_uniforms,
         })?,
         Command::Sweep(args) => ops::sweep_project(&SweepOptions {
             project: args.project,
+            preset: args.preset,
             output_dir: args.output_dir,
             contact_sheet: args.contact_sheet,
             no_contact_sheet: args.no_contact_sheet,
@@ -930,6 +963,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             preview::run(
                 PreviewConfig {
                     project: args.project,
+                    preset: args.preset,
                     host: args.host,
                     port: args.port,
                     open: args.open,

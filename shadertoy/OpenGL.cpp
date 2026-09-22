@@ -1261,8 +1261,65 @@ class OpenGLPipeline final : public Pipeline {
     std::unordered_map<std::string, std::pair<GLuint, uint64_t>> mNamedStorageBuffers;
     AudioInput mAudioInput;
     KeyboardInput mKeyboardInput;
+    struct PendingPassTiming final {
+        std::string name;
+        std::array<GLuint, 2> queries{};
+        uint32_t width{};
+        uint32_t height{};
+    };
+
     bool mProfilingEnabled{};
+    bool mProfilingSyncPerPass{};
+    std::vector<PendingPassTiming> mPendingPassTimings;
     std::vector<PassTiming> mLastPassTimings;
+    uint64_t mLastFrameGpuNanoseconds{};
+
+    void clearProfilingQueries() {
+        for(const auto& pending : mPendingPassTimings)
+            glDeleteQueries(static_cast<GLsizei>(pending.queries.size()), pending.queries.data());
+        mPendingPassTimings.clear();
+    }
+
+    void beginProfileFrame() {
+        mLastPassTimings.clear();
+        mLastFrameGpuNanoseconds = 0;
+        clearProfilingQueries();
+    }
+
+    void finishProfileFrame() {
+        if(!mProfilingEnabled)
+            return;
+
+        mLastPassTimings.reserve(mPendingPassTimings.size());
+        uint64_t totalNanoseconds = 0;
+        for(const auto& pending : mPendingPassTimings) {
+            GLuint64 start{};
+            GLuint64 end{};
+            glGetQueryObjectui64v(pending.queries[0], GL_QUERY_RESULT, &start);
+            glGetQueryObjectui64v(pending.queries[1], GL_QUERY_RESULT, &end);
+            const auto elapsed = end >= start ? static_cast<uint64_t>(end - start) : 0U;
+            totalNanoseconds += elapsed;
+            mLastPassTimings.push_back(PassTiming{
+                pending.name,
+                elapsed,
+                pending.width,
+                pending.height,
+            });
+        }
+        // Whole-frame GPU work is deliberately defined as the sum of the same
+        // completion-synchronized pass intervals used for attribution. Whole-
+        // frame timer queries undercount asynchronous compute on some drivers.
+        mLastFrameGpuNanoseconds = totalNanoseconds;
+        clearProfilingQueries();
+    }
+
+    static void waitForProfiledGpuCompletion() {
+        // Timer timestamps may execute on a graphics queue while compute remains
+        // outstanding on another engine. A full completion wait before the end
+        // timestamp is intentionally intrusive, but it makes the attribution
+        // boundary unambiguous across drivers.
+        glFinish();
+    }
 
     void renderProfiled(RenderPass& pass, const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax,
                         const Vec2 size, const ShaderToyUniform& uniform) {
@@ -1272,30 +1329,23 @@ class OpenGLPipeline final : public Pipeline {
             return;
         }
 
-        GLuint query{};
-        glGenQueries(1, &query);
-        auto queryGuard = scopeExit([&] { glDeleteQueries(1, &query); });
-
-        // Some drivers report near-zero timer-query durations for asynchronous
-        // compute unless execution is completed before the query closes. Profiling
-        // deliberately serializes each pass so the work is charged to the pass
-        // that issued it rather than a later consumer. The pre-pass finish keeps
-        // earlier uploads/work outside the interval.
-        glFinish();
-        glBeginQuery(GL_TIME_ELAPSED, query);
+        PendingPassTiming pending;
+        pending.name = std::string(pass.getName());
+        glGenQueries(static_cast<GLsizei>(pending.queries.size()), pending.queries.data());
+        glQueryCounter(pending.queries[0], GL_TIMESTAMP);
         pass.render(frameBufferSize, clipMin, clipMax, size, uniform,
                     pass.getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
-        glFinish();
-        glEndQuery(GL_TIME_ELAPSED);
-        GLuint64 elapsed{};
-        glGetQueryObjectui64v(query, GL_QUERY_RESULT, &elapsed);
+        waitForProfiledGpuCompletion();
+        glQueryCounter(pending.queries[1], GL_TIMESTAMP);
+        pending.width = pass.lastWidth();
+        pending.height = pass.lastHeight();
+        mPendingPassTimings.push_back(std::move(pending));
 
-        mLastPassTimings.push_back(PassTiming{
-            std::string(pass.getName()),
-            static_cast<uint64_t>(elapsed),
-            pass.lastWidth(),
-            pass.lastHeight(),
-        });
+        // The completion wait above makes attribution precise. Diagnostic mode
+        // additionally completes the end-timestamp command before the next pass,
+        // maximizing boundary isolation at the cost of extra synchronization.
+        if(mProfilingSyncPerPass)
+            glFinish();
     }
 
     static uint8_t toByte(const float value) {
@@ -1370,6 +1420,7 @@ public:
     OpenGLPipeline& operator=(const OpenGLPipeline&) = delete;
     OpenGLPipeline& operator=(OpenGLPipeline&&) = delete;
     ~OpenGLPipeline() override {
+        clearProfilingQueries();
         if(!mStorageBuffers.empty())
             glDeleteBuffers(static_cast<GLsizei>(mStorageBuffers.size()), mStorageBuffers.data());
         glDeleteVertexArrays(1, &mVAOImage);
@@ -1437,12 +1488,23 @@ public:
 
     void setProfilingEnabled(const bool enabled) override {
         mProfilingEnabled = enabled;
-        if(!enabled)
+        if(!enabled) {
+            clearProfilingQueries();
             mLastPassTimings.clear();
+            mLastFrameGpuNanoseconds = 0;
+        }
+    }
+
+    void setProfilingSyncPerPass(const bool enabled) override {
+        mProfilingSyncPerPass = enabled;
     }
 
     [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const override {
         return mLastPassTimings;
+    }
+
+    [[nodiscard]] uint64_t lastFrameGpuNanoseconds() const override {
+        return mLastFrameGpuNanoseconds;
     }
 
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,
@@ -1457,12 +1519,13 @@ public:
                          GL_RGBA, GL_UNSIGNED_BYTE, data.data());  // R8G8B8A8
             glBindTexture(GL_TEXTURE_2D, GL_NONE);
         }
-        mLastPassTimings.clear();
+        beginProfileFrame();
         for(const auto& pass : mRenderPasses) {
             if(!pass->hasOffscreenTarget())
                 glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
             renderProfiled(*pass, frameBufferSize, clipMin, clipMax, size, uniform);
         }
+        finishProfileFrame();
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(callerFramebuffer));
     }
 
@@ -1536,12 +1599,13 @@ public:
         // Render all passes. Offscreen passes may bind and unbind their own framebuffer,
         // so explicitly restore the capture framebuffer before any pass that renders
         // directly to the caller target.
-        mLastPassTimings.clear();
+        beginProfileFrame();
         for(const auto& pass : mRenderPasses) {
             if(!pass->hasOffscreenTarget())
                 fb->bind(width, height);
             renderProfiled(*pass, size, Vec2{ 0, 0 }, size, size, uniform);
         }
+        finishProfileFrame();
 
         fb->bind(width, height);
         std::vector<uint8_t> buffer(checkedSizeProduct({ width, height, 3U }, "Render readback"));

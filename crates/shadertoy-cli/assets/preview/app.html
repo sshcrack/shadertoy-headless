@@ -50,6 +50,9 @@ button { touch-action: manipulation; }
 <body>
 <aside>
   <h1>ShaderToy native preview</h1>
+  <div class="control" id="preset-section" style="display:none">
+    <label>Quality preset<select id="preset"></select></label>
+  </div>
   <div class="control">
     <label>View<select id="view"></select></label>
   </div>
@@ -91,6 +94,8 @@ ws.binaryType = "arraybuffer";
 const frame = document.getElementById("frame");
 const frameContext = frame.getContext("2d", {alpha:false});
 const view = document.getElementById("view");
+const presetSelect = document.getElementById("preset");
+const presetSection = document.getElementById("preset-section");
 const pause = document.getElementById("pause");
 const meta = document.getElementById("meta");
 const error = document.getElementById("error");
@@ -125,6 +130,28 @@ function samePassOptions(passes) {
     if (view.options[i].value !== passes[i]) return false;
   }
   return true;
+}
+function updatePresetOptions(presets, selected) {
+  const values = ["", ...(presets || [])];
+  let same = presetSelect.options.length === values.length;
+  if (same) {
+    for (let i = 0; i < values.length; i++) {
+      if (presetSelect.options[i].value !== values[i]) {
+        same = false;
+        break;
+      }
+    }
+  }
+  if (!same) {
+    presetSelect.replaceChildren(...values.map(name => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name || "(base)";
+      return option;
+    }));
+  }
+  presetSelect.value = selected || "";
+  presetSection.style.display = (presets || []).length ? "" : "none";
 }
 function uniformStructureSignature(items) {
   return JSON.stringify((items || []).map(item => ({
@@ -253,6 +280,7 @@ function renderMeta() {
   if (!status) return;
   const actual = status.paused ? "paused" : actualFps.toFixed(1) + " actual fps";
   meta.textContent = status.project
+    + "\nquality " + (status.preset || "base")
     + "\nframe " + status.frame + "  time " + status.time.toFixed(3) + "s"
     + "\n" + status.width + "x" + status.height
     + "  " + actual + "  (target " + status.fps + " fps)";
@@ -284,6 +312,7 @@ function update(s) {
   if (document.activeElement !== height) height.value = s.height;
   if (document.activeElement !== scale) scale.value = s.time_scale;
   updateUniforms(s.uniforms || []);
+  updatePresetOptions(s.presets || [], s.preset);
   webcamSection.style.display = s.webcam ? "" : "none";
   if (!s.webcam && webcamStream !== null) stopWebcam();
   if (!samePassOptions(s.passes)) {
@@ -329,6 +358,7 @@ ws.onmessage = event => {
     queueFrame(event.data).catch(err => { error.textContent = "preview frame decode failed: " + err; });
   }
 };
+presetSelect.onchange = () => send({type:"preset", preset:presetSelect.value || null});
 view.onchange = () => send({type:"view", pass:view.value});
 pause.onclick = () => send({type: status && status.paused ? "resume" : "pause"});
 document.getElementById("step").onclick = () => send({type:"step"});

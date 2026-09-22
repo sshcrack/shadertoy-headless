@@ -138,7 +138,9 @@ public:
     virtual void reloadPassSource(std::string_view passName, const std::string& src) = 0;
     virtual void render(Vec2 frameBufferSize, Vec2 clipMin, Vec2 clipMax, Vec2 size, const ShaderToyUniform& uniform) = 0;
     virtual void setProfilingEnabled(bool enabled) = 0;
+    virtual void setProfilingSyncPerPass(bool enabled) = 0;
     [[nodiscard]] virtual const std::vector<PassTiming>& lastPassTimings() const = 0;
+    [[nodiscard]] virtual uint64_t lastFrameGpuNanoseconds() const = 0;
 
     virtual TextureId createTexture(std::string name, uint32_t width, uint32_t height, const uint32_t* data) = 0;
     virtual void updateTexture(std::string_view name, uint32_t width, uint32_t height, const uint32_t* data) = 0;

@@ -18,7 +18,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         bail!("--warmup must be at most {MAX_PROFILE_SAMPLES}");
     }
 
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
     let (width, height) = render::resolve_dimensions(&loaded, None, options.width, options.height)?;
@@ -42,7 +42,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         let _ = runtime.render(width, height)?;
     }
 
-    runtime.set_profiling(true)?;
+    runtime.set_profiling_mode(true, options.sync_per_pass)?;
     let first_sample_frame = runtime.frame().saturating_add(1);
     let mut cpu_samples = Vec::with_capacity(options.samples as usize);
     let mut gpu_total_samples = Vec::with_capacity(options.samples as usize);
@@ -56,12 +56,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         let _ = runtime.render(width, height)?;
         cpu_samples.push(started.elapsed().as_nanos() as u64);
         let timings = runtime.pass_timings()?;
-        gpu_total_samples.push(
-            timings
-                .iter()
-                .map(|timing| timing.gpu_nanoseconds)
-                .sum::<u64>(),
-        );
+        gpu_total_samples.push(runtime.frame_gpu_nanoseconds()?);
         for timing in timings {
             let aggregate = passes.entry(timing.name).or_default();
             aggregate.width = timing.width;
@@ -80,7 +75,6 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         .collect::<Vec<_>>();
     let cpu = timing_stats(&cpu_samples);
     let gpu_total = timing_stats(&gpu_total_samples);
-    let total_gpu_mean_ns = gpu_total.mean_ns;
     let persistent_buffer_bytes = estimated_persistent_buffer_bytes(&loaded, width, height)?;
 
     let mut human = format!(
@@ -92,22 +86,33 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         first_sample_frame,
         runtime.frame()
     );
+    let timing_mode = if options.sync_per_pass {
+        "hard sync-per-pass GPU timestamps (maximum diagnostic isolation)"
+    } else {
+        "completion-synchronized GPU timestamps (precise pass attribution)"
+    };
+    human.push_str(&format!("Timing mode: {timing_mode}\n"));
     human.push_str(
-        "Timing mode: isolated passes (cross-pass GPU overlap disabled; boundary sync overhead included)\n",
+        "Pass                         Resolution       mean     median        p95        min        max\n",
     );
-    human.push_str("Pass                         Resolution       mean       min       max\n");
     for (name, pass_width, pass_height, stats) in &pass_rows {
         human.push_str(&format!(
-            "{name:<28} {pass_width:>5}x{pass_height:<5} {:>8.3}ms {:>8.3}ms {:>8.3}ms\n",
+            "{name:<28} {pass_width:>5}x{pass_height:<5} {:>8.3}ms {:>8.3}ms {:>8.3}ms {:>8.3}ms {:>8.3}ms\n",
             stats.mean_ns / 1_000_000.0,
+            stats.median_ns / 1_000_000.0,
+            stats.p95_ns / 1_000_000.0,
             stats.min_ns as f64 / 1_000_000.0,
             stats.max_ns as f64 / 1_000_000.0,
         ));
     }
     human.push_str(&format!(
-        "GPU pass total (mean): {:.3} ms\nCPU render call (mean): {:.3} ms\nPersistent GPU state VRAM estimate: {:.2} MiB",
-        total_gpu_mean_ns / 1_000_000.0,
+        "GPU total (sum of precisely attributed passes): mean {:.3} ms, median {:.3} ms, p95 {:.3} ms\nCPU profiled render call: mean {:.3} ms, median {:.3} ms, p95 {:.3} ms\nPersistent GPU state VRAM estimate: {:.2} MiB",
+        gpu_total.mean_ns / 1_000_000.0,
+        gpu_total.median_ns / 1_000_000.0,
+        gpu_total.p95_ns / 1_000_000.0,
         cpu.mean_ns / 1_000_000.0,
+        cpu.median_ns / 1_000_000.0,
+        cpu.p95_ns / 1_000_000.0,
         persistent_buffer_bytes as f64 / (1024.0 * 1024.0),
     ));
 
@@ -133,6 +138,7 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         json: json!({
             "ok": true,
             "project": loaded.manifest.project.name,
+            "preset": options.preset,
             "width": width,
             "height": height,
             "fps": fps,
@@ -141,8 +147,18 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             "first_sample_frame": first_sample_frame,
             "last_sample_frame": runtime.frame(),
             "passes": json_passes,
-            "timing_mode": "isolated_passes",
-            "gpu_pass_total_mean_ms": total_gpu_mean_ns / 1_000_000.0,
+            "timing_mode": if options.sync_per_pass { "sync_per_pass" } else { "completion_synchronized" },
+            "sync_per_pass": options.sync_per_pass,
+            "gpu_frame_mode": "attributed_pass_sum",
+            "gpu_frame_note": "Portable whole-frame timer queries undercount asynchronous compute on some drivers. This total is the sum of the same completion-synchronized pass intervals used for precise attribution.",
+            "gpu_frame": {
+                "mean_ms": gpu_total.mean_ns / 1_000_000.0,
+                "median_ms": gpu_total.median_ns / 1_000_000.0,
+                "p95_ms": gpu_total.p95_ns / 1_000_000.0,
+                "min_ms": gpu_total.min_ns as f64 / 1_000_000.0,
+                "max_ms": gpu_total.max_ns as f64 / 1_000_000.0,
+            },
+            "gpu_pass_total_mean_ms": gpu_total.mean_ns / 1_000_000.0,
             "gpu_pass_total": {
                 "mean_ms": gpu_total.mean_ns / 1_000_000.0,
                 "median_ms": gpu_total.median_ns / 1_000_000.0,

@@ -15,11 +15,13 @@ shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
 shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
 shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
+shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
 shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "preferred breakup"
 shadertoy blind reveal target/old-vs-new/blind-session.json
 shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --set foam_gain=1.0
 shadertoy inspect storage particle-state --frame 120 --type f32 --count 16
-shadertoy profile --frame 120 --samples 30
+shadertoy profile --preset medium --frame 120 --samples 30
+shadertoy profile --preset medium --frame 120 --samples 30 --sync-per-pass
 shadertoy test
 shadertoy preview --record target/session.strec
 shadertoy replay target/session.strec -o target/replay.png
@@ -53,9 +55,23 @@ preserving feedback buffers when possible.
 Projects can declare typed custom uniforms with `[[uniform]]`; defaults are applied
 everywhere, deterministic rendering/state-capture/runtime-inspection commands accept
 `--set name=value`, preview exposes matching controls, and `[[test]]` cases can override
-them independently. `shadertoy sweep --set gain=0.8,1.0,1.2` renders parameter variants
-and a contact sheet without temporary project copies. `profile` reports mean, median,
-p95, min, and max timing statistics; pass timings isolate GPU completion so compute work is charged to the issuing pass instead of a later consumer. Very small pass timings can include the isolation boundary's synchronization overhead. Blind sweeps anonymize parameter variants, while `blind create` accepts existing images/render directories, project directories, STTF builds, and Git revisions. `blind judge` records the preference and rationale before `blind reveal` exposes the sealed mapping and writes a combined report.
+them independently. Named `[preset.NAME]` sections keep quality tiers in the same
+project root; `render_scale` adjusts default output size while
+`[preset.NAME.pass.PASS]` can override fixed pass dimensions and compute
+iterations/local size. `check`, `build`, `preview`, `render`, `render-frames`,
+`render-video`, `sweep`, and `profile` accept `--preset NAME`.
+
+`shadertoy sweep --set gain=0.8,1.0,1.2` renders parameter variants and a contact
+sheet without temporary project copies. `profile` reports mean, median, p95, min, and max per-pass GPU timestamp
+statistics plus a total GPU-work duration computed from those same attributed pass
+intervals. Completion-synchronized boundaries keep deferred compute from migrating into
+a consumer; this pass-sum definition is used because portable whole-frame timer queries
+can undercount asynchronous compute. `--sync-per-pass` additionally completes each query
+boundary before continuing for maximum-isolation driver diagnostics. Blind sweeps anonymize parameter variants,
+while `blind create` accepts existing images/render directories, project
+directories, STTF builds, Git revisions, and `project:PATH@preset=NAME` sources.
+`blind judge` records the preference and rationale before `blind reveal` exposes
+the sealed mapping and writes a combined report.
 
 Buffer passes can opt into fixed `width`/`height` render targets for stable
 simulation grids, while each iChannel can independently choose

@@ -3,12 +3,14 @@ use super::*;
 
 pub(super) fn render_loop(
     root: PathBuf,
+    preset: Option<String>,
     shared: Shared,
     controls: mpsc::Receiver<Control>,
     preserve_reload_state: bool,
     runtime: &mut Runtime<'_>,
     mut recorder: Option<ReplayRecorder>,
 ) {
+    let mut preset = preset;
     let mut loaded: Option<LoadedManifest> = None;
     let mut sources: Option<SourceGraph> = None;
     let mut changed_paths = BTreeSet::new();
@@ -26,6 +28,7 @@ pub(super) fn render_loop(
 
     match reload(
         &root,
+        preset.as_deref(),
         runtime,
         &mut loaded,
         &mut sources,
@@ -81,6 +84,7 @@ pub(super) fn render_loop(
             if !handle_control(
                 control,
                 &root,
+                &mut preset,
                 &shared,
                 runtime,
                 &mut recorder,
@@ -121,6 +125,7 @@ pub(super) fn render_loop(
                 Ok(false) => {
                     match reload(
                         &root,
+                        preset.as_deref(),
                         runtime,
                         &mut loaded,
                         &mut sources,
@@ -259,6 +264,7 @@ pub(super) fn render_loop(
                 if !handle_control(
                     control,
                     &root,
+                    &mut preset,
                     &shared,
                     runtime,
                     &mut recorder,
@@ -294,6 +300,7 @@ pub(super) fn render_loop(
 fn handle_control(
     control: Control,
     root: &Path,
+    preset: &mut Option<String>,
     shared: &Shared,
     runtime: &mut Runtime<'_>,
     recorder: &mut Option<ReplayRecorder>,
@@ -342,6 +349,7 @@ fn handle_control(
         }
         Control::Reset => match reload(
             root,
+            preset.as_deref(),
             runtime,
             loaded,
             sources,
@@ -373,6 +381,52 @@ fn handle_control(
             }
             if was_paused {
                 let _ = runtime.pause();
+            }
+        }
+        Control::Preset(requested) => {
+            if requested == *preset {
+                clear_error(shared);
+            } else {
+                if let Some(recorder) = recorder
+                    && let Err(error) = recorder.invalidate(
+                        "quality preset changed during recording; restart preview to capture a reproducible session",
+                    )
+                {
+                    set_error(
+                        shared,
+                        format!("replay recording invalidation failed: {error:#}"),
+                    );
+                }
+                match reload(
+                    root,
+                    requested.as_deref(),
+                    runtime,
+                    loaded,
+                    sources,
+                    width,
+                    height,
+                    fps,
+                    view,
+                    uniform_values,
+                    true,
+                ) {
+                    Ok(()) => {
+                        if let Some(project) = loaded.as_ref() {
+                            *width = project.manifest.render.width;
+                            *height = project.manifest.render.height;
+                            *fps = project.manifest.render.fps;
+                        }
+                        *preset = requested;
+                        if let Ok(mut status) = shared.status.write() {
+                            status.preset = preset.clone();
+                        }
+                        *fresh = true;
+                        *force_render = true;
+                        *next_frame = Instant::now();
+                        clear_error(shared);
+                    }
+                    Err(error) => set_error(shared, format!("{error:#}")),
+                }
             }
         }
         Control::View(pass) => {

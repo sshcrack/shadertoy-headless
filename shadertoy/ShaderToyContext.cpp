@@ -243,9 +243,18 @@ void ShaderToyContext::setProfilingEnabled(const bool enabled) {
         mPipeline->setProfilingEnabled(enabled);
 }
 
+void ShaderToyContext::setProfilingSyncPerPass(const bool enabled) {
+    if(mPipeline)
+        mPipeline->setProfilingSyncPerPass(enabled);
+}
+
 const std::vector<PassTiming>& ShaderToyContext::lastPassTimings() const {
     static const std::vector<PassTiming> empty;
     return mPipeline ? mPipeline->lastPassTimings() : empty;
+}
+
+uint64_t ShaderToyContext::lastFrameGpuNanoseconds() const {
+    return mPipeline ? mPipeline->lastFrameGpuNanoseconds() : 0;
 }
 
 void ShaderToyContext::setFixedState(const float timeSeconds, const int32_t frame, const float frameRate) {

@@ -76,7 +76,9 @@ public:
     Result<void> overridePassRgba8(std::string_view passName, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba);
     Result<void> restorePassRgba32f(std::string_view passName, uint32_t width, uint32_t height, const std::vector<float>& rgba);
     void setProfilingEnabled(bool enabled);
+    void setProfilingSyncPerPass(bool enabled);
     [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
+    [[nodiscard]] uint64_t lastFrameGpuNanoseconds() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
     void setReplayState(float timeSeconds, float timeDelta, int32_t frame, float frameRate);
     [[nodiscard]] int32_t frame() const noexcept;

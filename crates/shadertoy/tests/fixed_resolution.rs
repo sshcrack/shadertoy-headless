@@ -282,4 +282,34 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         "active compute work must be attributed to the compute pass"
     );
     assert!(image.gpu_nanoseconds > 0);
+    assert!(
+        compute.gpu_nanoseconds > image.gpu_nanoseconds,
+        "the deliberately heavy compute pass must retain its own cost instead of migrating into the consumer: compute={}ns image={}ns",
+        compute.gpu_nanoseconds,
+        image.gpu_nanoseconds
+    );
+    let frame_gpu = runtime
+        .frame_gpu_nanoseconds()
+        .expect("read whole-frame GPU timing");
+    assert!(
+        frame_gpu > 0,
+        "whole-frame GPU timestamp duration must be reported"
+    );
+    assert_eq!(
+        frame_gpu,
+        compute.gpu_nanoseconds + image.gpu_nanoseconds,
+        "GPU total must be the exact sum of precisely attributed pass intervals"
+    );
+
+    runtime
+        .set_profiling_mode(true, true)
+        .expect("enable synchronized profiling");
+    runtime
+        .render(32, 16)
+        .expect("render synchronized profiled frame");
+    assert!(
+        runtime.frame_gpu_nanoseconds().expect("sync frame timing") > 0,
+        "synchronized diagnostic mode must still report frame timing"
+    );
+    assert_eq!(runtime.pass_timings().expect("sync pass timings").len(), 2);
 }

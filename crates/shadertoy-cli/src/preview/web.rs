@@ -162,6 +162,7 @@ fn browser_control(command: BrowserControl) -> Control {
         BrowserControl::Resume => Control::Resume,
         BrowserControl::Reset => Control::Reset,
         BrowserControl::Step => Control::Step,
+        BrowserControl::Preset { preset } => Control::Preset(preset),
         BrowserControl::View { pass } => Control::View(pass),
         BrowserControl::Resolution { width, height } => Control::Resolution(width, height),
         BrowserControl::TimeScale { value } => Control::TimeScale(value),
@@ -190,3 +191,22 @@ fn browser_control(command: BrowserControl) -> Control {
 }
 
 const INDEX_HTML: &str = crate::include_file!("preview/app.html");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_preset_control_supports_named_and_base_presets() {
+        let named: BrowserControl =
+            serde_json::from_str(r#"{"type":"preset","preset":"medium"}"#).unwrap();
+        match browser_control(named) {
+            Control::Preset(Some(name)) => assert_eq!(name, "medium"),
+            other => panic!("unexpected control: {other:?}"),
+        }
+
+        let base: BrowserControl =
+            serde_json::from_str(r#"{"type":"preset","preset":null}"#).unwrap();
+        assert!(matches!(browser_control(base), Control::Preset(None)));
+    }
+}

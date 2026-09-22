@@ -11,6 +11,8 @@ supported remote assets local.
      shadertoy inspect --json
 
 2. Edit ShaderToy.toml and files under shaders/ or assets/.
+   Put quality tiers in `[preset.NAME]` / `[preset.NAME.pass.PASS]` and select
+   them with `--preset NAME` instead of copying the project.
    For GPU simulations, FFTs, particles, and large structured state, prefer
    compute passes + typed targets + named SSBOs; see shadertoy docs passes.
    The manifest is schema-backed. To print the exact schema:
@@ -18,6 +20,8 @@ supported remote assets local.
 
 3. Validate after edits:
      shadertoy check --json
+   Or validate an effective quality tier:
+     shadertoy check --preset medium --json
 
 4. Render deterministic evidence:
      shadertoy render -o target/check.png
@@ -31,6 +35,8 @@ supported remote assets local.
      shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
    To blind old-vs-new images, projects, builds, or git revisions:
      shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
+   To compare quality presets without temporary project copies:
+     shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
      shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "concise visual rationale"
      shadertoy blind reveal target/old-vs-new/blind-session.json
 
@@ -53,7 +59,13 @@ supported remote assets local.
 
 8. Profile expensive passes on the real GPU path:
      shadertoy profile --frame 120 --warmup 5 --samples 30 --json
-   Reports include mean, median, p95, min, and max timing statistics. Profiling isolates GPU pass completion so deferred compute work is attributed to the issuing pass; cross-pass overlap is intentionally disabled and sub-millisecond values can include synchronization-boundary overhead.
+   Reports mean, median, p95, min, and max per-pass GPU timestamp durations plus
+   a total GPU-work duration and CPU render-call timing. Completion-synchronized
+   boundaries keep asynchronous compute attached to the issuing pass. The total is the
+   sum of those attributed intervals because portable whole-frame timer queries can
+   undercount async compute on affected drivers. For maximum-isolation diagnostics,
+   rerun with:
+     shadertoy profile --frame 120 --samples 30 --sync-per-pass --json
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
      shadertoy test
@@ -63,6 +75,9 @@ supported remote assets local.
 
 10. Use live native-rendered review when iterating:
      shadertoy preview
+    Or launch a named quality tier directly:
+     shadertoy preview --preset medium
+    When presets exist, the browser also exposes a Quality preset selector for live switching.
     Declared custom uniforms become live controls. A `kind = "webcam"` channel
     exposes a Start webcam button; webcam input is intentionally not recordable
     or usable by headless commands.

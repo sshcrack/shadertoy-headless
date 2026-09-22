@@ -9,6 +9,13 @@ const MAX_BLIND_IMAGES_PER_SOURCE: usize = 128;
 struct PreparedSource {
     identity: String,
     images: Vec<RgbImage>,
+    normalize_dimensions: bool,
+}
+
+struct PathSourceSpec {
+    path: PathBuf,
+    preset: Option<String>,
+    explicit_project: bool,
 }
 
 struct GitWorktree {
@@ -77,16 +84,28 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
                 options.width,
                 options.height,
                 options.fps,
+                None,
             )?;
-            prepared.push(PreparedSource { identity, images });
+            prepared.push(PreparedSource {
+                identity,
+                images,
+                normalize_dimensions: false,
+            });
             worktrees.push(worktree);
         } else {
-            let path = PathBuf::from(source);
-            let images =
-                prepare_path_source(&path, &frames, options.width, options.height, options.fps)?;
+            let spec = parse_path_source(source)?;
+            let images = prepare_path_source(
+                &spec.path,
+                &frames,
+                options.width,
+                options.height,
+                options.fps,
+                spec.preset.as_deref(),
+            )?;
             prepared.push(PreparedSource {
-                identity: path.display().to_string(),
+                identity: source.clone(),
                 images,
+                normalize_dimensions: spec.explicit_project,
             });
         }
     }
@@ -112,23 +131,9 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
         }
     }
 
+    normalize_project_source_dimensions(&mut prepared)?;
     let width = prepared[0].images[0].width;
     let height = prepared[0].images[0].height;
-    for source in &prepared {
-        for (index, image) in source.images.iter().enumerate() {
-            if image.width != width || image.height != height {
-                bail!(
-                    "all blinded images must have identical dimensions; '{}' image {} is {}x{}, expected {}x{}",
-                    source.identity,
-                    index,
-                    image.width,
-                    image.height,
-                    width,
-                    height
-                );
-            }
-        }
-    }
 
     let entropy_context = format!(
         "external|{}|{}|{}|{}",
@@ -230,14 +235,100 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
     })
 }
 
+fn parse_path_source(source: &str) -> Result<PathSourceSpec> {
+    let Some(spec) = source.strip_prefix("project:") else {
+        return Ok(PathSourceSpec {
+            path: PathBuf::from(source),
+            preset: None,
+            explicit_project: false,
+        });
+    };
+    if spec.is_empty() {
+        bail!("project: blind source must include a project path");
+    }
+    let (path, preset) = match spec.rsplit_once("@preset=") {
+        Some((path, preset)) => {
+            if path.is_empty() || preset.trim().is_empty() {
+                bail!("project blind source must use project:PATH@preset=NAME");
+            }
+            (path, Some(preset.trim().to_string()))
+        }
+        None => (spec, None),
+    };
+    Ok(PathSourceSpec {
+        path: PathBuf::from(path),
+        preset,
+        explicit_project: true,
+    })
+}
+
+fn normalize_project_source_dimensions(prepared: &mut [PreparedSource]) -> Result<()> {
+    let mut target = None::<(u32, u32, u64)>;
+    let mut dimensions_differ = false;
+    let first = (prepared[0].images[0].width, prepared[0].images[0].height);
+    for source in prepared.iter() {
+        for image in &source.images {
+            let area = u64::from(image.width) * u64::from(image.height);
+            if target.is_none_or(|(_, _, current)| area > current) {
+                target = Some((image.width, image.height, area));
+            }
+            dimensions_differ |= (image.width, image.height) != first;
+        }
+    }
+    if !dimensions_differ {
+        return Ok(());
+    }
+    if !prepared.iter().all(|source| source.normalize_dimensions) {
+        bail!(
+            "all blinded images must have identical dimensions; use explicit project:PATH@preset=NAME sources to compare quality presets with different render scales"
+        );
+    }
+
+    let (width, height, _) = target.expect("blind sources contain at least one image");
+    for source in prepared.iter_mut() {
+        for image in &mut source.images {
+            if u64::from(image.width) * u64::from(height)
+                != u64::from(image.height) * u64::from(width)
+            {
+                bail!(
+                    "quality-preset blind sources must keep the same aspect ratio; '{}' contains {}x{}, target is {}x{}",
+                    source.identity,
+                    image.width,
+                    image.height,
+                    width,
+                    height
+                );
+            }
+            if image.width == width && image.height == height {
+                continue;
+            }
+            let decoded =
+                ::image::RgbImage::from_raw(image.width, image.height, image.pixels.clone())
+                    .context("invalid RGB buffer while normalizing blind preset dimensions")?;
+            let resized = ::image::imageops::resize(
+                &decoded,
+                width,
+                height,
+                ::image::imageops::FilterType::Triangle,
+            );
+            *image = RgbImage::new(width, height, resized.into_raw());
+        }
+    }
+    Ok(())
+}
+
 fn prepare_path_source(
     path: &Path,
     frames: &[i32],
     width: Option<u32>,
     height: Option<u32>,
     fps: Option<f32>,
+    preset: Option<&str>,
 ) -> Result<Vec<RgbImage>> {
     if path.is_file() {
+        if preset.is_some() {
+            bail!("blind @preset is only valid for ShaderToy project sources");
+        }
         if is_image_path(path) {
             return Ok(vec![load_image(path)?]);
         }
@@ -254,10 +345,20 @@ fn prepare_path_source(
     }
     match classify_directory_source(path)? {
         DirectorySource::Project(project) => {
-            render_project_frames(&project, frames, width, height, fps)
+            render_project_frames(&project, frames, width, height, fps, preset)
         }
-        DirectorySource::Sttf(sttf) => render_sttf_frames(&sttf, frames, width, height, fps),
-        DirectorySource::Images(paths) => paths.iter().map(|path| load_image(path)).collect(),
+        DirectorySource::Sttf(sttf) => {
+            if preset.is_some() {
+                bail!("blind @preset is only valid for ShaderToy project sources");
+            }
+            render_sttf_frames(&sttf, frames, width, height, fps)
+        }
+        DirectorySource::Images(paths) => {
+            if preset.is_some() {
+                bail!("blind @preset is only valid for ShaderToy project sources");
+            }
+            paths.iter().map(|path| load_image(path)).collect()
+        }
     }
 }
 
@@ -323,10 +424,12 @@ fn render_project_frames(
     width: Option<u32>,
     height: Option<u32>,
     fps: Option<f32>,
+    preset: Option<&str>,
 ) -> Result<Vec<RgbImage>> {
     let temp = tempfile::tempdir().context("failed to create temporary blind render directory")?;
     let output = render::render_frames_project(&RenderFramesOptions {
         project: project.to_path_buf(),
+        preset: preset.map(str::to_owned),
         output_dir: Some(temp.path().to_path_buf()),
         contact_sheet: None,
         columns: None,
@@ -620,6 +723,41 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, contents).unwrap();
+    }
+
+    #[test]
+    fn parses_project_preset_source() {
+        let parsed = parse_path_source("project:.@preset=medium").unwrap();
+        assert_eq!(parsed.path, PathBuf::from("."));
+        assert_eq!(parsed.preset.as_deref(), Some("medium"));
+        assert!(parsed.explicit_project);
+
+        let plain = parse_path_source("renders/a.png").unwrap();
+        assert_eq!(plain.path, PathBuf::from("renders/a.png"));
+        assert!(plain.preset.is_none());
+        assert!(!plain.explicit_project);
+    }
+
+    #[test]
+    fn project_preset_sources_normalize_to_largest_resolution() {
+        let mut prepared = vec![
+            PreparedSource {
+                identity: "project:.@preset=high".into(),
+                images: vec![RgbImage::new(4, 2, vec![32; 4 * 2 * 3])],
+                normalize_dimensions: true,
+            },
+            PreparedSource {
+                identity: "project:.@preset=low".into(),
+                images: vec![RgbImage::new(2, 1, vec![64; 2 * 3])],
+                normalize_dimensions: true,
+            },
+        ];
+        normalize_project_source_dimensions(&mut prepared).unwrap();
+        assert!(
+            prepared
+                .iter()
+                .all(|source| source.images[0].width == 4 && source.images[0].height == 2)
+        );
     }
 
     #[test]

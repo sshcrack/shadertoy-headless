@@ -143,6 +143,8 @@ ST_NATIVE_EXPORT int st_runtime_override_pass_rgba8(st_runtime* runtime, const c
 ST_NATIVE_EXPORT int st_runtime_restore_pass_rgba32f(st_runtime* runtime, const char* pass_name, uint32_t width, uint32_t height,
                                                      const float* rgba, size_t rgba_len);
 ST_NATIVE_EXPORT void st_runtime_set_profiling(st_runtime* runtime, int enabled);
+ST_NATIVE_EXPORT void st_runtime_set_profiling_sync_per_pass(st_runtime* runtime, int enabled);
+ST_NATIVE_EXPORT uint64_t st_runtime_profile_frame_gpu_nanoseconds(const st_runtime* runtime);
 ST_NATIVE_EXPORT size_t st_runtime_profile_pass_count(const st_runtime* runtime);
 ST_NATIVE_EXPORT size_t st_runtime_profile_pass_name_len(const st_runtime* runtime, size_t index);
 ST_NATIVE_EXPORT int st_runtime_profile_pass(const st_runtime* runtime, size_t index, char* out_name, size_t out_name_len,

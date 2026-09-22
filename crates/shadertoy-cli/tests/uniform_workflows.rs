@@ -684,3 +684,138 @@ fn blind_create_materializes_git_revisions_without_leaking_refs() {
     assert!(output_dir.join("variants/A/image-000.png").exists());
     assert!(output_dir.join("variants/B/image-000.png").exists());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn quality_presets_drive_render_build_profile_and_blind_sources() {
+    let temp = TempRoot::new("quality-presets");
+    let project = temp.path().join("project");
+    write_uniform_project(&project);
+    let manifest_path = project.join("ShaderToy.toml");
+    let mut manifest = std::fs::read_to_string(&manifest_path).expect("read manifest");
+    manifest.push_str(
+        r#"
+[preset.high]
+render_scale = 4.0
+
+[preset.high.pass.buffer-a]
+width = 4
+height = 4
+
+[preset.low]
+render_scale = 2.0
+
+[preset.low.pass.buffer-a]
+width = 2
+height = 2
+"#,
+    );
+    std::fs::write(&manifest_path, manifest).expect("write preset manifest");
+
+    let project_arg = project.to_string_lossy().into_owned();
+
+    let checked = shadertoy(&["check", "--project", &project_arg, "--preset", "low"]);
+    assert!(checked.status.success(), "{checked:?}");
+
+    let low_png = temp.path().join("low.png");
+    let low_png_arg = low_png.to_string_lossy().into_owned();
+    let rendered = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--preset",
+        "low",
+        "--frame",
+        "0",
+        "-o",
+        &low_png_arg,
+    ]);
+    assert!(rendered.status.success(), "{rendered:?}");
+    let low = image::open(&low_png).expect("open low preset render");
+    assert_eq!((low.width(), low.height()), (2, 2));
+
+    let artifact = temp.path().join("low.sttf");
+    let artifact_arg = artifact.to_string_lossy().into_owned();
+    let built = shadertoy(&[
+        "build",
+        "--project",
+        &project_arg,
+        "--preset",
+        "low",
+        "-o",
+        &artifact_arg,
+    ]);
+    assert!(built.status.success(), "{built:?}");
+    assert!(artifact.is_file());
+
+    let profile = shadertoy(&[
+        "--json",
+        "profile",
+        "--project",
+        &project_arg,
+        "--preset",
+        "low",
+        "--frame",
+        "0",
+        "--warmup",
+        "0",
+        "--samples",
+        "2",
+    ]);
+    assert!(profile.status.success(), "{profile:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&profile.stdout).expect("parse profile report");
+    assert_eq!(report["width"], 2);
+    assert_eq!(report["height"], 2);
+    assert_eq!(report["timing_mode"], "completion_synchronized");
+    assert_eq!(report["gpu_frame_mode"], "attributed_pass_sum");
+    assert!(
+        report["gpu_frame"]["median_ms"]
+            .as_f64()
+            .is_some_and(|value| value > 0.0)
+    );
+    assert!(report["passes"][0]["p95_ms"].as_f64().is_some());
+
+    let high_source = format!("project:{project_arg}@preset=high");
+    let low_source = format!("project:{project_arg}@preset=low");
+    let blind_dir = temp.path().join("blind");
+    let blind_dir_arg = blind_dir.to_string_lossy().into_owned();
+    let blinded = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &high_source,
+        &low_source,
+        "--frames",
+        "0",
+        "--output-dir",
+        &blind_dir_arg,
+    ]);
+    assert!(blinded.status.success(), "{blinded:?}");
+    let report: serde_json::Value =
+        serde_json::from_slice(&blinded.stdout).expect("parse blind report");
+    assert_eq!(report["width"], 4);
+    assert_eq!(report["height"], 4);
+    assert_eq!(report["images_per_variant"], 1);
+
+    let sync_profile = shadertoy(&[
+        "--json",
+        "profile",
+        "--project",
+        &project_arg,
+        "--preset",
+        "low",
+        "--frame",
+        "0",
+        "--warmup",
+        "0",
+        "--samples",
+        "1",
+        "--sync-per-pass",
+    ]);
+    assert!(sync_profile.status.success(), "{sync_profile:?}");
+    let sync_report: serde_json::Value =
+        serde_json::from_slice(&sync_profile.stdout).expect("parse sync profile report");
+    assert_eq!(sync_report["timing_mode"], "sync_per_pass");
+    assert_eq!(sync_report["sync_per_pass"], true);
+}

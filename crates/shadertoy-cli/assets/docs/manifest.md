@@ -22,6 +22,44 @@ whether a referenced pass exists) are enforced by:
   shadertoy check
 
 
+Quality presets
+---------------
+
+Keep one project root and override only quality-sensitive settings with named
+presets. Sources, includes, and assets still resolve relative to the original
+project root:
+
+  [preset.low]
+  render_scale = 0.75
+
+  [preset.low.pass.surface]
+  width = 1280
+  height = 720
+
+  [preset.low.pass.foam]
+  width = 640
+  height = 360
+
+  [preset.medium.pass.fft]
+  iterations = 4
+  local_size = [16, 8, 1]
+
+`render_scale` scales the manifest's default output width/height. Per-pass
+`width`/`height` overrides apply to buffer and compute passes; `iterations`
+and `local_size` apply to compute passes. Select a preset without copying the
+project:
+
+  shadertoy check --preset low
+  shadertoy preview --preset low   # browser also exposes a preset selector
+  shadertoy render --preset high
+  shadertoy profile --preset medium
+  shadertoy build --preset high
+
+CLI `--width`/`--height` output overrides still take precedence over the
+preset-adjusted render defaults. Unknown presets/passes and invalid pass
+overrides are validation errors.
+
+
 Shared GLSL includes
 --------------------
 

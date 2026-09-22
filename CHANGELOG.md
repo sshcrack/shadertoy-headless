@@ -4,6 +4,13 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.3.0
+
+- Added first-class named quality presets in ShaderToy.toml with output render scaling and per-pass buffer/compute overrides; `check`, `build`, `preview`, `render`, `render-frames`, `render-video`, `sweep`, and `profile` accept `--preset NAME`, and preview exposes a live base/preset selector.
+- Reworked GPU profiling around completion-synchronized pass timestamp boundaries so asynchronous compute stays attributed to the issuing pass; total GPU work is reported as the sum of those attributed intervals (avoiding driver-broken whole-frame timer queries), with per-pass median/p95 and optional `profile --sync-per-pass` maximum-isolation diagnostics.
+- Added preset-aware blind project sources (`project:PATH@preset=NAME`), including deterministic frame sets and same-aspect-ratio normalization when quality tiers render at different resolutions.
+
+
 ## 2.2.9
 
 - Preview now shows a rolling actual FPS measured from browser-displayed frames, alongside the configured target FPS.

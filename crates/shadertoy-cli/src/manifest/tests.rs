@@ -157,3 +157,80 @@ reference = "tests/reference.png"
         "{error}"
     );
 }
+
+#[test]
+fn named_preset_scales_output_and_overrides_pass_settings() {
+    let source = r#"format = 1
+[project]
+name = "preset-demo"
+
+[render]
+width = 1600
+height = 900
+
+[[pass]]
+name = "waves"
+kind = "compute"
+source = "shaders/waves.comp"
+width = 1024
+height = 1024
+iterations = 4
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[preset.low]
+render_scale = 0.75
+
+[preset.low.pass.waves]
+width = 640
+height = 360
+iterations = 2
+local_size = [16, 8, 1]
+"#;
+
+    let mut manifest: Manifest = toml::from_str(source).expect("preset manifest should parse");
+    manifest
+        .validate_structure()
+        .expect("preset manifest should validate");
+    manifest.apply_preset("low").expect("preset should apply");
+
+    assert_eq!((manifest.render.width, manifest.render.height), (1200, 675));
+    let waves = manifest
+        .passes
+        .iter()
+        .find(|pass| pass.name == "waves")
+        .expect("waves pass");
+    assert_eq!((waves.width, waves.height), (Some(640), Some(360)));
+    assert_eq!(waves.iterations, 2);
+    assert_eq!(waves.local_size, Some([16, 8, 1]));
+}
+
+#[test]
+fn named_preset_rejects_unknown_pass_and_unknown_selection() {
+    let mut manifest = Manifest::minimal("preset-errors");
+    manifest.presets.insert(
+        "bad".into(),
+        Preset {
+            render_scale: Some(0.5),
+            passes: BTreeMap::from([(
+                "missing".into(),
+                PresetPass {
+                    width: Some(320),
+                    height: Some(180),
+                    ..PresetPass::default()
+                },
+            )]),
+        },
+    );
+    assert!(manifest.validate_structure().is_err());
+
+    let manifest = Manifest::minimal("preset-errors");
+    let mut manifest = manifest;
+    let error = manifest
+        .apply_preset("missing")
+        .expect_err("unknown preset should fail");
+    assert!(error.to_string().contains("unknown preset"), "{error}");
+}

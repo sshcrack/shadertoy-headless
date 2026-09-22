@@ -3,6 +3,7 @@ use super::*;
 #[allow(clippy::too_many_arguments)]
 pub(super) fn reload(
     root: &Path,
+    preset: Option<&str>,
     runtime: &mut Runtime<'_>,
     loaded: &mut Option<LoadedManifest>,
     sources: &mut Option<SourceGraph>,
@@ -23,7 +24,7 @@ pub(super) fn reload(
         None
     };
 
-    let candidate = LoadedManifest::load(root)?;
+    let candidate = LoadedManifest::load_with_preset(root, preset)?;
     ensure_source_files_exist(&candidate)?;
     let (project, candidate_sources) = build_native_project_with_sources(&candidate)?;
     runtime.load_project(&project)?;
@@ -195,6 +196,7 @@ pub(super) fn update_status(
     let mut status = shared.status.write().expect("preview status lock poisoned");
     if let Some(loaded) = loaded {
         status.project = loaded.manifest.project.name.clone();
+        status.presets = loaded.manifest.presets.keys().cloned().collect();
         status.final_pass = loaded.manifest.final_pass().name.clone();
         status.passes = loaded
             .manifest

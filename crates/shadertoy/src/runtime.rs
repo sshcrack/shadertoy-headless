@@ -389,10 +389,26 @@ impl<'context> Runtime<'context> {
     }
 
     pub fn set_profiling(&mut self, enabled: bool) -> Result<()> {
+        self.set_profiling_mode(enabled, false)
+    }
+
+    pub fn set_profiling_mode(&mut self, enabled: bool, sync_per_pass: bool) -> Result<()> {
         self.context.make_current()?;
         // SAFETY: runtime handle is valid and context is current.
-        unsafe { sys::st_runtime_set_profiling(self.handle.as_ptr(), i32::from(enabled)) };
+        unsafe {
+            sys::st_runtime_set_profiling_sync_per_pass(
+                self.handle.as_ptr(),
+                i32::from(sync_per_pass),
+            );
+            sys::st_runtime_set_profiling(self.handle.as_ptr(), i32::from(enabled));
+        }
         Ok(())
+    }
+
+    pub fn frame_gpu_nanoseconds(&self) -> Result<u64> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        Ok(unsafe { sys::st_runtime_profile_frame_gpu_nanoseconds(self.handle.as_ptr()) })
     }
 
     pub fn pass_timings(&self) -> Result<Vec<PassTiming>> {

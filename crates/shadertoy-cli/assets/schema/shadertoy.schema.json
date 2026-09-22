@@ -21,6 +21,13 @@
         "$ref": "#/$defs/Pass"
       }
     },
+    "preset": {
+      "description": "Named quality/configuration presets applied on top of this manifest.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Preset"
+      }
+    },
     "project": {
       "$ref": "#/$defs/ProjectSection"
     },
@@ -263,6 +270,74 @@
         "compute",
         "sound"
       ]
+    },
+    "Preset": {
+      "type": "object",
+      "properties": {
+        "pass": {
+          "description": "Overrides keyed by pass name, e.g. [preset.low.pass.surface].",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PresetPass"
+          }
+        },
+        "render_scale": {
+          "description": "Scale applied to the manifest's default output width/height.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PresetPass": {
+      "type": "object",
+      "properties": {
+        "height": {
+          "description": "Fixed pass height override. Must be paired with width.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "iterations": {
+          "description": "Compute dispatch count override.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "local_size": {
+          "description": "Compute local workgroup override.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "width": {
+          "description": "Fixed pass width override. Must be paired with height.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
     },
     "ProjectSection": {
       "type": "object",

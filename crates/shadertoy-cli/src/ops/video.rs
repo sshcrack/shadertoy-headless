@@ -6,7 +6,7 @@ const DEFAULT_VIDEO_DURATION_SECONDS: f32 = 5.0;
 const MAX_VIDEO_FRAMES: u32 = 1_000_000;
 
 pub fn render_video_project(options: &RenderVideoOptions) -> Result<Output> {
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
 
