@@ -1,6 +1,6 @@
 use super::state::{
-    clear_error, project_render_dimensions, reload, reload_changed_sources, set_error,
-    update_status,
+    ReloadPreservation, clear_error, project_render_dimensions, reload, reload_changed_sources,
+    set_error, update_status,
 };
 use super::*;
 
@@ -42,7 +42,11 @@ pub(super) fn render_loop(
         &mut fps,
         &mut view,
         &mut uniform_values,
-        preserve_reload_state,
+        if preserve_reload_state {
+            ReloadPreservation::RUNTIME_STATE
+        } else {
+            ReloadPreservation::RESET
+        },
     ) {
         Ok(()) => {
             if let Some(project) = loaded.as_ref()
@@ -143,7 +147,11 @@ pub(super) fn render_loop(
                         &mut fps,
                         &mut view,
                         &mut uniform_values,
-                        preserve_reload_state,
+                        if preserve_reload_state {
+                            ReloadPreservation::RUNTIME_STATE
+                        } else {
+                            ReloadPreservation::RESET
+                        },
                     ) {
                         Ok(()) => {
                             if let Some(project) = loaded.as_ref() {
@@ -371,7 +379,7 @@ fn handle_control(
             fps,
             view,
             uniform_values,
-            false,
+            ReloadPreservation::RESET,
         ) {
             Ok(()) => {
                 *fresh = true;
@@ -422,7 +430,11 @@ fn handle_control(
                     fps,
                     view,
                     uniform_values,
-                    true,
+                    // A quality preset is a different graph configuration, not a
+                    // hot reload of the same simulation. Rebuild from zeroed GPU
+                    // resources and frame history just like a cold preview while
+                    // keeping explicit custom-uniform choices made by the reviewer.
+                    ReloadPreservation::PRESET_SWITCH,
                 ) {
                     Ok(()) => {
                         *preset = requested;

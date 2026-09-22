@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.4.3
+
+- Fixed live preview quality-preset switching so each preset change starts with a cold graph/resource state instead of restoring persistent Buffer/Compute history from the previously selected tier. Custom-uniform review values still survive the switch.
+
 ## 2.4.2
 
 - Split profiling samples into raw GPU execution timestamp intervals, CPU completion-wait durations, and the legacy post-completion attributed interval so host/fence stalls are no longer silently presented as shader execution.
