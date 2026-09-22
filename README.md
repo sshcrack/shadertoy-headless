@@ -203,6 +203,8 @@ The common agent loop is deliberately small:
 cd feedback
 shadertoy inspect --json
 shadertoy check --json
+shadertoy check --pedantic --json
+shadertoy graph --dot target/graph.dot --json
 shadertoy render -o target/check.png
 shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
 shadertoy render-video --frames 180 -o target/clip.mp4
@@ -212,6 +214,11 @@ shadertoy blind create target/old-renders target/new-renders --output-dir target
 shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
 shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "preferred breakup"
 shadertoy blind reveal target/old-vs-new/blind-session.json
+shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --blind
+shadertoy test --ci
+shadertoy trace capture --frame 120 --include-intermediates -o target/bug.sttrace
+shadertoy trace inspect target/bug.sttrace --json
+shadertoy trace replay target/bug.sttrace --json
 shadertoy preview
 ~~~
 
@@ -231,6 +238,8 @@ shadertoy profile --preset medium --frame 120 --samples 30 --sync-per-pass --jso
 
 `profile` reports mean, median, p95, min, and max timing statistics for every GPU pass plus a trustworthy total GPU-work duration. Each pass is bounded by completion-synchronized GPU timestamps so asynchronous compute cannot be charged to a later consumer; the total is the sum of those same attributed intervals, because portable whole-frame timer queries were found to undercount async compute on affected drivers. `profile --sync-per-pass` additionally completes each timestamp boundary before continuing for maximum-isolation driver diagnostics. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes parameter variants, while `blind create` does the same for arbitrary images/render directories, ShaderToy projects, STTF builds, Git revisions, or named quality presets such as `project:.@preset=medium`. Both keep the real mapping out of public session metadata until `blind judge` records a choice and rationale, after which `blind reveal` writes the combined report.
 
+`experiment` lifts that workflow to reproducible baseline/candidate or N-way comparisons: it renders deterministic frame sets from the same arbitrary source forms, writes a contact sheet and JSON report, computes normalized RMSE and windowed SSIM, records source provenance, and profiles project/git sources. `experiment --blind` reuses the sealed blind-judgment lifecycle. `graph` exposes the resolved resource/pass graph and Graphviz DOT; `check --pedantic` turns advisory graph/resource diagnostics into CI failures.
+
 shadertoy state captures lossless RGBA32F feedback-buffer state together with deterministic time/frame metadata. That makes multipass bugs resumable and lets an agent replace one buffer with a known exact-size image:
 
 ~~~bash
@@ -240,9 +249,11 @@ shadertoy state inspect target/frame300.ststate --json
 shadertoy render   --state target/frame300.ststate   --set-buffer buffer-a=fixtures/known.png   -o target/debug.png
 ~~~
 
-Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; matrix cases can cover multiple frames/resolutions, repeat fresh runs with `assert_deterministic`, and verify fixed simulation grids with `assert_resolution_independent`. `shadertoy test --update` deliberately rewrites visual baselines. For input-sensitive bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
+Deterministic regression cases live in `ShaderToy.toml` as `[[test]]` entries. `shadertoy test` runs visual PNG comparisons and numeric buffer assertions; matrix cases can cover multiple frames/resolutions, repeat fresh runs with `assert_deterministic`, and verify fixed simulation grids with `assert_resolution_independent`. Tests can also compare two custom-uniform configurations with RMSE bounds, enforce total/per-pass GPU budgets, compare exact SSBO fixtures, and exercise `.ststate` serialization/restoration with `assert_state_roundtrip`. `shadertoy test --ci` is non-mutating; `shadertoy test --update` deliberately rewrites visual baselines.
 
-Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, and preview. `shadertoy docs glsl` documents the generated shader prelude and entry-point contract; `shadertoy docs assets` documents on-disk cubemap and volume formats.
+For deterministic renderer bugs, `shadertoy trace capture` creates a self-contained `.sttrace` directory containing STTF, final image, persistent buffer/SSBO state, timings, hashes, graph/synchronization metadata, and optional per-pass readbacks. `trace inspect` verifies artifact hashes and `trace replay` reproduces the frame from the bundled STTF without the original checkout. For input-sensitive live-preview bugs, `shadertoy preview --record target/repro.strec` records shader-affecting controls and exact timing markers, and `shadertoy replay target/repro.strec -o target/replayed.png` reproduces the captured timeline headlessly.
+
+Use shadertoy docs agent for the concise workflow embedded in the executable. Other topics include project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, and preview. `shadertoy docs glsl` documents the generated shader prelude and entry-point contract; `shadertoy docs assets` documents on-disk cubemap and volume formats.
 
 ### Schema-backed ShaderToy.toml
 
@@ -254,7 +265,7 @@ New projects receive a local .shadertoy/shadertoy.schema.json, a #:schema direct
 shadertoy docs manifest --schema
 ~~~
 
-shadertoy check adds semantic validation that JSON Schema cannot express, including graph references/cycles and real GLSL compilation through the native renderer.
+shadertoy check adds semantic validation that JSON Schema cannot express, including graph references/cycles and real GLSL compilation through the native renderer. `shadertoy check --pedantic` additionally fails on advisory resource/graph diagnostics such as unreachable passes, unused assets/uniforms, viewport-sized feedback, and unordered shared SSBO users.
 
 ### Live native preview
 

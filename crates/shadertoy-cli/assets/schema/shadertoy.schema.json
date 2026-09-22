@@ -482,6 +482,11 @@
           "type": "boolean",
           "default": false
         },
+        "assert_state_roundtrip": {
+          "description": "Serialize persistent pass/SSBO state, reload it into a fresh runtime, and verify exact round-trip contents.",
+          "type": "boolean",
+          "default": false
+        },
         "frame": {
           "type": [
             "integer",
@@ -505,6 +510,30 @@
           "format": "uint32",
           "minimum": 0
         },
+        "max_gpu_ms": {
+          "description": "Maximum summed attributed GPU pass time for each rendered test variant.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
+        "max_pass_gpu_ms": {
+          "description": "Per-pass GPU timing budgets in milliseconds.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "max_rmse": {
+          "description": "Maximum normalized RGB RMSE allowed against a reference image or reference uniforms.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
+        },
         "mean_range": {
           "type": [
             "array",
@@ -516,6 +545,14 @@
           },
           "maxItems": 2,
           "minItems": 2
+        },
+        "min_rmse": {
+          "description": "Minimum normalized RGB RMSE required against a reference image or reference uniforms.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "float"
         },
         "name": {
           "type": "string"
@@ -537,6 +574,13 @@
             "null"
           ]
         },
+        "reference_uniforms": {
+          "description": "Render a second deterministic variant with these uniforms and compare it with the primary uniforms.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/UniformValue"
+          }
+        },
         "resolutions": {
           "description": "Output-resolution matrix. Mutually exclusive with width/height.",
           "type": "array",
@@ -549,6 +593,13 @@
             },
             "maxItems": 2,
             "minItems": 2
+          }
+        },
+        "storage": {
+          "description": "Exact SSBO fixture assertions evaluated after each rendered variant.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TestStorageAssertion"
           }
         },
         "time": {
@@ -582,6 +633,24 @@
       "additionalProperties": false,
       "required": [
         "name"
+      ]
+    },
+    "TestStorageAssertion": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Shared SSBO resource name.",
+          "type": "string"
+        },
+        "reference": {
+          "description": "Project-relative binary fixture compared byte-for-byte with the SSBO contents.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "reference"
       ]
     },
     "UniformDefinition": {

@@ -125,6 +125,15 @@ fn is_zero_f32(value: &f32) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct TestStorageAssertion {
+    /// Shared SSBO resource name.
+    pub name: String,
+    /// Project-relative binary fixture compared byte-for-byte with the SSBO contents.
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TestCase {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,6 +174,27 @@ pub struct TestCase {
     /// Per-test custom uniform overrides.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub uniforms: BTreeMap<String, UniformValue>,
+    /// Render a second deterministic variant with these uniforms and compare it with the primary uniforms.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reference_uniforms: BTreeMap<String, UniformValue>,
+    /// Minimum normalized RGB RMSE required against a reference image or reference uniforms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_rmse: Option<f32>,
+    /// Maximum normalized RGB RMSE allowed against a reference image or reference uniforms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rmse: Option<f32>,
+    /// Maximum summed attributed GPU pass time for each rendered test variant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_gpu_ms: Option<f32>,
+    /// Per-pass GPU timing budgets in milliseconds.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub max_pass_gpu_ms: BTreeMap<String, f32>,
+    /// Exact SSBO fixture assertions evaluated after each rendered variant.
+    #[serde(default, rename = "storage", skip_serializing_if = "Vec::is_empty")]
+    pub storage_assertions: Vec<TestStorageAssertion>,
+    /// Serialize persistent pass/SSBO state, reload it into a fresh runtime, and verify exact round-trip contents.
+    #[serde(default)]
+    pub assert_state_roundtrip: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -935,30 +965,123 @@ impl Manifest {
                     test.name
                 );
             }
-            for (name, value) in &test.uniforms {
-                let definition = self
-                    .uniforms
-                    .iter()
-                    .find(|definition| definition.name() == name)
-                    .with_context(|| {
+            if test.reference.is_some() && !test.reference_uniforms.is_empty() {
+                bail!(
+                    "test '{}' must use either reference or reference_uniforms, not both",
+                    test.name
+                );
+            }
+            for (set_name, values) in [
+                ("uniforms", &test.uniforms),
+                ("reference_uniforms", &test.reference_uniforms),
+            ] {
+                for (name, value) in values {
+                    let definition = self
+                        .uniforms
+                        .iter()
+                        .find(|definition| definition.name() == name)
+                        .with_context(|| {
+                            format!(
+                                "test '{}' {} references unknown custom uniform '{}'",
+                                test.name, set_name, name
+                            )
+                        })?;
+                    definition.validate_value(value).with_context(|| {
                         format!(
-                            "test '{}' references unknown custom uniform '{}'",
-                            test.name, name
+                            "invalid custom uniform '{}' in test '{}' {}",
+                            name, test.name, set_name
                         )
                     })?;
-                definition.validate_value(value).with_context(|| {
-                    format!("invalid custom uniform '{}' in test '{}'", name, test.name)
-                })?;
+                }
+            }
+            for (name, value) in [("min_rmse", test.min_rmse), ("max_rmse", test.max_rmse)] {
+                if value.is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value)) {
+                    bail!("test '{}' {} must be finite and in [0, 1]", test.name, name);
+                }
+            }
+            if let (Some(min), Some(max)) = (test.min_rmse, test.max_rmse)
+                && min > max
+            {
+                bail!("test '{}' min_rmse cannot exceed max_rmse", test.name);
+            }
+            if (test.min_rmse.is_some() || test.max_rmse.is_some())
+                && test.reference.is_none()
+                && test.reference_uniforms.is_empty()
+            {
+                bail!(
+                    "test '{}' RMSE bounds require reference or reference_uniforms",
+                    test.name
+                );
+            }
+            if test
+                .max_gpu_ms
+                .is_some_and(|value| !value.is_finite() || value < 0.0)
+            {
+                bail!(
+                    "test '{}' max_gpu_ms must be finite and non-negative",
+                    test.name
+                );
+            }
+            for (pass_name, budget) in &test.max_pass_gpu_ms {
+                if !budget.is_finite() || *budget < 0.0 {
+                    bail!(
+                        "test '{}' GPU budget for pass '{}' must be finite and non-negative",
+                        test.name,
+                        pass_name
+                    );
+                }
+                if !self.passes.iter().any(|pass| pass.name == *pass_name) {
+                    bail!(
+                        "test '{}' GPU budget references unknown pass '{}'",
+                        test.name,
+                        pass_name
+                    );
+                }
+            }
+            let storage_sizes = self
+                .passes
+                .iter()
+                .flat_map(|pass| &pass.storage)
+                .map(|storage| (storage.name.as_str(), storage.size))
+                .collect::<HashMap<_, _>>();
+            let mut storage_names = HashSet::new();
+            for assertion in &test.storage_assertions {
+                if !storage_names.insert(assertion.name.as_str()) {
+                    bail!(
+                        "test '{}' contains duplicate storage assertion '{}'",
+                        test.name,
+                        assertion.name
+                    );
+                }
+                if !storage_sizes.contains_key(assertion.name.as_str()) {
+                    bail!(
+                        "test '{}' storage assertion references unknown SSBO '{}'",
+                        test.name,
+                        assertion.name
+                    );
+                }
+                validate_project_relative_path(
+                    &assertion.reference,
+                    &format!(
+                        "storage reference '{}' for test '{}'",
+                        assertion.name, test.name
+                    ),
+                )?;
             }
             if test.reference.is_none()
+                && test.reference_uniforms.is_empty()
                 && !test.assert_no_nan
                 && !test.assert_no_inf
                 && test.mean_range.is_none()
                 && !test.assert_deterministic
                 && !test.assert_resolution_independent
+                && test.max_gpu_ms.is_none()
+                && test.max_pass_gpu_ms.is_empty()
+                && test.storage_assertions.is_empty()
+                && !test.assert_state_roundtrip
             {
                 bail!(
-                    "test '{}' must define a reference or at least one numeric assertion",
+                    "test '{}' must define a reference or at least one assertion",
                     test.name
                 );
             }

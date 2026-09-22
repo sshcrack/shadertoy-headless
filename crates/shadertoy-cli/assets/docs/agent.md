@@ -20,6 +20,9 @@ supported remote assets local.
 
 3. Validate after edits:
      shadertoy check --json
+   For advisory graph/resource linting too:
+     shadertoy check --pedantic --json
+     shadertoy graph --dot target/graph.dot --json
    Or validate an effective quality tier:
      shadertoy check --preset medium --json
 
@@ -39,6 +42,9 @@ supported remote assets local.
      shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
      shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "concise visual rationale"
      shadertoy blind reveal target/old-vs-new/blind-session.json
+   For a complete baseline/candidate experiment with metrics, provenance,
+   profiling, contact sheets, and optional blind labels:
+     shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --blind
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json
@@ -68,12 +74,20 @@ supported remote assets local.
      shadertoy profile --frame 120 --samples 30 --sync-per-pass --json
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
-     shadertoy test
-   Tests can cover a frame/resolution matrix and assert deterministic raw GPU
-   output or output-resolution independence for fixed passes. Use --update
-   deliberately to write visual baselines.
+     shadertoy test --ci
+   Tests can cover frame/resolution matrices, uniform-vs-uniform RMSE bounds,
+   per-pass/total GPU budgets, exact SSBO fixtures, deterministic raw output,
+   output-resolution independence, and .ststate round-trips. Use --update
+   deliberately to write visual baselines. See shadertoy docs test.
 
-10. Use live native-rendered review when iterating:
+10. Freeze difficult deterministic renderer bugs into a self-contained bundle:
+      shadertoy trace capture --frame 120 --include-intermediates -o target/bug.sttrace
+      shadertoy trace inspect target/bug.sttrace --json
+      shadertoy trace replay target/bug.sttrace --json
+    The trace carries STTF, persistent state/SSBOs, timings, hashes, graph
+    diagnostics, and optional pass readbacks. See shadertoy docs trace.
+
+11. Use live native-rendered review when iterating:
      shadertoy preview
     Or launch a named quality tier directly:
      shadertoy preview --preset medium
@@ -84,10 +98,10 @@ supported remote assets local.
     Shared GLSL can use quoted #include directives; preview recompiles only passes
     affected by a changed source/include and keeps existing feedback targets alive.
 
-11. Record an input-sensitive preview bug, then reproduce it without the browser:
+12. Record an input-sensitive preview bug, then reproduce it without the browser:
      shadertoy preview --record target/repro.strec
      shadertoy replay target/repro.strec -o target/replayed.png
 
-On Linux, check/render/render-frames/state capture/preview/profile/test/replay use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY. The context prefers OpenGL 4.3 and falls back to 4.1 for projects that do not use compute/SSBO features.
+On Linux, check/render/render-frames/state capture/preview/profile/test/experiment/trace/replay use surfaceless EGL and do not require DISPLAY or WAYLAND_DISPLAY. The context prefers OpenGL 4.3 and falls back to 4.1 for projects that do not use compute/SSBO features.
 
 Do not edit target/. It is disposable generated output.

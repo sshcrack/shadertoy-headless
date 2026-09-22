@@ -22,9 +22,13 @@ pub fn topic(name: &str, schema: bool) -> Result<String> {
         "state" => crate::include_file!("docs/state.md"),
         "sweep" => crate::include_file!("docs/sweep.md"),
         "blind" => crate::include_file!("docs/blind.md"),
+        "experiment" => crate::include_file!("docs/experiment.md"),
+        "test" => crate::include_file!("docs/test.md"),
+        "trace" => crate::include_file!("docs/trace.md"),
+        "graph" => crate::include_file!("docs/graph.md"),
         "preview" => crate::include_file!("docs/preview.md"),
         other => bail!(
-            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, or preview"
+            "unknown documentation topic '{other}'; expected agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, or preview"
         ),
     };
     Ok(text.trim().to_string())

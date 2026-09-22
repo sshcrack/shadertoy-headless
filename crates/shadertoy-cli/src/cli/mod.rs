@@ -2,10 +2,11 @@ mod conversions;
 use crate::docs;
 use crate::ops;
 use crate::ops::{
-    BlindCreateOptions, BlindJudgeOptions, BlindRevealOptions, ChannelSetOptions,
-    InspectBufferOptions, InspectMode, InspectStorageOptions, InspectStorageType,
-    InspectVisualization, Output, ProfileOptions, RenderAudioOptions, RenderFramesOptions,
-    RenderOptions, RenderVideoOptions, ReplayOptions, SweepOptions, TestOptions,
+    BlindCreateOptions, BlindJudgeOptions, BlindRevealOptions, ChannelSetOptions, CheckOptions,
+    ExperimentOptions, GraphOptions, InspectBufferOptions, InspectMode, InspectStorageOptions,
+    InspectStorageType, InspectVisualization, Output, ProfileOptions, RenderAudioOptions,
+    RenderFramesOptions, RenderOptions, RenderVideoOptions, ReplayOptions, SweepOptions,
+    TestOptions, TraceCaptureOptions, TraceReplayOptions,
 };
 use crate::preview;
 use crate::preview::PreviewConfig;
@@ -40,6 +41,8 @@ enum Command {
     Import(ImportArgs),
     /// Validate the manifest, graph, assets, and GLSL compilation.
     Check(ProjectPathArgs),
+    /// Inspect the resolved pass/resource graph and optionally write Graphviz DOT.
+    Graph(GraphArgs),
     /// Build the project into an STTF artifact.
     Build(BuildArgs),
     /// Deterministically render the final image or a named 2D buffer/compute pass.
@@ -54,12 +57,16 @@ enum Command {
     Profile(ProfileArgs),
     /// Render a Cartesian product of custom-uniform values for visual comparison.
     Sweep(SweepArgs),
+    /// Run a reproducible multi-source visual/performance experiment.
+    Experiment(ExperimentArgs),
     /// Create, judge, and reveal blinded visual comparisons.
     Blind(BlindArgs),
     /// Run deterministic visual and numeric regression tests from [[test]] cases.
     Test(TestArgs),
     /// Reproduce a recorded preview-input timeline.
     Replay(ReplayArgs),
+    /// Capture, inspect, and replay self-contained render traces.
+    Trace(TraceArgs),
     /// Run a native-rendered live preview web server with hot reload.
     Preview(PreviewArgs),
     /// Inspect project structure progressively, from summary to pass/channel detail.
@@ -110,6 +117,9 @@ struct ProjectPathArgs {
     /// Apply a named manifest quality preset.
     #[arg(long)]
     preset: Option<String>,
+    /// Enable advisory graph/resource lints and fail when any warning is found.
+    #[arg(long)]
+    pedantic: bool,
 }
 
 impl ProjectPathArgs {
@@ -119,6 +129,19 @@ impl ProjectPathArgs {
             .or_else(|| self.path.clone())
             .unwrap_or_else(|| PathBuf::from("."))
     }
+}
+
+#[derive(Debug, Args)]
+struct GraphArgs {
+    /// Project directory (or any path inside it).
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
+    /// Write the graph as Graphviz DOT.
+    #[arg(long, value_name = "PATH")]
+    dot: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -334,6 +357,43 @@ struct SweepArgs {
 }
 
 #[derive(Debug, Args)]
+struct ExperimentArgs {
+    /// Baseline source. Accepts the same forms as blind create.
+    #[arg(long)]
+    baseline: String,
+    /// Candidate source. May be repeated for N-way experiments.
+    #[arg(long, required = true)]
+    candidate: Vec<String>,
+    /// Additional named-neutral variants beyond candidate.
+    #[arg(long = "variant")]
+    variants: Vec<String>,
+    /// Output directory. Defaults to target/experiment.
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+    /// Deterministic frames for project/STTF sources.
+    #[arg(long, value_delimiter = ',', default_value = "0")]
+    frames: Vec<i32>,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    /// Metrics to compute: rmse,ssim.
+    #[arg(long = "metric", value_delimiter = ',', default_value = "rmse,ssim")]
+    metrics: Vec<String>,
+    /// Randomize/anonymize source ordering and seal the mapping until judged.
+    #[arg(long)]
+    blind: bool,
+    /// Git repository root for git:REF sources.
+    #[arg(long)]
+    git_root: Option<PathBuf>,
+    /// GPU profile samples for project/git sources; 0 disables profiling.
+    #[arg(long, default_value_t = 8)]
+    profile_samples: u32,
+}
+
+#[derive(Debug, Args)]
 struct BlindArgs {
     #[command(subcommand)]
     command: BlindCommand,
@@ -418,12 +478,71 @@ struct ReplayArgs {
 struct TestArgs {
     #[arg(long, default_value = ".")]
     project: PathBuf,
-    /// Rewrite visual reference images from the current deterministic render.
+    /// Apply a named manifest quality preset.
     #[arg(long)]
+    preset: Option<String>,
+    /// Rewrite visual reference images from the current deterministic render.
+    #[arg(long, conflicts_with = "ci")]
     update: bool,
     /// Run only test names containing this substring.
     #[arg(long)]
     filter: Option<String>,
+    /// CI mode: never mutates references and emits stable failure-oriented output.
+    #[arg(long)]
+    ci: bool,
+}
+
+#[derive(Debug, Args)]
+struct TraceArgs {
+    #[command(subcommand)]
+    command: TraceCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum TraceCommand {
+    /// Capture a deterministic trace bundle.
+    Capture(TraceCaptureArgs),
+    /// Inspect and integrity-check a trace bundle.
+    Inspect { path: PathBuf },
+    /// Replay a trace from its bundled STTF and compare against the captured RGB output.
+    Replay(TraceReplayArgs),
+}
+
+#[derive(Debug, Args)]
+struct TraceCaptureArgs {
+    #[arg(long, default_value = ".")]
+    project: PathBuf,
+    /// Apply a named manifest quality preset.
+    #[arg(long)]
+    preset: Option<String>,
+    /// Trace directory. Must end in .sttrace.
+    #[arg(short, long, default_value = "target/trace.sttrace")]
+    output: PathBuf,
+    #[arg(long)]
+    width: Option<u32>,
+    #[arg(long)]
+    height: Option<u32>,
+    #[arg(long)]
+    fps: Option<f32>,
+    #[arg(long, conflicts_with = "time")]
+    frame: Option<i32>,
+    #[arg(long, conflicts_with = "frame")]
+    time: Option<f32>,
+    /// Override a declared custom uniform during capture.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
+    /// Include PNG and RGBA32F snapshots of every reachable 2D pass output.
+    #[arg(long)]
+    include_intermediates: bool,
+}
+
+#[derive(Debug, Args)]
+struct TraceReplayArgs {
+    /// .sttrace directory or its trace.json.
+    trace: PathBuf,
+    /// Optional replayed PNG output.
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -672,7 +791,7 @@ enum ChannelCommand {
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, or preview.
+    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).
@@ -838,7 +957,16 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         Command::New(args) => ops::new_project(&args.path, args.template.into())?,
         Command::Init(args) => ops::init_project(&args.path, args.template.into())?,
         Command::Import(args) => ops::import_project(&args.source, args.output.as_deref())?,
-        Command::Check(args) => ops::check_project(&args.resolved(), args.preset.as_deref())?,
+        Command::Check(args) => ops::check_project(&CheckOptions {
+            project: args.resolved(),
+            preset: args.preset,
+            pedantic: args.pedantic,
+        })?,
+        Command::Graph(args) => ops::graph_project(&GraphOptions {
+            project: args.project,
+            preset: args.preset,
+            dot: args.dot,
+        })?,
         Command::Build(args) => {
             let project = args
                 .project
@@ -926,6 +1054,23 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             time: args.time,
             sweep_uniforms: args.sweep_uniforms,
         })?,
+        Command::Experiment(args) => {
+            let mut candidates = args.candidate;
+            candidates.extend(args.variants);
+            ops::run_experiment(&ExperimentOptions {
+                baseline: args.baseline,
+                candidates,
+                output_dir: args.output_dir,
+                frames: args.frames,
+                width: args.width,
+                height: args.height,
+                fps: args.fps,
+                metrics: args.metrics,
+                blind: args.blind,
+                git_root: args.git_root,
+                profile_samples: args.profile_samples,
+            })?
+        }
         Command::Blind(args) => match args.command {
             BlindCommand::Create(args) => ops::create_blind_comparison(&BlindCreateOptions {
                 sources: args.sources,
@@ -948,8 +1093,10 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
         },
         Command::Test(args) => ops::test_project(&TestOptions {
             project: args.project,
+            preset: args.preset,
             update: args.update,
             filter: args.filter,
+            ci: args.ci,
         })?,
         Command::Replay(args) => ops::replay_project(&ReplayOptions {
             project: args.project,
@@ -959,6 +1106,25 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             frame: args.frame,
             allow_project_changes: args.allow_project_changes,
         })?,
+        Command::Trace(args) => match args.command {
+            TraceCommand::Capture(args) => ops::capture_trace(&TraceCaptureOptions {
+                project: args.project,
+                preset: args.preset,
+                output: args.output,
+                width: args.width,
+                height: args.height,
+                fps: args.fps,
+                frame: args.frame,
+                time: args.time,
+                set_uniforms: args.set_uniforms,
+                include_intermediates: args.include_intermediates,
+            })?,
+            TraceCommand::Inspect { path } => ops::inspect_trace(&path)?,
+            TraceCommand::Replay(args) => ops::replay_trace(&TraceReplayOptions {
+                trace: args.trace,
+                output: args.output,
+            })?,
+        },
         Command::Preview(args) => {
             preview::run(
                 PreviewConfig {

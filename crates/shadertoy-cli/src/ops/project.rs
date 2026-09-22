@@ -43,9 +43,49 @@ pub fn init_project(path: &Path, template: Template) -> Result<Output> {
     })
 }
 
-pub fn check_project(path: &Path, preset: Option<&str>) -> Result<Output> {
-    let loaded = LoadedManifest::load_with_preset(path, preset)?;
+pub fn check_project(options: &CheckOptions) -> Result<Output> {
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
+
+    let diagnostics = super::graph::analyze_graph(&loaded, options.pedantic)?;
+    let errors = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.level == "error")
+        .count();
+    let warnings = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.level == "warning")
+        .count();
+
+    if errors != 0 {
+        let mut human = format!(
+            "FAILED: {} ({} graph error{})",
+            loaded.manifest.project.name,
+            errors,
+            if errors == 1 { "" } else { "s" }
+        );
+        for diagnostic in &diagnostics {
+            human.push_str(&format!(
+                "\n  {} [{}] {}",
+                diagnostic.level.to_ascii_uppercase(),
+                diagnostic.code,
+                diagnostic.message
+            ));
+        }
+        return Ok(Output {
+            human,
+            json: json!({
+                "ok": false,
+                "project": loaded.manifest.project.name,
+                "root": loaded.root,
+                "preset": options.preset,
+                "compiled": false,
+                "diagnostics": diagnostics,
+                "errors": errors,
+                "warnings": warnings,
+            }),
+        });
+    }
 
     let context = HeadlessContext::new(64, 64)
         .context("failed to create headless OpenGL context for shader compilation")?;
@@ -58,21 +98,45 @@ pub fn check_project(path: &Path, preset: Option<&str>) -> Result<Output> {
     )?;
     let sound_passes = super::sound::check_sound_passes(&context, &loaded)?;
 
+    let pedantic_failed = options.pedantic && warnings != 0;
+    let mut human = format!(
+        "{}: {} ({} passes, {} assets",
+        if pedantic_failed { "FAILED" } else { "OK" },
+        loaded.manifest.project.name,
+        loaded.manifest.passes.len(),
+        loaded.manifest.assets.len()
+    );
+    if warnings != 0 {
+        human.push_str(&format!(
+            ", {warnings} warning{}",
+            if warnings == 1 { "" } else { "s" }
+        ));
+    }
+    human.push(')');
+    for diagnostic in &diagnostics {
+        human.push_str(&format!(
+            "\n  {} [{}] {}",
+            diagnostic.level.to_ascii_uppercase(),
+            diagnostic.code,
+            diagnostic.message
+        ));
+    }
+
     Ok(Output {
-        human: format!(
-            "OK: {} ({} passes, {} assets)",
-            loaded.manifest.project.name,
-            loaded.manifest.passes.len(),
-            loaded.manifest.assets.len()
-        ),
+        human,
         json: json!({
-            "ok": true,
+            "ok": !pedantic_failed,
             "project": loaded.manifest.project.name,
             "root": loaded.root,
+            "preset": options.preset,
             "passes": loaded.manifest.passes.len(),
             "assets": loaded.manifest.assets.len(),
             "compiled": true,
             "sound_passes": sound_passes,
+            "pedantic": options.pedantic,
+            "diagnostics": diagnostics,
+            "errors": errors,
+            "warnings": warnings,
         }),
     })
 }

@@ -1,5 +1,9 @@
 use super::*;
 use crate::manifest::TestCase;
+use crate::state::BufferDimensions;
+
+mod support;
+use support::*;
 
 #[derive(Debug, serde::Serialize)]
 struct CaseReport {
@@ -11,12 +15,16 @@ struct CaseReport {
     rmse: Option<f64>,
     max_error: Option<f64>,
     changed_fraction: Option<f64>,
+    gpu_total_ms: Option<f64>,
+    pass_gpu_ms: BTreeMap<String, f64>,
+    storage_assertions: usize,
+    state_roundtrip: bool,
     artifacts: Vec<PathBuf>,
     reference_updated: bool,
 }
 
 pub fn test_project(options: &TestOptions) -> Result<Output> {
-    let loaded = LoadedManifest::load(&options.project)?;
+    let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
 
     let selected = loaded
@@ -62,6 +70,9 @@ pub fn test_project(options: &TestOptions) -> Result<Output> {
         if let Some(rmse) = report.rmse {
             human.push_str(&format!(", RMSE={rmse:.6}"));
         }
+        if let Some(gpu_ms) = report.gpu_total_ms {
+            human.push_str(&format!(", GPU={gpu_ms:.3}ms"));
+        }
         if !report.reasons.is_empty() {
             human.push_str(&format!(": {}", report.reasons.join("; ")));
         }
@@ -76,9 +87,11 @@ pub fn test_project(options: &TestOptions) -> Result<Output> {
         json: json!({
             "ok": failed == 0,
             "project": loaded.manifest.project.name,
+            "preset": options.preset,
             "passed": passed,
             "failed": failed,
             "updated": options.update,
+            "ci": options.ci,
             "cases": reports,
         }),
     })
@@ -104,6 +117,10 @@ fn run_case(
             rmse: None,
             max_error: None,
             changed_fraction: None,
+            gpu_total_ms: None,
+            pass_gpu_ms: BTreeMap::new(),
+            storage_assertions: 0,
+            state_roundtrip: false,
             artifacts: Vec::new(),
             reference_updated: false,
         },
@@ -117,6 +134,9 @@ struct RenderedVariant {
     height: u32,
     image: RgbImage,
     raw: Option<Vec<f32>>,
+    gpu_total_ms: Option<f64>,
+    pass_gpu_ms: BTreeMap<String, f64>,
+    storage: BTreeMap<String, Vec<u8>>,
 }
 
 fn run_case_inner(
@@ -145,12 +165,26 @@ fn run_case_inner(
     }
 
     let uniform_values = crate::uniforms::merge_values(&loaded.manifest.uniforms, &test.uniforms)?;
+    let reference_uniform_values = if test.reference_uniforms.is_empty() {
+        None
+    } else {
+        Some(crate::uniforms::merge_values(
+            &loaded.manifest.uniforms,
+            &test.reference_uniforms,
+        )?)
+    };
     let raw_requested = matches!(pass.kind, PassKind::Buffer | PassKind::Compute)
         && (test.assert_no_nan
             || test.assert_no_inf
             || test.mean_range.is_some()
             || test.assert_deterministic
             || test.assert_resolution_independent);
+    let profile_requested = test.max_gpu_ms.is_some() || !test.max_pass_gpu_ms.is_empty();
+    let storage_names = test
+        .storage_assertions
+        .iter()
+        .map(|assertion| assertion.name.clone())
+        .collect::<Vec<_>>();
 
     let mut variants = Vec::with_capacity(frames.len() * resolutions.len());
     for frame in &frames {
@@ -165,6 +199,8 @@ fn run_case_inner(
                 *height,
                 &uniform_values,
                 raw_requested,
+                profile_requested,
+                &storage_names,
             )?);
         }
     }
@@ -174,6 +210,8 @@ fn run_case_inner(
         if let Some(values) = &variant.raw {
             check_numeric_assertions(test, variant, values, &mut reasons);
         }
+        check_performance_assertions(test, variant, &mut reasons);
+        check_storage_assertions(loaded, test, variant, &mut reasons)?;
     }
 
     if test.assert_deterministic {
@@ -188,6 +226,8 @@ fn run_case_inner(
                 variant.height,
                 &uniform_values,
                 raw_requested,
+                false,
+                &storage_names,
             )?;
             if let (Some(first), Some(second)) = (&variant.raw, &repeated.raw) {
                 let compared = compare_raw(first, second, test.raw_tolerance)?;
@@ -206,6 +246,14 @@ fn run_case_inner(
                     "frame {} at {}x{} is not deterministic: RGB output differs between fresh runs",
                     variant.frame, variant.width, variant.height
                 ));
+            }
+            for name in &storage_names {
+                if variant.storage.get(name) != repeated.storage.get(name) {
+                    reasons.push(format!(
+                        "frame {} at {}x{} storage '{}' is not deterministic",
+                        variant.frame, variant.width, variant.height, name
+                    ));
+                }
             }
         }
     }
@@ -240,6 +288,27 @@ fn run_case_inner(
                     ));
                 }
             }
+        }
+    }
+
+    if test.assert_state_roundtrip {
+        for variant in &variants {
+            check_state_roundtrip(
+                context,
+                loaded,
+                variant.frame,
+                fps,
+                variant.width,
+                variant.height,
+                &uniform_values,
+                test.raw_tolerance,
+            )
+            .with_context(|| {
+                format!(
+                    "state round-trip failed at frame {} {}x{}",
+                    variant.frame, variant.width, variant.height
+                )
+            })?;
         }
     }
 
@@ -291,12 +360,8 @@ fn run_case_inner(
                 rmse = Some(comparison.rmse);
                 max_error = Some(comparison.max_error);
                 changed_fraction = Some(comparison.changed_fraction);
-                if comparison.rmse > f64::from(test.tolerance) {
-                    reasons.push(format!(
-                        "RMSE {:.6} exceeds tolerance {:.6}",
-                        comparison.rmse, test.tolerance
-                    ));
-                }
+                enforce_rmse_bounds(test, comparison.rmse, true, "reference image", &mut reasons);
+
                 if !reasons.is_empty() {
                     fs::create_dir_all(&artifact_dir)?;
                     let actual_path = artifact_dir.join("actual.png");
@@ -324,6 +389,55 @@ fn run_case_inner(
         }
     }
 
+    if let Some(reference_uniform_values) = reference_uniform_values {
+        let mut max_observed_rmse = 0.0f64;
+        let mut max_observed_error = 0.0f64;
+        let mut max_changed_fraction = 0.0f64;
+        for variant in &variants {
+            let reference_variant = render_variant(
+                context,
+                loaded,
+                pass,
+                variant.frame,
+                fps,
+                variant.width,
+                variant.height,
+                &reference_uniform_values,
+                false,
+                false,
+                &[],
+            )?;
+            let expected = top_down_rgb(&reference_variant.image);
+            let actual = top_down_rgb(&variant.image);
+            let comparison = compare_rgb(&expected, &actual, test.tolerance);
+            let label = format!(
+                "reference_uniforms at frame {} {}x{}",
+                variant.frame, variant.width, variant.height
+            );
+            enforce_rmse_bounds(test, comparison.rmse, false, &label, &mut reasons);
+            max_observed_rmse = max_observed_rmse.max(comparison.rmse);
+            max_observed_error = max_observed_error.max(comparison.max_error);
+            max_changed_fraction = max_changed_fraction.max(comparison.changed_fraction);
+        }
+        rmse = Some(max_observed_rmse);
+        max_error = Some(max_observed_error);
+        changed_fraction = Some(max_changed_fraction);
+    }
+
+    let gpu_total_ms = variants
+        .iter()
+        .filter_map(|variant| variant.gpu_total_ms)
+        .max_by(f64::total_cmp);
+    let mut pass_gpu_ms = BTreeMap::new();
+    for variant in &variants {
+        for (name, value) in &variant.pass_gpu_ms {
+            pass_gpu_ms
+                .entry(name.clone())
+                .and_modify(|current: &mut f64| *current = current.max(*value))
+                .or_insert(*value);
+        }
+    }
+
     Ok(CaseReport {
         name: test.name.clone(),
         pass: pass.name.clone(),
@@ -333,6 +447,10 @@ fn run_case_inner(
         rmse,
         max_error,
         changed_fraction,
+        gpu_total_ms,
+        pass_gpu_ms,
+        storage_assertions: test.storage_assertions.len(),
+        state_roundtrip: test.assert_state_roundtrip,
         artifacts,
         reference_updated,
     })
@@ -374,6 +492,8 @@ fn render_variant(
     height: u32,
     uniform_values: &BTreeMap<String, crate::uniforms::UniformValue>,
     raw_requested: bool,
+    profile_requested: bool,
+    storage_names: &[String],
 ) -> Result<RenderedVariant> {
     render::validate_dimensions(width, height)?;
     let (pass_width, pass_height) = loaded.manifest.pass_dimensions(pass, width, height);
@@ -382,8 +502,18 @@ fn render_variant(
     let project = build_native_project(loaded)?;
     runtime.load_project(&project)?;
     crate::uniforms::apply_to_runtime(&mut runtime, uniform_values)?;
+    if profile_requested {
+        runtime.set_profiling(true)?;
+    }
     let final_image = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?
         .context("test render did not produce a final image")?;
+    let timings = if profile_requested {
+        let timings = runtime.pass_timings()?;
+        runtime.set_profiling(false)?;
+        Some(timings)
+    } else {
+        None
+    };
     let image = if pass.name == loaded.manifest.final_pass().name {
         final_image
     } else {
@@ -394,194 +524,37 @@ fn render_variant(
     } else {
         None
     };
+
+    let mut storage = BTreeMap::new();
+    for name in storage_names {
+        let size = declared_storage_size(loaded, name)?;
+        storage.insert(
+            name.clone(),
+            runtime.snapshot_storage_buffer(
+                name,
+                usize::try_from(size).context("storage size exceeds usize")?,
+            )?,
+        );
+    }
+
+    let mut pass_gpu_ms = BTreeMap::new();
+    let gpu_total_ms = timings.map(|timings| {
+        let mut total = 0u64;
+        for timing in timings {
+            total = total.saturating_add(timing.gpu_nanoseconds);
+            pass_gpu_ms.insert(timing.name, timing.gpu_nanoseconds as f64 / 1_000_000.0);
+        }
+        total as f64 / 1_000_000.0
+    });
+
     Ok(RenderedVariant {
         frame,
         width,
         height,
         image,
         raw,
+        gpu_total_ms,
+        pass_gpu_ms,
+        storage,
     })
-}
-
-fn check_numeric_assertions(
-    test: &TestCase,
-    variant: &RenderedVariant,
-    values: &[f32],
-    reasons: &mut Vec<String>,
-) {
-    let label = format!(
-        "frame {} at {}x{}",
-        variant.frame, variant.width, variant.height
-    );
-    let nan = values.iter().filter(|value| value.is_nan()).count();
-    let inf = values.iter().filter(|value| value.is_infinite()).count();
-    if test.assert_no_nan && nan != 0 {
-        reasons.push(format!("{label}: found {nan} NaN values"));
-    }
-    if test.assert_no_inf && inf != 0 {
-        reasons.push(format!("{label}: found {inf} infinite values"));
-    }
-    if let Some([min, max]) = test.mean_range {
-        let mut sum = 0.0f64;
-        let mut count = 0u64;
-        for value in values.iter().copied().filter(|value| value.is_finite()) {
-            sum += f64::from(value);
-            count += 1;
-        }
-        if count == 0 {
-            reasons.push(format!(
-                "{label}: mean_range has no finite values to inspect"
-            ));
-        } else {
-            let mean = sum / count as f64;
-            if mean < f64::from(min) || mean > f64::from(max) {
-                reasons.push(format!(
-                    "{label}: finite RGBA mean {mean:.6} is outside [{min:.6}, {max:.6}]"
-                ));
-            }
-        }
-    }
-}
-
-struct RawComparison {
-    mismatches: usize,
-    max_error: f64,
-}
-
-fn compare_raw(expected: &[f32], actual: &[f32], tolerance: f32) -> Result<RawComparison> {
-    if expected.len() != actual.len() {
-        bail!(
-            "raw regression buffers have different lengths ({} vs {})",
-            expected.len(),
-            actual.len()
-        );
-    }
-    let tolerance = f64::from(tolerance);
-    let mut mismatches = 0usize;
-    let mut max_error = 0.0f64;
-    for (expected, actual) in expected.iter().zip(actual) {
-        if expected.to_bits() == actual.to_bits() {
-            continue;
-        }
-        if !expected.is_finite() || !actual.is_finite() {
-            mismatches += 1;
-            max_error = f64::INFINITY;
-            continue;
-        }
-        let error = (f64::from(*expected) - f64::from(*actual)).abs();
-        max_error = max_error.max(error);
-        if error > tolerance {
-            mismatches += 1;
-        }
-    }
-    Ok(RawComparison {
-        mismatches,
-        max_error,
-    })
-}
-
-struct Comparison {
-    rmse: f64,
-    max_error: f64,
-    changed_fraction: f64,
-    diff: Vec<u8>,
-}
-
-fn compare_rgb(expected: &[u8], actual: &[u8], tolerance: f32) -> Comparison {
-    debug_assert_eq!(expected.len(), actual.len());
-    let threshold = f64::from(tolerance) * 255.0;
-    let mut squared = 0.0f64;
-    let mut max = 0.0f64;
-    let mut changed_pixels = 0usize;
-    let mut diff = Vec::with_capacity(expected.len());
-
-    for (expected_pixel, actual_pixel) in expected
-        .as_chunks::<3>()
-        .0
-        .iter()
-        .zip(actual.as_chunks::<3>().0.iter())
-    {
-        let mut pixel_changed = false;
-        for channel in 0..3 {
-            let delta =
-                (f64::from(expected_pixel[channel]) - f64::from(actual_pixel[channel])).abs();
-            squared += delta * delta;
-            max = max.max(delta);
-            pixel_changed |= delta > threshold;
-            diff.push(delta.min(255.0).round() as u8);
-        }
-        changed_pixels += usize::from(pixel_changed);
-    }
-
-    let values = expected.len().max(1) as f64;
-    let pixels = (expected.len() / 3).max(1) as f64;
-    Comparison {
-        rmse: (squared / values).sqrt() / 255.0,
-        max_error: max / 255.0,
-        changed_fraction: changed_pixels as f64 / pixels,
-        diff,
-    }
-}
-
-fn top_down_rgb(image: &RgbImage) -> Vec<u8> {
-    let mut pixels = image.pixels.clone();
-    super::images::flip_rgb_rows(&mut pixels, image.width, image.height);
-    pixels
-}
-
-fn safe_reference_path(root: &Path, relative: &str, create: bool) -> Result<PathBuf> {
-    crate::manifest::validate_project_relative_path(relative, "test reference")?;
-    let path = root.join(relative);
-    let canonical_root = fs::canonicalize(root)?;
-    if path.exists() {
-        let canonical = fs::canonicalize(&path)?;
-        if !canonical.starts_with(&canonical_root) {
-            bail!(
-                "test reference resolves outside the project root: {}",
-                path.display()
-            );
-        }
-    } else if create && let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-        let canonical_parent = fs::canonicalize(parent)?;
-        if !canonical_parent.starts_with(&canonical_root) {
-            bail!(
-                "test reference parent resolves outside the project root: {}",
-                parent.display()
-            );
-        }
-    }
-    Ok(path)
-}
-
-fn file_safe_name(value: &str) -> String {
-    let result = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>();
-    let trimmed = result.trim_matches('-');
-    if trimmed.is_empty() {
-        "test".into()
-    } else {
-        trimmed.into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn comparison_reports_normalized_error() {
-        let compared = compare_rgb(&[0, 0, 0], &[255, 0, 0], 0.0);
-        assert!((compared.rmse - (1.0f64 / 3.0).sqrt()).abs() < 1e-9);
-        assert_eq!(compared.max_error, 1.0);
-        assert_eq!(compared.changed_fraction, 1.0);
-    }
 }

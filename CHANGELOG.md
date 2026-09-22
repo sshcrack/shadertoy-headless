@@ -4,6 +4,14 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.4.0
+
+- Added `shadertoy experiment` for reproducible baseline/candidate and N-way comparisons across images, render directories, ShaderToy projects, STTF builds, quality presets, and Git revisions, with deterministic frame sets, RMSE/SSIM metrics, contact sheets, provenance, GPU profiles, and optional sealed blind evaluation.
+- Expanded manifest-driven `shadertoy test` with preset/CI modes, uniform-vs-uniform RMSE bounds, total/per-pass GPU budgets, exact SSBO fixtures, and persistent buffer/SSBO state round-trip assertions.
+- Added self-contained `.sttrace` capture/inspect/replay bundles containing STTF, final output, persistent state, source/asset hashes, graph/synchronization metadata, GPU timings, and optional intermediate pass readbacks with artifact integrity verification.
+- Added top-level `shadertoy graph` with Graphviz DOT export and graph/resource diagnostics; `shadertoy check --pedantic` now turns advisory warnings such as unreachable passes, unused assets/uniforms, viewport-sized feedback, and unordered shared SSBO users into failures.
+
+
 ## 2.3.0
 
 - Added first-class named quality presets in ShaderToy.toml with output render scaling and per-pass buffer/compute overrides; `check`, `build`, `preview`, `render`, `render-frames`, `render-video`, `sweep`, and `profile` accept `--preset NAME`, and preview exposes a live base/preset selector.

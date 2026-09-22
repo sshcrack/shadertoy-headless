@@ -81,7 +81,7 @@ CMake build directories and installed system/Homebrew trees are intentionally no
 7. Verify binary installation from the official release:
 
 ```bash
-cargo binstall shadertoy-cli@2.2.7 --no-confirm
+cargo binstall shadertoy-cli@VERSION --no-confirm
 shadertoy --version
 ```
 

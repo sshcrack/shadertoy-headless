@@ -21,6 +21,13 @@ whether a referenced pass exists) are enforced by:
 
   shadertoy check
 
+For advisory graph/resource linting as well, use:
+
+  shadertoy check --pedantic
+  shadertoy graph --dot target/graph.dot
+
+See shadertoy docs graph for the current diagnostic set.
+
 
 Quality presets
 ---------------
@@ -95,7 +102,8 @@ deterministic commands can override values with:
   shadertoy render --set wave_height=1.75
 
 A [[test]] may provide a `uniforms` table to override declared values for only
-that case.
+that case. A second `reference_uniforms` table can render a deterministic
+comparison variant without maintaining a PNG fixture.
 
 Regression tests
 ----------------
@@ -119,5 +127,10 @@ Deterministic tests live in the same manifest:
   assert_resolution_independent = true
   raw_tolerance = 0.0
 
-Run shadertoy test; shadertoy test --update intentionally rewrites visual
-reference PNGs.
+Tests can additionally declare `min_rmse`/`max_rmse`, `max_gpu_ms`,
+`max_pass_gpu_ms`, exact `[[test.storage]]` binary fixtures, and
+`assert_state_roundtrip = true`.
+
+Run shadertoy test; shadertoy test --ci is non-mutating for automation, while
+shadertoy test --update intentionally rewrites visual reference PNGs. See
+shadertoy docs test for the complete assertion workflow.

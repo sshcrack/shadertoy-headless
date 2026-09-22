@@ -6,19 +6,20 @@ use tempfile::TempDir;
 const MAX_BLIND_SOURCES: usize = 64;
 const MAX_BLIND_IMAGES_PER_SOURCE: usize = 128;
 
-struct PreparedSource {
-    identity: String,
-    images: Vec<RgbImage>,
-    normalize_dimensions: bool,
+#[derive(Clone)]
+pub(super) struct PreparedSource {
+    pub(super) identity: String,
+    pub(super) images: Vec<RgbImage>,
+    pub(super) normalize_dimensions: bool,
 }
 
-struct PathSourceSpec {
-    path: PathBuf,
-    preset: Option<String>,
-    explicit_project: bool,
+pub(super) struct PathSourceSpec {
+    pub(super) path: PathBuf,
+    pub(super) preset: Option<String>,
+    pub(super) explicit_project: bool,
 }
 
-struct GitWorktree {
+pub(super) struct GitWorktree {
     repo_root: PathBuf,
     checkout: PathBuf,
     _parent: TempDir,
@@ -235,7 +236,7 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
     })
 }
 
-fn parse_path_source(source: &str) -> Result<PathSourceSpec> {
+pub(super) fn parse_path_source(source: &str) -> Result<PathSourceSpec> {
     let Some(spec) = source.strip_prefix("project:") else {
         return Ok(PathSourceSpec {
             path: PathBuf::from(source),
@@ -262,7 +263,7 @@ fn parse_path_source(source: &str) -> Result<PathSourceSpec> {
     })
 }
 
-fn normalize_project_source_dimensions(prepared: &mut [PreparedSource]) -> Result<()> {
+pub(super) fn normalize_project_source_dimensions(prepared: &mut [PreparedSource]) -> Result<()> {
     let mut target = None::<(u32, u32, u64)>;
     let mut dimensions_differ = false;
     let first = (prepared[0].images[0].width, prepared[0].images[0].height);
@@ -317,7 +318,7 @@ fn normalize_project_source_dimensions(prepared: &mut [PreparedSource]) -> Resul
     Ok(())
 }
 
-fn prepare_path_source(
+pub(super) fn prepare_path_source(
     path: &Path,
     frames: &[i32],
     width: Option<u32>,
@@ -567,7 +568,7 @@ fn is_image_path(path: &Path) -> bool {
     )
 }
 
-fn normalize_frames(frames: &[i32]) -> Result<Vec<i32>> {
+pub(super) fn normalize_frames(frames: &[i32]) -> Result<Vec<i32>> {
     if frames.is_empty() {
         bail!("--frames must contain at least one frame");
     }
@@ -585,7 +586,7 @@ fn normalize_frames(frames: &[i32]) -> Result<Vec<i32>> {
     Ok(frames)
 }
 
-fn resolve_git_root(explicit: Option<&Path>) -> Result<PathBuf> {
+pub(super) fn resolve_git_root(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(root) = explicit {
         return Ok(root.to_path_buf());
     }
@@ -600,7 +601,7 @@ fn resolve_git_root(explicit: Option<&Path>) -> Result<PathBuf> {
     Ok(PathBuf::from(root.trim()))
 }
 
-fn current_project_subdir(repo_root: &Path) -> Result<Option<PathBuf>> {
+pub(super) fn current_project_subdir(repo_root: &Path) -> Result<Option<PathBuf>> {
     let cwd = std::env::current_dir().context("failed to resolve current directory")?;
     project_subdir_for_cwd(repo_root, &cwd)
 }
@@ -637,7 +638,7 @@ fn project_subdir_for_cwd(repo_root: &Path, cwd: &Path) -> Result<Option<PathBuf
     Ok(None)
 }
 
-fn materialize_git_source(
+pub(super) fn materialize_git_source(
     repo_root: &Path,
     source: &str,
     implicit_subdir: Option<&Path>,

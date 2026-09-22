@@ -1,5 +1,7 @@
 mod blind;
 mod blind_create;
+mod experiment;
+mod graph;
 mod images;
 mod importer;
 mod inspect;
@@ -12,6 +14,7 @@ mod replay;
 mod sound;
 mod state;
 mod sweep;
+mod trace;
 mod video;
 
 use crate::manifest::{LoadedManifest, PassKind};
@@ -28,6 +31,8 @@ use std::path::{Path, PathBuf};
 
 pub use blind::{judge_blind, reveal_blind};
 pub use blind_create::create_blind_comparison;
+pub use experiment::{ExperimentOptions, run_experiment};
+pub use graph::{GraphOptions, graph_project};
 pub use images::rgb_png_bytes;
 pub use importer::import_project;
 pub use inspect::{inspect_buffer, inspect_project, inspect_storage};
@@ -40,6 +45,9 @@ pub use replay::replay_project;
 pub use sound::render_audio_project;
 pub use state::{capture_state, inspect_state, set_state_buffers, set_state_storage};
 pub use sweep::sweep_project;
+pub use trace::{
+    TraceCaptureOptions, TraceReplayOptions, capture_trace, inspect_trace, replay_trace,
+};
 pub use video::render_video_project;
 
 use images::{BufferOverride, flip_rgba_rows, load_overrides, save_rgb_png, split_assignment};
@@ -49,6 +57,13 @@ use render::{render_from_zero, resolve_target_frame, validate_dimensions, valida
 pub struct Output {
     pub human: String,
     pub json: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckOptions {
+    pub project: PathBuf,
+    pub preset: Option<String>,
+    pub pedantic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -80,8 +95,10 @@ pub struct ReplayOptions {
 #[derive(Debug, Clone)]
 pub struct TestOptions {
     pub project: PathBuf,
+    pub preset: Option<String>,
     pub update: bool,
     pub filter: Option<String>,
+    pub ci: bool,
 }
 
 #[derive(Debug, Clone)]

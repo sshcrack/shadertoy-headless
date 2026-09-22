@@ -9,6 +9,8 @@ cargo binstall shadertoy-cli
 shadertoy new demo --template multipass
 cd demo
 shadertoy check
+shadertoy check --pedantic
+shadertoy graph --dot target/graph.dot
 shadertoy render -o target/frame.png
 shadertoy render-frames --range 0:180:60 --contact-sheet target/contact.png
 shadertoy render-video --frames 180 -o target/clip.mp4
@@ -18,16 +20,20 @@ shadertoy blind create target/old-renders target/new-renders --output-dir target
 shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
 shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "preferred breakup"
 shadertoy blind reveal target/old-vs-new/blind-session.json
+shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --blind
 shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --set foam_gain=1.0
 shadertoy inspect storage particle-state --frame 120 --type f32 --count 16
 shadertoy profile --preset medium --frame 120 --samples 30
 shadertoy profile --preset medium --frame 120 --samples 30 --sync-per-pass
-shadertoy test
+shadertoy test --ci
+shadertoy trace capture --frame 120 --include-intermediates -o target/bug.sttrace
+shadertoy trace inspect target/bug.sttrace
+shadertoy trace replay target/bug.sttrace
 shadertoy preview --record target/session.strec
 shadertoy replay target/session.strec -o target/replay.png
 ```
 
-The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
+The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
 
 Import a public ShaderToy into a fully local editable project:
 
@@ -71,7 +77,15 @@ boundary before continuing for maximum-isolation driver diagnostics. Blind sweep
 while `blind create` accepts existing images/render directories, project
 directories, STTF builds, Git revisions, and `project:PATH@preset=NAME` sources.
 `blind judge` records the preference and rationale before `blind reveal` exposes
-the sealed mapping and writes a combined report.
+the sealed mapping and writes a combined report. `experiment` turns the same
+source forms into a reproducible baseline/candidate or N-way run with
+deterministic frame sets, normalized RMSE, windowed SSIM, contact sheets,
+provenance, project/git GPU profiles, and optional sealed blind labels.
+
+`graph` renders the resolved pass/resource graph as text/JSON or Graphviz DOT.
+`check --pedantic` additionally treats advisory graph/resource diagnostics as
+failures, including unreachable passes, unused assets/uniforms, viewport-sized
+feedback, and unordered shared SSBO users.
 
 Buffer passes can opt into fixed `width`/`height` render targets for stable
 simulation grids, while each iChannel can independently choose
@@ -91,10 +105,26 @@ on failure; buffer cases can also assert no NaN/Inf values and finite-value mean
 ranges. Tests can also expand across `frames = [...]` and `resolutions = [[w,h], ...]`,
 repeat each variant with `assert_deterministic = true`, and prove fixed GPU
 simulation grids are independent of output size with
-`assert_resolution_independent = true`.
+`assert_resolution_independent = true`. Tests can also compare
+`uniforms` against `reference_uniforms` with minimum/maximum RMSE bounds,
+enforce total/per-pass GPU budgets, compare exact SSBO binary fixtures, and set
+`assert_state_roundtrip = true` to verify persistent pass/SSBO state survives
+serialization into a fresh runtime. Use `shadertoy test --ci` for a non-mutating
+automation path.
 
 ShaderToy Sound passes (`kind = "sound"`) are compiled by `check` and render to
 deterministic stereo PCM WAV with `shadertoy render-audio`. File-backed video
 assets update at deterministic `iTime` and expose `iChannelTime`; webcam channels
 are available only in live preview and are intentionally rejected by headless
 render/replay/recording.
+
+
+Trace bundles
+-------------
+
+`shadertoy trace capture -o target/bug.sttrace` freezes a deterministic render
+into a self-contained directory containing the STTF, final PNG, persistent
+`.ststate`, resolved configuration, source/asset hashes, graph/synchronization
+metadata, GPU pass timings, and optional per-pass PNG/RGBA32F readbacks.
+`trace inspect` verifies artifact SHA-256 values, while `trace replay` renders
+only from the bundled STTF and requires a bit-exact RGB match.
