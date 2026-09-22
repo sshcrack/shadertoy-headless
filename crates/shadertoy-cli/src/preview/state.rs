@@ -9,6 +9,7 @@ pub(super) fn reload(
     sources: &mut Option<SourceGraph>,
     width: &mut u32,
     height: &mut u32,
+    resolution_override: Option<(u32, u32)>,
     fps: &mut f32,
     view: &mut String,
     uniform_values: &mut BTreeMap<String, crate::uniforms::UniformValue>,
@@ -45,11 +46,18 @@ pub(super) fn reload(
     crate::uniforms::apply_to_runtime(runtime, &next_uniform_values)?;
     *uniform_values = next_uniform_values;
 
-    if loaded.is_none() {
-        *width = candidate.manifest.render.width;
-        *height = candidate.manifest.render.height;
-        *fps = candidate.manifest.render.fps;
+    match resolution_override {
+        Some((override_width, override_height)) => {
+            *width = override_width;
+            *height = override_height;
+        }
+        None => {
+            let (project_width, project_height) = project_render_dimensions(root)?;
+            *width = project_width;
+            *height = project_height;
+        }
     }
+    *fps = candidate.manifest.render.fps;
 
     if let Some(saved) = saved {
         runtime.set_fixed_state(saved.time, saved.frame, saved.fps)?;
@@ -78,6 +86,11 @@ pub(super) fn reload(
     *loaded = Some(candidate);
     *sources = Some(candidate_sources);
     Ok(())
+}
+
+pub(super) fn project_render_dimensions(root: &Path) -> Result<(u32, u32)> {
+    let base = LoadedManifest::load_with_preset(root, None)?;
+    Ok((base.manifest.render.width, base.manifest.render.height))
 }
 
 pub(super) fn reload_changed_sources(
@@ -186,6 +199,7 @@ pub(super) fn update_status(
     runtime: &Runtime<'_>,
     width: u32,
     height: u32,
+    custom_resolution: bool,
     fps: f32,
     paused: bool,
     view: &str,
@@ -222,6 +236,8 @@ pub(super) fn update_status(
             })
             .collect();
         status.webcam = crate::media::manifest_uses_webcam(loaded);
+        status.preset_width = loaded.manifest.render.width;
+        status.preset_height = loaded.manifest.render.height;
     }
     status.frame = runtime.frame();
     status.time = runtime.time();
@@ -229,6 +245,7 @@ pub(super) fn update_status(
     status.time_scale = runtime.time_scale();
     status.width = width;
     status.height = height;
+    status.custom_resolution = custom_resolution;
     status.fps = fps;
     status.view = view.to_string();
     if error.is_some() {

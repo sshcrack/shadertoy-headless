@@ -72,6 +72,9 @@ pub struct PreviewStatus {
     pub time_scale: f32,
     pub width: u32,
     pub height: u32,
+    pub preset_width: u32,
+    pub preset_height: u32,
+    pub custom_resolution: bool,
     pub fps: f32,
     pub view: String,
     pub final_pass: String,
@@ -94,6 +97,9 @@ impl Default for PreviewStatus {
             time_scale: 0.0,
             width: 1280,
             height: 720,
+            preset_width: 1280,
+            preset_height: 720,
+            custom_resolution: false,
             fps: 60.0,
             view: "image".into(),
             final_pass: "image".into(),
@@ -126,6 +132,7 @@ enum Control {
     Preset(Option<String>),
     View(String),
     Resolution(u32, u32),
+    ResolutionDefault,
     TimeScale(f32),
     Uniform {
         name: String,
@@ -163,6 +170,7 @@ enum BrowserControl {
         width: u32,
         height: u32,
     },
+    ResolutionDefault,
     TimeScale {
         value: f32,
     },
@@ -206,6 +214,15 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     let loaded = LoadedManifest::load_with_preset(&config.project, config.preset.as_deref())?;
     validate_preview_dimensions(&loaded)?;
+    let base_loaded = if config.preset.is_some() {
+        Some(LoadedManifest::load_with_preset(&config.project, None)?)
+    } else {
+        None
+    };
+    let base_manifest = base_loaded
+        .as_ref()
+        .map(|base| &base.manifest)
+        .unwrap_or(&loaded.manifest);
     if config.record.is_some() && crate::media::manifest_uses_webcam(&loaded) {
         bail!(
             "preview --record does not support live webcam input; use a deterministic video asset instead"
@@ -221,8 +238,11 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         project: loaded.manifest.project.name.clone(),
         preset: config.preset.clone(),
         presets: loaded.manifest.presets.keys().cloned().collect(),
-        width: loaded.manifest.render.width,
-        height: loaded.manifest.render.height,
+        width: base_manifest.render.width,
+        height: base_manifest.render.height,
+        preset_width: loaded.manifest.render.width,
+        preset_height: loaded.manifest.render.height,
+        custom_resolution: false,
         fps: loaded.manifest.render.fps,
         final_pass: loaded.manifest.final_pass().name.clone(),
         view: loaded.manifest.final_pass().name.clone(),

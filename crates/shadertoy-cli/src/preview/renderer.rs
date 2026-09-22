@@ -1,4 +1,7 @@
-use super::state::{clear_error, reload, reload_changed_sources, set_error, update_status};
+use super::state::{
+    clear_error, project_render_dimensions, reload, reload_changed_sources, set_error,
+    update_status,
+};
 use super::*;
 
 pub(super) fn render_loop(
@@ -16,6 +19,7 @@ pub(super) fn render_loop(
     let mut changed_paths = BTreeSet::new();
     let mut width = 1280u32;
     let mut height = 720u32;
+    let mut resolution_override: Option<(u32, u32)> = None;
     let mut fps = 60.0f32;
     let mut paused = false;
     let mut view = String::from("image");
@@ -34,6 +38,7 @@ pub(super) fn render_loop(
         &mut sources,
         &mut width,
         &mut height,
+        resolution_override,
         &mut fps,
         &mut view,
         &mut uniform_values,
@@ -51,6 +56,7 @@ pub(super) fn render_loop(
                 runtime,
                 width,
                 height,
+                resolution_override.is_some(),
                 fps,
                 paused,
                 &view,
@@ -66,6 +72,7 @@ pub(super) fn render_loop(
                 runtime,
                 width,
                 height,
+                resolution_override.is_some(),
                 fps,
                 paused,
                 &view,
@@ -93,6 +100,7 @@ pub(super) fn render_loop(
                 &mut changed_paths,
                 &mut width,
                 &mut height,
+                &mut resolution_override,
                 &mut fps,
                 &mut paused,
                 &mut view,
@@ -131,6 +139,7 @@ pub(super) fn render_loop(
                         &mut sources,
                         &mut width,
                         &mut height,
+                        resolution_override,
                         &mut fps,
                         &mut view,
                         &mut uniform_values,
@@ -221,6 +230,7 @@ pub(super) fn render_loop(
                                     runtime,
                                     width,
                                     height,
+                                    resolution_override.is_some(),
                                     fps,
                                     paused,
                                     &view,
@@ -273,6 +283,7 @@ pub(super) fn render_loop(
                     &mut changed_paths,
                     &mut width,
                     &mut height,
+                    &mut resolution_override,
                     &mut fps,
                     &mut paused,
                     &mut view,
@@ -309,6 +320,7 @@ fn handle_control(
     changed_paths: &mut BTreeSet<PathBuf>,
     width: &mut u32,
     height: &mut u32,
+    resolution_override: &mut Option<(u32, u32)>,
     fps: &mut f32,
     paused: &mut bool,
     view: &mut String,
@@ -355,6 +367,7 @@ fn handle_control(
             sources,
             width,
             height,
+            *resolution_override,
             fps,
             view,
             uniform_values,
@@ -405,17 +418,13 @@ fn handle_control(
                     sources,
                     width,
                     height,
+                    *resolution_override,
                     fps,
                     view,
                     uniform_values,
                     true,
                 ) {
                     Ok(()) => {
-                        if let Some(project) = loaded.as_ref() {
-                            *width = project.manifest.render.width;
-                            *height = project.manifest.render.height;
-                            *fps = project.manifest.render.fps;
-                        }
                         *preset = requested;
                         if let Ok(mut status) = shared.status.write() {
                             status.preset = preset.clone();
@@ -458,6 +467,7 @@ fn handle_control(
             } else {
                 *width = new_width;
                 *height = new_height;
+                *resolution_override = Some((new_width, new_height));
                 // Keep the active runtime so fixed-size offscreen targets and their
                 // feedback history survive output-resolution changes. Dynamic
                 // output-sized buffers will resize on their next render.
@@ -473,6 +483,24 @@ fn handle_control(
                 );
             }
         }
+        Control::ResolutionDefault => match project_render_dimensions(root) {
+            Ok((new_width, new_height)) => {
+                *width = new_width;
+                *height = new_height;
+                *resolution_override = None;
+                *force_render = true;
+                clear_error(shared);
+                record_action(
+                    recorder,
+                    shared,
+                    ReplayAction::Resolution {
+                        width: new_width,
+                        height: new_height,
+                    },
+                );
+            }
+            Err(error) => set_error(shared, format!("{error:#}")),
+        },
         Control::TimeScale(value) => {
             if value.is_finite() && (-8.0..=8.0).contains(&value) {
                 if let Err(error) = runtime.set_time_scale(value) {

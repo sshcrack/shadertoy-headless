@@ -10,6 +10,16 @@ preset and keeps that preset active across full hot reloads. When presets exist,
 the browser exposes a Quality preset selector (including the base manifest) and can
 switch tiers live without restarting preview.
 
+Preview is deliberately a human-review surface. Its final Image output stays at
+the base project's render width/height while switching presets, even when a
+preset declares render_scale. This prevents a lower-resolution final image from
+looking like a shader-performance improvement. Preset pass overrides (fixed
+buffer/compute dimensions, iterations, local size) still apply normally.
+
+The browser exposes common review resolutions plus custom width/height. A
+manually selected review resolution stays fixed while switching presets. Choose
+Project output to return to the base manifest's render dimensions.
+
 Shader/source edits use an include-aware dependency graph. A successful source
 reload recompiles only affected passes and leaves existing render targets and
 feedback history intact. Manifest/asset changes take the conservative full
@@ -17,7 +27,8 @@ project reload path. Any failed reload keeps the last successful render alive
 and exposes the compile/load error.
 
 The preview supports final Image and intermediate 2D buffer views, pause/reset,
-frame stepping, time scale, resolution changes, mouse/keyboard forwarding, and
+frame stepping, time scale, explicit review-resolution changes,
+mouse/keyboard forwarding, and
 live controls for declared custom uniforms. File-backed video channels are
 updated from shader time. If the manifest declares a `kind = "webcam"` channel,
 the browser exposes a Start webcam control and forwards 320x240 RGBA frames to

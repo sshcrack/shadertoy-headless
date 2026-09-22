@@ -65,6 +65,11 @@ supported remote assets local.
 
 8. Profile expensive passes on the real GPU path:
      shadertoy profile --frame 120 --warmup 5 --samples 30 --json
+   Never claim a performance improvement from lowering the final Image output
+   resolution. With `--preset NAME`, profile locks the benchmark to the base
+   project's output dimensions by default; preset `render_scale` is reported
+   separately and excluded from the comparison. Optimize internal pass
+   dimensions, iterations, algorithms, or shader work instead.
    Reports mean, median, p95, min, and max per-pass GPU timestamp durations plus
    a total GPU-work duration and CPU render-call timing. Completion-synchronized
    boundaries keep asynchronous compute attached to the issuing pass. The total is the
@@ -91,7 +96,11 @@ supported remote assets local.
      shadertoy preview
     Or launch a named quality tier directly:
      shadertoy preview --preset medium
-    When presets exist, the browser also exposes a Quality preset selector for live switching.
+    When presets exist, the browser also exposes a Quality preset selector for
+    live switching. Final Image output stays fixed at the project review
+    resolution across preset changes so a smaller image cannot masquerade as a
+    performance win. The human can select common review resolutions or enter a
+    custom size; that explicit size also stays fixed across presets.
     Declared custom uniforms become live controls. A `kind = "webcam"` channel
     exposes a Start webcam button; webcam input is intentionally not recordable
     or usable by headless commands.

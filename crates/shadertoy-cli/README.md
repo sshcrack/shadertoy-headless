@@ -67,6 +67,13 @@ project root; `render_scale` adjusts default output size while
 iterations/local size. `check`, `build`, `preview`, `render`, `render-frames`,
 `render-video`, `sweep`, and `profile` accept `--preset NAME`.
 
+Preview and profile deliberately do not count a preset's smaller final output as
+an optimization. Preview holds the final Image at the base project output size
+across preset switches (or at a human-selected review size), and
+`profile --preset NAME` benchmarks at base project output size by default while
+reporting the preset-requested scale separately. Internal pass reductions still
+apply and remain measurable.
+
 `shadertoy sweep --set gain=0.8,1.0,1.2` renders parameter variants and a contact
 sheet without temporary project copies. `profile` reports mean, median, p95, min, and max per-pass GPU timestamp
 statistics plus a total GPU-work duration computed from those same attributed pass

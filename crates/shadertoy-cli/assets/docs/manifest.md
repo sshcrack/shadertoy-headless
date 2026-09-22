@@ -51,10 +51,19 @@ project root:
   iterations = 4
   local_size = [16, 8, 1]
 
-`render_scale` scales the manifest's default output width/height. Per-pass
-`width`/`height` overrides apply to buffer and compute passes; `iterations`
-and `local_size` apply to compute passes. Select a preset without copying the
-project:
+`render_scale` scales the manifest's default output width/height for output
+commands such as `render` and `build`. Per-pass `width`/`height` overrides
+apply to buffer and compute passes; `iterations` and `local_size` apply to
+compute passes.
+
+For fair review, `preview` and `profile` intentionally keep the base
+project's final output dimensions when a preset is selected. `render_scale` is
+reported there but is not counted as an optimization; real preset speedups must
+come from lower internal-pass cost or shader work. Preview also lets the human
+explicitly choose a review resolution, which remains fixed while switching
+presets.
+
+Select a preset without copying the project:
 
   shadertoy check --preset low
   shadertoy preview --preset low   # browser also exposes a preset selector
@@ -62,9 +71,11 @@ project:
   shadertoy profile --preset medium
   shadertoy build --preset high
 
-CLI `--width`/`--height` output overrides still take precedence over the
-preset-adjusted render defaults. Unknown presets/passes and invalid pass
-overrides are validation errors.
+CLI `--width`/`--height` output overrides still take precedence for commands
+that accept explicit output dimensions. `profile --preset NAME` defaults to
+the base project output size and reports both the benchmark size and any
+preset-requested final scale. Unknown presets/passes and invalid pass overrides
+are validation errors.
 
 
 Shared GLSL includes

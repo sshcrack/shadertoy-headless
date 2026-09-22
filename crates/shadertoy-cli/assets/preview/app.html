@@ -6,82 +6,224 @@
 <title>ShaderToy Preview</title>
 <link rel="icon" href="data:,">
 <style>
-:root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --panel: #111821;
+  --panel-raised: #17212c;
+  --line: #2b3948;
+  --text: #edf5fb;
+  --muted: #92a5b5;
+  --accent: #68c7ed;
+  --accent-soft: #173848;
+  --danger: #ff9c9c;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
-body { background: #101114; color: #e8e8ea; height: 100vh; height: 100dvh; display: grid; grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); overflow: hidden; }
-aside { padding: 16px; border-right: 1px solid #2c2e35; overflow: auto; overscroll-behavior: contain; }
-main { min-width: 0; display: grid; place-items: center; overflow: hidden; background: #08090b; }
-#frame { max-width: 100%; max-height: 100%; user-select: none; outline: none; display: block; touch-action: none; }
-h1 { font-size: 16px; margin: 0 0 16px; }
-label { display: block; font-size: 12px; color: #aaa; margin-top: 12px; }
-select,input,button { width: 100%; margin-top: 5px; background: #1b1d22; color: #eee; border: 1px solid #343741; border-radius: 5px; padding: 7px; min-height: 36px; }
-button { touch-action: manipulation; }
+body {
+  background: #0b1118;
+  color: var(--text);
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(280px, 316px) minmax(0, 1fr);
+  overflow: hidden;
+}
+aside {
+  padding: 18px;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, #121b25 0%, #0f161e 100%);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+main {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    linear-gradient(45deg, #0a0f15 25%, transparent 25%),
+    linear-gradient(-45deg, #0a0f15 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #0a0f15 75%),
+    linear-gradient(-45deg, transparent 75%, #0a0f15 75%),
+    #080c11;
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+#frame {
+  max-width: 100%;
+  max-height: 100%;
+  user-select: none;
+  outline: none;
+  display: block;
+  touch-action: none;
+  box-shadow: 0 0 0 1px #26323f, 0 20px 70px #0008;
+}
+.review-header { padding: 2px 2px 14px; border-bottom: 1px solid var(--line); }
+.eyebrow {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+h1 { font-size: 18px; line-height: 1.2; margin: 6px 0 10px; font-weight: 650; }
+.status-strip { display: flex; flex-wrap: wrap; gap: 5px; }
+.badge {
+  background: #0b1219;
+  border: 1px solid #2c3c4c;
+  border-radius: 999px;
+  color: #b8c8d5;
+  font: 10px/1 var(--mono);
+  padding: 5px 7px;
+}
+.badge.accent { background: var(--accent-soft); border-color: #286077; color: #a6e5ff; }
+.panel {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: #111923c9;
+  border-radius: 8px;
+}
+.panel h2 {
+  margin: 0 0 8px;
+  color: #cfdae3;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+label { display: block; font-size: 11px; color: var(--muted); margin-top: 9px; }
+label:first-of-type { margin-top: 0; }
+select, input, button {
+  width: 100%;
+  margin-top: 5px;
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid #354657;
+  border-radius: 5px;
+  padding: 7px 8px;
+  min-height: 36px;
+  font: 12px/1.2 var(--mono);
+}
+select:focus-visible, input:focus-visible, button:focus-visible, #frame:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+button { cursor: pointer; touch-action: manipulation; }
+button:hover { background: #202e3c; border-color: #476078; }
+button.primary { background: #163547; border-color: #2e708d; color: #c5ecff; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.control + .control { margin-top: 8px; }
+.resolution-row input { text-align: right; }
+.hint {
+  margin-top: 7px;
+  color: #7890a3;
+  font: 10px/1.45 var(--mono);
+}
 .uniform-entry { margin-top: 8px; }
 .uniform-entry > label { margin-top: 0; }
 .uniform-vector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
-.uniform-bool { display: flex; align-items: center; gap: 8px; }
+.uniform-bool { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .uniform-bool input { width: auto; min-height: 0; margin: 0; }
-.meta { margin-top: 14px; font-size: 11px; line-height: 1.65; color: #b7bac3; white-space: pre-line; }
-#error { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; color: #ff8e8e; font-size: 11px; }
+.meta {
+  margin-top: 12px;
+  padding: 10px 11px;
+  border-left: 2px solid #355267;
+  background: #0b1219;
+  font: 10px/1.65 var(--mono);
+  color: #8fa4b5;
+  white-space: pre-line;
+}
+#error {
+  margin-top: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--danger);
+  font: 10px/1.5 var(--mono);
+}
 @media (max-width: 720px) {
   body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   aside {
-    max-height: 44dvh;
+    max-height: 48dvh;
     padding: 10px 12px;
     border-right: 0;
-    border-bottom: 1px solid #2c2e35;
+    border-bottom: 1px solid var(--line);
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px 10px;
     align-content: start;
   }
-  h1 { grid-column: 1 / -1; margin: 0; }
-  .control + .control { margin-top: 0; }
-  .control label { margin-top: 0; }
+  .review-header { grid-column: 1 / -1; }
+  .panel { margin-top: 0; }
   .meta, #error { grid-column: 1 / -1; margin-top: 0; }
-  select, input, button { min-height: 44px; font-size: 16px; }
+  select, input, button { min-height: 42px; font-size: 16px; }
   main { min-height: 0; }
 }
 </style>
 </head>
 <body>
 <aside>
-  <h1>ShaderToy native preview</h1>
-  <div class="control" id="preset-section" style="display:none">
-    <label>Quality preset<select id="preset"></select></label>
-  </div>
-  <div class="control">
+  <header class="review-header">
+    <div class="eyebrow">Human review</div>
+    <h1 id="project-title">ShaderToy native preview</h1>
+    <div class="status-strip">
+      <span class="badge accent" id="quality-badge">base</span>
+      <span class="badge" id="resolution-badge">1280×720</span>
+      <span class="badge" id="fps-badge">— fps</span>
+    </div>
+  </header>
+
+  <section class="panel" id="preset-section" style="display:none">
+    <h2>Quality</h2>
+    <label>Preset<select id="preset"></select></label>
+    <div class="hint" id="preset-hint">Switch quality tiers without restarting preview.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Review output</h2>
+    <label>Resolution
+      <select id="resolution-mode">
+        <option value="project">Project output</option>
+        <option value="640x360">640 × 360</option>
+        <option value="960x540">960 × 540</option>
+        <option value="1280x720">1280 × 720</option>
+        <option value="1600x900">1600 × 900</option>
+        <option value="1920x1080">1920 × 1080</option>
+        <option value="2560x1440">2560 × 1440</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </label>
+    <div class="row resolution-row">
+      <label>Width<input id="width" aria-label="Preview width" inputmode="numeric" type="number" min="1" max="4096"></label>
+      <label>Height<input id="height" aria-label="Preview height" inputmode="numeric" type="number" min="1" max="4096"></label>
+    </div>
+    <button class="primary" id="resolution">Apply custom size</button>
+    <div class="hint" id="resolution-hint"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Playback</h2>
     <label>View<select id="view"></select></label>
-  </div>
-  <div class="control">
     <div class="row">
       <button id="pause">Pause</button>
       <button id="step">Step</button>
     </div>
-    <button id="reset">Reset</button>
-  </div>
-  <div class="control">
-    <label>Resolution</label>
-    <div class="row">
-      <input id="width" aria-label="Preview width" inputmode="numeric" type="number" min="1" max="4096">
-      <input id="height" aria-label="Preview height" inputmode="numeric" type="number" min="1" max="4096">
-    </div>
-    <button id="resolution">Apply resolution</button>
-  </div>
-  <div class="control">
+    <button id="reset">Reset simulation</button>
     <label>Time scale (log2)<input id="scale" type="range" min="-4" max="4" step="0.25" value="0"></label>
-  </div>
-  <div class="control" id="uniform-section">
-    <label>Parameters</label>
+  </section>
+
+  <section class="panel" id="uniform-section">
+    <h2>Parameters</h2>
     <div id="uniforms"></div>
-  </div>
-  <div class="control" id="webcam-section" style="display:none">
-    <label>Webcam input</label>
+  </section>
+
+  <section class="panel" id="webcam-section" style="display:none">
+    <h2>Input</h2>
     <button id="webcam-toggle">Start webcam</button>
-  </div>
+  </section>
+
   <div class="meta" id="meta"></div>
   <div id="error"></div>
 </aside>
@@ -96,6 +238,13 @@ const frameContext = frame.getContext("2d", {alpha:false});
 const view = document.getElementById("view");
 const presetSelect = document.getElementById("preset");
 const presetSection = document.getElementById("preset-section");
+const resolutionMode = document.getElementById("resolution-mode");
+const resolutionHint = document.getElementById("resolution-hint");
+const presetHint = document.getElementById("preset-hint");
+const projectTitle = document.getElementById("project-title");
+const qualityBadge = document.getElementById("quality-badge");
+const resolutionBadge = document.getElementById("resolution-badge");
+const fpsBadge = document.getElementById("fps-badge");
 const pause = document.getElementById("pause");
 const meta = document.getElementById("meta");
 const error = document.getElementById("error");
@@ -153,6 +302,31 @@ function updatePresetOptions(presets, selected) {
   presetSelect.value = selected || "";
   presetSection.style.display = (presets || []).length ? "" : "none";
 }
+const REVIEW_RESOLUTIONS = new Set(["640x360", "960x540", "1280x720", "1600x900", "1920x1080", "2560x1440"]);
+
+function updateResolutionControls(s) {
+  const key = s.width + "x" + s.height;
+  const mode = s.custom_resolution ? (REVIEW_RESOLUTIONS.has(key) ? key : "custom") : "project";
+  if (document.activeElement !== resolutionMode) resolutionMode.value = mode;
+  if (document.activeElement !== width) width.value = s.width;
+  if (document.activeElement !== height) height.value = s.height;
+  const requested = s.preset_width + "×" + s.preset_height;
+  const actual = s.width + "×" + s.height;
+  resolutionHint.textContent = s.custom_resolution
+    ? "Review override active · switching quality keeps " + actual + "."
+    : (requested === actual
+        ? "Project output locked at " + actual + "."
+        : "Project output locked at " + actual + " · preset final-output scaling to " + requested + " is ignored for fair review.");
+  presetHint.textContent = "Switch tiers live; final output stays fixed so quality/performance comparisons remain apples-to-apples.";
+}
+
+function applyCustomResolution() {
+  const nextWidth = +width.value;
+  const nextHeight = +height.value;
+  resolutionMode.value = "custom";
+  send({type:"resolution", width:nextWidth, height:nextHeight});
+}
+
 function uniformStructureSignature(items) {
   return JSON.stringify((items || []).map(item => ({
     name:item.name, kind:item.kind, min:item.min, max:item.max, step:item.step
@@ -279,11 +453,12 @@ webcamToggle.onclick = async () => {
 function renderMeta() {
   if (!status) return;
   const actual = status.paused ? "paused" : actualFps.toFixed(1) + " actual fps";
-  meta.textContent = status.project
-    + "\nquality " + (status.preset || "base")
-    + "\nframe " + status.frame + "  time " + status.time.toFixed(3) + "s"
-    + "\n" + status.width + "x" + status.height
-    + "  " + actual + "  (target " + status.fps + " fps)";
+  projectTitle.textContent = status.project || "ShaderToy native preview";
+  qualityBadge.textContent = status.preset || "base";
+  resolutionBadge.textContent = status.width + "×" + status.height + (status.custom_resolution ? " review" : " project");
+  fpsBadge.textContent = status.paused ? "paused" : actualFps.toFixed(1) + " fps";
+  meta.textContent = "frame " + status.frame + "  time " + status.time.toFixed(3) + "s"
+    + "\n" + actual + "  ·  target " + status.fps + " fps";
 }
 function refreshActualFps(now=performance.now()) {
   const cutoff = now - 1000;
@@ -308,8 +483,7 @@ function update(s) {
   renderMeta();
   error.textContent = s.error || "";
   pause.textContent = s.paused ? "Resume" : "Pause";
-  if (document.activeElement !== width) width.value = s.width;
-  if (document.activeElement !== height) height.value = s.height;
+  updateResolutionControls(s);
   if (document.activeElement !== scale) scale.value = s.time_scale;
   updateUniforms(s.uniforms || []);
   updatePresetOptions(s.presets || [], s.preset);
@@ -359,11 +533,29 @@ ws.onmessage = event => {
   }
 };
 presetSelect.onchange = () => send({type:"preset", preset:presetSelect.value || null});
+resolutionMode.onchange = () => {
+  const value = resolutionMode.value;
+  if (value === "project") {
+    send({type:"resolution-default"});
+  } else if (value === "custom") {
+    width.focus();
+    width.select();
+  } else {
+    const [nextWidth, nextHeight] = value.split("x").map(Number);
+    send({type:"resolution", width:nextWidth, height:nextHeight});
+  }
+};
 view.onchange = () => send({type:"view", pass:view.value});
 pause.onclick = () => send({type: status && status.paused ? "resume" : "pause"});
 document.getElementById("step").onclick = () => send({type:"step"});
 document.getElementById("reset").onclick = () => send({type:"reset"});
-document.getElementById("resolution").onclick = () => send({type:"resolution", width:+width.value, height:+height.value});
+document.getElementById("resolution").onclick = applyCustomResolution;
+for (const input of [width, height]) {
+  input.addEventListener("input", () => { resolutionMode.value = "custom"; });
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter") applyCustomResolution();
+  });
+}
 scale.oninput = () => send({type:"time-scale", value:+scale.value});
 
 function pointer(event, clicked=false) {

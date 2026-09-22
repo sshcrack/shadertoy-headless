@@ -165,6 +165,7 @@ fn browser_control(command: BrowserControl) -> Control {
         BrowserControl::Preset { preset } => Control::Preset(preset),
         BrowserControl::View { pass } => Control::View(pass),
         BrowserControl::Resolution { width, height } => Control::Resolution(width, height),
+        BrowserControl::ResolutionDefault => Control::ResolutionDefault,
         BrowserControl::TimeScale { value } => Control::TimeScale(value),
         BrowserControl::Uniform { name, value } => Control::Uniform { name, value },
         BrowserControl::Mouse {
@@ -208,5 +209,22 @@ mod tests {
         let base: BrowserControl =
             serde_json::from_str(r#"{"type":"preset","preset":null}"#).unwrap();
         assert!(matches!(browser_control(base), Control::Preset(None)));
+    }
+
+    #[test]
+    fn browser_resolution_controls_support_custom_and_preset_default() {
+        let custom: BrowserControl =
+            serde_json::from_str(r#"{"type":"resolution","width":1920,"height":1080}"#).unwrap();
+        assert!(matches!(
+            browser_control(custom),
+            Control::Resolution(1920, 1080)
+        ));
+
+        let default: BrowserControl =
+            serde_json::from_str(r#"{"type":"resolution-default"}"#).unwrap();
+        assert!(matches!(
+            browser_control(default),
+            Control::ResolutionDefault
+        ));
     }
 }

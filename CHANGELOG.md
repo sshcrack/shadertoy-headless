@@ -4,6 +4,13 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.4.1
+
+- Reworked the preview browser as a human-review control surface with prominent live quality-preset switching, common review resolutions, custom width/height controls, and clearer active quality/resolution/FPS status.
+- Preview now keeps final Image output at the base project resolution across preset changes; explicit human-selected review resolutions also persist across presets. Preset `render_scale` can no longer make a tier appear faster in preview simply by shrinking the final image.
+- `profile --preset NAME` now benchmarks at the base project output resolution by default and reports the preset-requested final scale separately, while still honoring internal pass resolution/iteration/local-size changes.
+
+
 ## 2.4.0
 
 - Added `shadertoy experiment` for reproducible baseline/candidate and N-way comparisons across images, render directories, ShaderToy projects, STTF builds, quality presets, and Git revisions, with deterministic frame sets, RMSE/SSIM metrics, contact sheets, provenance, GPU profiles, and optional sealed blind evaluation.

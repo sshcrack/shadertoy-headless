@@ -765,8 +765,13 @@ height = 2
     assert!(profile.status.success(), "{profile:?}");
     let report: serde_json::Value =
         serde_json::from_slice(&profile.stdout).expect("parse profile report");
-    assert_eq!(report["width"], 2);
-    assert_eq!(report["height"], 2);
+    // Profiling quality presets keeps the project output resolution fixed so a
+    // preset cannot claim a speedup merely by rendering a smaller final image.
+    assert_eq!(report["width"], 1);
+    assert_eq!(report["height"], 1);
+    assert_eq!(report["output_resolution_policy"], "fixed_project_output");
+    assert_eq!(report["preset_requested_width"], 2);
+    assert_eq!(report["preset_requested_height"], 2);
     assert_eq!(report["timing_mode"], "completion_synchronized");
     assert_eq!(report["gpu_frame_mode"], "attributed_pass_sum");
     assert!(
@@ -775,6 +780,14 @@ height = 2
             .is_some_and(|value| value > 0.0)
     );
     assert!(report["passes"][0]["p95_ms"].as_f64().is_some());
+    let buffer = report["passes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pass| pass["name"] == "buffer-a")
+        .unwrap();
+    assert_eq!(buffer["width"], 2);
+    assert_eq!(buffer["height"], 2);
 
     let high_source = format!("project:{project_arg}@preset=high");
     let low_source = format!("project:{project_arg}@preset=low");

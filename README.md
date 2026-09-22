@@ -189,7 +189,16 @@ presets may also override `iterations` and `local_size`. Use the same tier acros
 commands with `--preset low` (`check`, `preview`, `render`, `render-frames`,
 `render-video`, `sweep`, `profile`, and `build`). Presets never change the project
 root, so includes and assets keep resolving exactly as they do in the base
-manifest. Quality tiers can be blinded directly with
+manifest.
+
+For human/performance review, lowering the final Image resolution is deliberately
+not treated as an optimization. Preview keeps the base project output size while
+switching presets unless the human explicitly selects another review resolution.
+Likewise, `profile --preset NAME` benchmarks at the base project output size by
+default and reports any preset-requested final scale separately; internal
+pass-size, iteration, algorithm, and shader-work reductions still count normally.
+
+Quality tiers can be blinded directly with
 `shadertoy blind create 'project:.@preset=high' 'project:.@preset=low' ...`.
 
 ShaderToy Sound passes are compiled by `shadertoy check` and can be rendered
@@ -236,7 +245,7 @@ shadertoy profile --frame 120 --samples 30 --json
 shadertoy profile --preset medium --frame 120 --samples 30 --sync-per-pass --json
 ~~~
 
-`profile` reports mean, median, p95, min, and max timing statistics for every GPU pass plus a trustworthy total GPU-work duration. Each pass is bounded by completion-synchronized GPU timestamps so asynchronous compute cannot be charged to a later consumer; the total is the sum of those same attributed intervals, because portable whole-frame timer queries were found to undercount async compute on affected drivers. `profile --sync-per-pass` additionally completes each timestamp boundary before continuing for maximum-isolation driver diagnostics. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes parameter variants, while `blind create` does the same for arbitrary images/render directories, ShaderToy projects, STTF builds, Git revisions, or named quality presets such as `project:.@preset=medium`. Both keep the real mapping out of public session metadata until `blind judge` records a choice and rationale, after which `blind reveal` writes the combined report.
+`profile` reports mean, median, p95, min, and max timing statistics for every GPU pass plus a trustworthy total GPU-work duration. When a quality preset is profiled, the benchmark output stays at the base project resolution by default, so a smaller final frame cannot be presented as a performance win. Each pass is bounded by completion-synchronized GPU timestamps so asynchronous compute cannot be charged to a later consumer; the total is the sum of those same attributed intervals, because portable whole-frame timer queries were found to undercount async compute on affected drivers. `profile --sync-per-pass` additionally completes each timestamp boundary before continuing for maximum-isolation driver diagnostics. `sweep` renders the Cartesian product of repeated `--set NAME=VALUES` dimensions, writes deterministic variant PNGs, and creates a contact sheet by default. Scalar alternatives are comma separated; vector alternatives use semicolons because vector components already use commas. Blind sweep mode randomizes parameter variants, while `blind create` does the same for arbitrary images/render directories, ShaderToy projects, STTF builds, Git revisions, or named quality presets such as `project:.@preset=medium`. Both keep the real mapping out of public session metadata until `blind judge` records a choice and rationale, after which `blind reveal` writes the combined report.
 
 `experiment` lifts that workflow to reproducible baseline/candidate or N-way comparisons: it renders deterministic frame sets from the same arbitrary source forms, writes a contact sheet and JSON report, computes normalized RMSE and windowed SSIM, records source provenance, and profiles project/git sources. `experiment --blind` reuses the sealed blind-judgment lifecycle. `graph` exposes the resolved resource/pass graph and Graphviz DOT; `check --pedantic` turns advisory graph/resource diagnostics into CI failures.
 
@@ -271,7 +280,7 @@ shadertoy check adds semantic validation that JSON Schema cannot express, includ
 
 shadertoy preview starts a local web server, but the browser is only a viewer/controller: rendering remains in the native C++ renderer. Rendered PNG frames are pushed over the existing WebSocket and drawn into a canvas, so pass selection and controls do not fight a continuously refreshed HTTP image. It watches the manifest, shader sources, and assets, keeps the last successful frame when a new edit fails compilation, and hot-reloads automatically after the error is fixed.
 
-The preview exposes a quality-preset selector when the manifest declares presets, plus final Image and named 2D buffers, pause/resume, reset, frame step, time scale, resolution, mouse, keyboard, and declared custom-uniform controls. File-backed video channels advance from shader time. Webcam channels use browser camera permission and feed the native renderer over the WebSocket; they are intentionally unavailable to headless render/replay and preview recording. It binds to 127.0.0.1 by default; non-loopback binds require --token.
+The preview is designed as the human review surface. It exposes a quality-preset selector when the manifest declares presets, but preset changes keep the final Image at the base project output resolution so `render_scale` cannot fake a performance improvement. The reviewer can choose common output sizes or enter a custom width/height, and that explicit review resolution remains fixed while switching presets. The UI also exposes final Image and named 2D buffers, pause/resume, reset, frame step, time scale, mouse, keyboard, and declared custom-uniform controls. File-backed video channels advance from shader time. Webcam channels use browser camera permission and feed the native renderer over the WebSocket; they are intentionally unavailable to headless render/replay and preview recording. It binds to 127.0.0.1 by default; non-loopback binds require --token.
 
 ShaderToy-page import is available through shadertoy import URL_OR_ID. It is isolated behind the Camoufox browser adapter; normal project checking, rendering, building, and previewing remain browser-independent.
 

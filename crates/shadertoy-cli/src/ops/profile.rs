@@ -21,7 +21,20 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
     let loaded = LoadedManifest::load_with_preset(&options.project, options.preset.as_deref())?;
     ensure_source_files_exist(&loaded)?;
     let media = crate::media::MediaInputs::new_headless(&loaded)?;
-    let (width, height) = render::resolve_dimensions(&loaded, None, options.width, options.height)?;
+    let base_dimensions = if options.preset.is_some() {
+        let base = LoadedManifest::load_with_preset(&options.project, None)?;
+        Some((base.manifest.render.width, base.manifest.render.height))
+    } else {
+        None
+    };
+    let (width, height) = if let Some((base_width, base_height)) = base_dimensions {
+        let width = options.width.unwrap_or(base_width);
+        let height = options.height.unwrap_or(base_height);
+        render::validate_dimensions(width, height)?;
+        (width, height)
+    } else {
+        render::resolve_dimensions(&loaded, None, options.width, options.height)?
+    };
     let fps = render::resolve_fps(&loaded, None, options.fps)?;
     let target_frame = resolve_target_frame(&loaded, None, options.frame, options.time, fps)?;
 
@@ -92,6 +105,20 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         "completion-synchronized GPU timestamps (precise pass attribution)"
     };
     human.push_str(&format!("Timing mode: {timing_mode}\n"));
+    if let Some((base_width, base_height)) = base_dimensions {
+        let requested = (loaded.manifest.render.width, loaded.manifest.render.height);
+        if requested != (width, height) {
+            human.push_str(&format!(
+                "Output resolution policy: fixed benchmark output {}x{}; preset-requested final scaling to {}x{} is excluded from performance comparison\n",
+                width, height, requested.0, requested.1
+            ));
+        } else {
+            human.push_str(&format!(
+                "Output resolution policy: fixed benchmark output {}x{} (project base {}x{})\n",
+                width, height, base_width, base_height
+            ));
+        }
+    }
     human.push_str(
         "Pass                         Resolution       mean     median        p95        min        max\n",
     );
@@ -141,6 +168,9 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             "preset": options.preset,
             "width": width,
             "height": height,
+            "output_resolution_policy": if options.preset.is_some() { "fixed_project_output" } else { "manifest_or_explicit" },
+            "preset_requested_width": loaded.manifest.render.width,
+            "preset_requested_height": loaded.manifest.render.height,
             "fps": fps,
             "warmup": options.warmup,
             "samples": options.samples,
