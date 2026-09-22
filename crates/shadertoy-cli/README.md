@@ -33,7 +33,7 @@ shadertoy preview --record target/session.strec
 shadertoy replay target/session.strec -o target/replay.png
 ```
 
-The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
+The CLI embeds its project templates, JSON Schema, agent documentation, preview web UI, and Camoufox import helper, so the installed executable does not need adjacent data files. Built-in topics are available through `shadertoy docs` for agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, profile, test, trace, graph, and preview guidance. Use `shadertoy docs glsl` for the generated prelude/entry-point contract and `shadertoy docs assets` for cubemap and volume file layouts.
 
 Import a public ShaderToy into a fully local editable project:
 
@@ -75,12 +75,14 @@ reporting the preset-requested scale separately. Internal pass reductions still
 apply and remain measurable.
 
 `shadertoy sweep --set gain=0.8,1.0,1.2` renders parameter variants and a contact
-sheet without temporary project copies. `profile` reports mean, median, p95, min, and max per-pass GPU timestamp
-statistics plus a total GPU-work duration computed from those same attributed pass
-intervals. Completion-synchronized boundaries keep deferred compute from migrating into
-a consumer; this pass-sum definition is used because portable whole-frame timer queries
-can undercount asynchronous compute. `--sync-per-pass` additionally completes each query
-boundary before continuing for maximum-isolation driver diagnostics. Blind sweeps anonymize parameter variants,
+sheet without temporary project copies. `profile` separates per-pass raw GPU execution
+timestamps from CPU completion waits and the legacy post-completion attributed interval.
+It marks timer samples invalid when asynchronous work clearly outruns the timer, retains
+raw per-sample diagnostics, reports MAD outliers, and exposes an independent
+non-intrusive frame GPU timestamp interval for cross-run comparisons.
+`--discard-outliers` removes flagged samples from aggregates while
+keeping them in JSON; `--sync-per-pass` retires each attribution boundary before the next
+pass for maximum-isolation diagnostics. Blind sweeps anonymize parameter variants,
 while `blind create` accepts existing images/render directories, project
 directories, STTF builds, Git revisions, and `project:PATH@preset=NAME` sources.
 `blind judge` records the preference and rationale before `blind reveal` exposes

@@ -51,6 +51,17 @@ pub struct PassTiming {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PassProfileSample {
+    pub name: String,
+    pub gpu_execution_nanoseconds: u64,
+    pub attributed_nanoseconds: u64,
+    pub completion_wait_nanoseconds: u64,
+    pub width: u32,
+    pub height: u32,
+    pub sample_valid: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RgbImage {
     pub width: u32,
     pub height: u32,

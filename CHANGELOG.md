@@ -4,6 +4,14 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.4.2
+
+- Split profiling samples into raw GPU execution timestamp intervals, CPU completion-wait durations, and the legacy post-completion attributed interval so host/fence stalls are no longer silently presented as shader execution.
+- Added per-sample `sample_valid` diagnostics for timer queries that outrun asynchronous GPU work, plus raw sample details and MAD-based outlier flags; `profile --discard-outliers` excludes flagged samples from aggregates without deleting the raw evidence.
+- Added an independent frame-level GPU timestamp interval alongside attributed-pass totals and completion-wait totals, giving optimization workflows a stable cross-run signal while retaining per-pass diagnostics.
+- Added `shadertoy docs profile` and updated agent/README guidance for interpreting async-compute timings and fixed-resolution performance comparisons.
+
+
 ## 2.4.1
 
 - Reworked the preview browser as a human-review control surface with prominent live quality-preset switching, common review resolutions, custom width/height controls, and clearer active quality/resolution/FPS status.

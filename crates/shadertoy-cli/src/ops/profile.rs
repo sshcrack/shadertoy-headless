@@ -2,12 +2,22 @@ use super::*;
 use std::time::Instant;
 
 const MAX_PROFILE_SAMPLES: u32 = 10_000;
+const OUTLIER_ABSOLUTE_FLOOR_NS: f64 = 250_000.0;
+
+#[derive(Clone)]
+struct ProfileSample {
+    frame: i32,
+    gpu_execution_ns: u64,
+    attributed_ns: u64,
+    completion_wait_ns: u64,
+    sample_valid: bool,
+}
 
 #[derive(Default)]
 struct TimingAggregate {
     width: u32,
     height: u32,
-    samples: Vec<u64>,
+    samples: Vec<ProfileSample>,
 }
 
 pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
@@ -58,7 +68,12 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
     runtime.set_profiling_mode(true, options.sync_per_pass)?;
     let first_sample_frame = runtime.frame().saturating_add(1);
     let mut cpu_samples = Vec::with_capacity(options.samples as usize);
-    let mut gpu_total_samples = Vec::with_capacity(options.samples as usize);
+    let mut attributed_total_samples = Vec::with_capacity(options.samples as usize);
+    let mut frame_timestamp_samples = Vec::with_capacity(options.samples as usize);
+    let mut completion_wait_total_samples = Vec::with_capacity(options.samples as usize);
+    let mut frame_execution_total_samples = Vec::with_capacity(options.samples as usize);
+    let mut frame_execution_valid = Vec::with_capacity(options.samples as usize);
+    let mut frame_numbers = Vec::with_capacity(options.samples as usize);
     let mut passes: BTreeMap<String, TimingAggregate> = BTreeMap::new();
 
     for _ in 0..options.samples {
@@ -68,26 +83,114 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         let started = Instant::now();
         let _ = runtime.render(width, height)?;
         cpu_samples.push(started.elapsed().as_nanos() as u64);
-        let timings = runtime.pass_timings()?;
-        gpu_total_samples.push(runtime.frame_gpu_nanoseconds()?);
-        for timing in timings {
-            let aggregate = passes.entry(timing.name).or_default();
-            aggregate.width = timing.width;
-            aggregate.height = timing.height;
-            aggregate.samples.push(timing.gpu_nanoseconds);
+
+        let frame = runtime.frame();
+        let profile_samples = runtime.pass_profile_samples()?;
+        let completion_wait_total = profile_samples
+            .iter()
+            .map(|sample| sample.completion_wait_nanoseconds)
+            .sum::<u64>();
+        let execution_total = profile_samples
+            .iter()
+            .map(|sample| sample.gpu_execution_nanoseconds)
+            .sum::<u64>();
+        let all_execution_valid = profile_samples.iter().all(|sample| sample.sample_valid);
+
+        frame_numbers.push(frame);
+        attributed_total_samples.push(runtime.frame_gpu_nanoseconds()?);
+        frame_timestamp_samples.push(runtime.frame_gpu_timestamp_nanoseconds()?);
+        completion_wait_total_samples.push(completion_wait_total);
+        frame_execution_total_samples.push(execution_total);
+        frame_execution_valid.push(all_execution_valid);
+
+        for sample in profile_samples {
+            let aggregate = passes.entry(sample.name).or_default();
+            aggregate.width = sample.width;
+            aggregate.height = sample.height;
+            aggregate.samples.push(ProfileSample {
+                frame,
+                gpu_execution_ns: sample.gpu_execution_nanoseconds,
+                attributed_ns: sample.attributed_nanoseconds,
+                completion_wait_ns: sample.completion_wait_nanoseconds,
+                sample_valid: sample.sample_valid,
+            });
         }
     }
     runtime.set_profiling(false)?;
 
-    let pass_rows = passes
+    // sync-per-pass deliberately serializes pass boundaries. Collect the frame-level
+    // GPU timestamp from a second deterministic runtime without those waits so the
+    // candidate-comparison signal is not polluted by the diagnostic isolation itself.
+    let frame_timestamp_source = if options.sync_per_pass {
+        let frame_media = crate::media::MediaInputs::new_headless(&loaded)?;
+        let mut frame_runtime = Runtime::new(&context)?;
+        let frame_project = build_native_project(&loaded)?;
+        frame_runtime.load_project(&frame_project)?;
+        crate::uniforms::apply_to_runtime(&mut frame_runtime, &uniform_values)?;
+        let _ = render_from_zero(
+            &mut frame_runtime,
+            target_frame,
+            fps,
+            width,
+            height,
+            &[],
+            &frame_media,
+        )?;
+        for _ in 0..options.warmup {
+            frame_runtime.tick_fixed(1.0 / fps, fps)?;
+            let media_time = frame_runtime.time();
+            frame_media.update(&mut frame_runtime, media_time)?;
+            let _ = frame_runtime.render(width, height)?;
+        }
+        frame_runtime.set_profiling_mode(true, false)?;
+        frame_timestamp_samples.clear();
+        for _ in 0..options.samples {
+            frame_runtime.tick_fixed(1.0 / fps, fps)?;
+            let media_time = frame_runtime.time();
+            frame_media.update(&mut frame_runtime, media_time)?;
+            let _ = frame_runtime.render(width, height)?;
+            frame_timestamp_samples.push(frame_runtime.frame_gpu_timestamp_nanoseconds()?);
+        }
+        frame_runtime.set_profiling(false)?;
+        "separate_non_intrusive_runtime"
+    } else {
+        "same_non_intrusive_runtime"
+    };
+
+    let cpu = timing_stats(&cpu_samples);
+    let frame_outliers = combined_outlier_mask(&[
+        &attributed_total_samples,
+        &frame_timestamp_samples,
+        &completion_wait_total_samples,
+    ]);
+    let selected_frame_attributed = select_samples(
+        &attributed_total_samples,
+        &frame_outliers,
+        options.discard_outliers,
+    );
+    let selected_frame_timestamp = select_samples(
+        &frame_timestamp_samples,
+        &frame_outliers,
+        options.discard_outliers,
+    );
+    let selected_wait_total = select_samples(
+        &completion_wait_total_samples,
+        &frame_outliers,
+        options.discard_outliers,
+    );
+    let valid_execution_total = frame_execution_total_samples
         .iter()
-        .map(|(name, aggregate)| {
-            let stats = timing_stats(&aggregate.samples);
-            (name.clone(), aggregate.width, aggregate.height, stats)
+        .zip(&frame_execution_valid)
+        .zip(&frame_outliers)
+        .filter_map(|((value, valid), outlier)| {
+            (*valid && (!options.discard_outliers || !*outlier)).then_some(*value)
         })
         .collect::<Vec<_>>();
-    let cpu = timing_stats(&cpu_samples);
-    let gpu_total = timing_stats(&gpu_total_samples);
+
+    let gpu_total = timing_stats(&selected_frame_attributed);
+    let frame_timestamp = timing_stats(&selected_frame_timestamp);
+    let completion_wait_total = timing_stats(&selected_wait_total);
+    let frame_execution = timing_stats(&valid_execution_total);
     let persistent_buffer_bytes = estimated_persistent_buffer_bytes(&loaded, width, height)?;
 
     let mut human = format!(
@@ -100,11 +203,24 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
         runtime.frame()
     );
     let timing_mode = if options.sync_per_pass {
-        "hard sync-per-pass GPU timestamps (maximum diagnostic isolation)"
+        "sync-per-pass diagnostics (GPU execution interval + host completion wait separated)"
     } else {
-        "completion-synchronized GPU timestamps (precise pass attribution)"
+        "non-intrusive frame timing (async compute pass timers may be marked invalid)"
     };
     human.push_str(&format!("Timing mode: {timing_mode}\n"));
+    human.push_str(&format!(
+        "Outliers: {} (MAD-based flags are always reported; {} aggregate statistics)\n",
+        if options.discard_outliers {
+            "discard"
+        } else {
+            "flag only"
+        },
+        if options.discard_outliers {
+            "excluded from"
+        } else {
+            "retained in"
+        }
+    ));
     if let Some((base_width, base_height)) = base_dimensions {
         let requested = (loaded.manifest.render.width, loaded.manifest.render.height);
         if requested != (width, height) {
@@ -119,43 +235,162 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             ));
         }
     }
+
     human.push_str(
-        "Pass                         Resolution       mean     median        p95        min        max\n",
+        "Pass                         Resolution    exec med   wait med   attrib med  invalid outlier\n",
     );
-    for (name, pass_width, pass_height, stats) in &pass_rows {
+    let mut json_passes = Vec::with_capacity(passes.len());
+    for (name, aggregate) in &passes {
+        let execution = aggregate
+            .samples
+            .iter()
+            .map(|sample| sample.gpu_execution_ns)
+            .collect::<Vec<_>>();
+        let attributed = aggregate
+            .samples
+            .iter()
+            .map(|sample| sample.attributed_ns)
+            .collect::<Vec<_>>();
+        let waits = aggregate
+            .samples
+            .iter()
+            .map(|sample| sample.completion_wait_ns)
+            .collect::<Vec<_>>();
+        let outliers = combined_outlier_mask(&[&execution, &attributed, &waits]);
+
+        let selected_attributed = select_samples(&attributed, &outliers, options.discard_outliers);
+        let selected_waits = select_samples(&waits, &outliers, options.discard_outliers);
+        let selected_execution = aggregate
+            .samples
+            .iter()
+            .zip(&outliers)
+            .filter_map(|(sample, outlier)| {
+                (sample.sample_valid && (!options.discard_outliers || !*outlier))
+                    .then_some(sample.gpu_execution_ns)
+            })
+            .collect::<Vec<_>>();
+
+        let attributed_stats = timing_stats(&selected_attributed);
+        let raw_attributed_stats = timing_stats(&attributed);
+        let execution_stats = timing_stats(&selected_execution);
+        let raw_execution_stats = timing_stats(&execution);
+        let wait_stats = timing_stats(&selected_waits);
+        let raw_wait_stats = timing_stats(&waits);
+        let invalid_count = aggregate
+            .samples
+            .iter()
+            .filter(|sample| !sample.sample_valid)
+            .count();
+        let outlier_count = outliers.iter().filter(|value| **value).count();
+
+        let exec_text = if execution_stats.count == 0 {
+            "     n/a".to_string()
+        } else {
+            format!("{:>8.3}", execution_stats.median_ns / 1_000_000.0)
+        };
         human.push_str(&format!(
-            "{name:<28} {pass_width:>5}x{pass_height:<5} {:>8.3}ms {:>8.3}ms {:>8.3}ms {:>8.3}ms {:>8.3}ms\n",
-            stats.mean_ns / 1_000_000.0,
-            stats.median_ns / 1_000_000.0,
-            stats.p95_ns / 1_000_000.0,
-            stats.min_ns as f64 / 1_000_000.0,
-            stats.max_ns as f64 / 1_000_000.0,
+            "{name:<28} {:>5}x{:<5} {}ms {:>8.3}ms {:>9.3}ms {:>7} {:>7}\n",
+            aggregate.width,
+            aggregate.height,
+            exec_text,
+            wait_stats.median_ns / 1_000_000.0,
+            attributed_stats.median_ns / 1_000_000.0,
+            invalid_count,
+            outlier_count,
         ));
+
+        let sample_details = aggregate
+            .samples
+            .iter()
+            .zip(&outliers)
+            .enumerate()
+            .map(|(index, (sample, outlier))| {
+                json!({
+                    "sample": index,
+                    "frame": sample.frame,
+                    "gpu_execution_ms": sample.gpu_execution_ns as f64 / 1_000_000.0,
+                    "completion_wait_ms": sample.completion_wait_ns as f64 / 1_000_000.0,
+                    "attributed_ms": sample.attributed_ns as f64 / 1_000_000.0,
+                    "sample_valid": sample.sample_valid,
+                    "attributed_includes_completion_wait": sample.completion_wait_ns > 0,
+                    "outlier": outlier,
+                    "included_in_execution_stats": sample.sample_valid && (!options.discard_outliers || !*outlier),
+                    "included_in_attributed_stats": !options.discard_outliers || !*outlier,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        json_passes.push(json!({
+            "name": name,
+            "width": aggregate.width,
+            "height": aggregate.height,
+            "samples": attributed_stats.count,
+            "raw_samples": aggregate.samples.len(),
+            // Compatibility fields remain the legacy completion-attributed interval.
+            "mean_ms": attributed_stats.mean_ns / 1_000_000.0,
+            "median_ms": attributed_stats.median_ns / 1_000_000.0,
+            "p95_ms": attributed_stats.p95_ns / 1_000_000.0,
+            "min_ms": attributed_stats.min_ns as f64 / 1_000_000.0,
+            "max_ms": attributed_stats.max_ns as f64 / 1_000_000.0,
+            "gpu_execution": stats_json(&execution_stats),
+            "raw_gpu_execution": stats_json(&raw_execution_stats),
+            "completion_wait": stats_json(&wait_stats),
+            "raw_completion_wait": stats_json(&raw_wait_stats),
+            "attributed": stats_json(&attributed_stats),
+            "raw_attributed": stats_json(&raw_attributed_stats),
+            "invalid_samples": invalid_count,
+            "outlier_samples": outlier_count,
+            "sample_details": sample_details,
+        }));
+    }
+
+    let frame_invalid_count = frame_execution_valid
+        .iter()
+        .filter(|value| !**value)
+        .count();
+    let frame_outlier_count = frame_outliers.iter().filter(|value| **value).count();
+    human.push_str(&format!(
+        "Frame GPU timestamp interval: median {:.3} ms, p95 {:.3} ms\n",
+        frame_timestamp.median_ns / 1_000_000.0,
+        frame_timestamp.p95_ns / 1_000_000.0,
+    ));
+    if frame_execution.count > 0 {
+        human.push_str(&format!(
+            "Valid summed pass execution: median {:.3} ms, p95 {:.3} ms ({} valid frames)\n",
+            frame_execution.median_ns / 1_000_000.0,
+            frame_execution.p95_ns / 1_000_000.0,
+            frame_execution.count,
+        ));
+    } else {
+        human.push_str(
+            "Valid summed pass execution: n/a (one or more async pass timers outran GPU work in every sampled frame)\n",
+        );
     }
     human.push_str(&format!(
-        "GPU total (sum of precisely attributed passes): mean {:.3} ms, median {:.3} ms, p95 {:.3} ms\nCPU profiled render call: mean {:.3} ms, median {:.3} ms, p95 {:.3} ms\nPersistent GPU state VRAM estimate: {:.2} MiB",
-        gpu_total.mean_ns / 1_000_000.0,
+        "Completion wait total: median {:.3} ms, p95 {:.3} ms\nLegacy attributed pass sum: median {:.3} ms, p95 {:.3} ms\nCPU profiled render call: median {:.3} ms, p95 {:.3} ms\nPersistent GPU state VRAM estimate: {:.2} MiB",
+        completion_wait_total.median_ns / 1_000_000.0,
+        completion_wait_total.p95_ns / 1_000_000.0,
         gpu_total.median_ns / 1_000_000.0,
         gpu_total.p95_ns / 1_000_000.0,
-        cpu.mean_ns / 1_000_000.0,
         cpu.median_ns / 1_000_000.0,
         cpu.p95_ns / 1_000_000.0,
         persistent_buffer_bytes as f64 / (1024.0 * 1024.0),
     ));
 
-    let json_passes = pass_rows
+    let frame_details = frame_numbers
         .iter()
-        .map(|(name, pass_width, pass_height, stats)| {
+        .enumerate()
+        .map(|(index, frame)| {
             json!({
-                "name": name,
-                "width": pass_width,
-                "height": pass_height,
-                "samples": stats.count,
-                "mean_ms": stats.mean_ns / 1_000_000.0,
-                "median_ms": stats.median_ns / 1_000_000.0,
-                "p95_ms": stats.p95_ns / 1_000_000.0,
-                "min_ms": stats.min_ns as f64 / 1_000_000.0,
-                "max_ms": stats.max_ns as f64 / 1_000_000.0,
+                "sample": index,
+                "frame": frame,
+                "gpu_frame_timestamp_ms": frame_timestamp_samples[index] as f64 / 1_000_000.0,
+                "gpu_execution_sum_ms": frame_execution_total_samples[index] as f64 / 1_000_000.0,
+                "completion_wait_total_ms": completion_wait_total_samples[index] as f64 / 1_000_000.0,
+                "attributed_pass_sum_ms": attributed_total_samples[index] as f64 / 1_000_000.0,
+                "sample_valid": frame_execution_valid[index],
+                "outlier": frame_outliers[index],
+                "included_in_stats": !options.discard_outliers || !frame_outliers[index],
             })
         })
         .collect::<Vec<_>>();
@@ -179,30 +414,25 @@ pub fn profile_project(options: &ProfileOptions) -> Result<Output> {
             "passes": json_passes,
             "timing_mode": if options.sync_per_pass { "sync_per_pass" } else { "completion_synchronized" },
             "sync_per_pass": options.sync_per_pass,
+            "discard_outliers": options.discard_outliers,
+            "outlier_method": "median absolute deviation; > max(6*MAD, 0.5*median, 0.25ms); raw samples are always retained",
+            "recommended_gpu_metric": "gpu_frame_timestamp",
+            "recommended_gpu_metric_note": "Use the non-intrusive frame timestamp series for cross-run optimization comparisons; use per-pass validity/wait diagnostics to localize changes.",
             "gpu_frame_mode": "attributed_pass_sum",
-            "gpu_frame_note": "Portable whole-frame timer queries undercount asynchronous compute on some drivers. This total is the sum of the same completion-synchronized pass intervals used for precise attribution.",
-            "gpu_frame": {
-                "mean_ms": gpu_total.mean_ns / 1_000_000.0,
-                "median_ms": gpu_total.median_ns / 1_000_000.0,
-                "p95_ms": gpu_total.p95_ns / 1_000_000.0,
-                "min_ms": gpu_total.min_ns as f64 / 1_000_000.0,
-                "max_ms": gpu_total.max_ns as f64 / 1_000_000.0,
-            },
+            "gpu_frame_note": "Compatibility total from post-completion pass timestamps. It can include host scheduling gaps; use gpu_frame_timestamp, completion_wait_total, pass sample_valid, and sample_details to diagnose contamination.",
+            "gpu_frame": stats_json(&gpu_total),
+            "gpu_frame_timestamp": stats_json(&frame_timestamp),
+            "gpu_frame_timestamp_source": frame_timestamp_source,
+            "gpu_frame_timestamp_note": "Independent non-intrusive start/end GPU timestamp interval. With --sync-per-pass it is collected from a second deterministic runtime so diagnostic glFinish boundaries are excluded. Drivers may still undercount truly independent asynchronous compute; compare with pass validity and completion waits.",
+            "gpu_execution_sum": stats_json(&frame_execution),
+            "gpu_execution_valid_frames": frame_execution.count,
+            "gpu_execution_invalid_frames": frame_invalid_count,
+            "completion_wait_total": stats_json(&completion_wait_total),
+            "frame_outlier_samples": frame_outlier_count,
+            "frame_sample_details": frame_details,
             "gpu_pass_total_mean_ms": gpu_total.mean_ns / 1_000_000.0,
-            "gpu_pass_total": {
-                "mean_ms": gpu_total.mean_ns / 1_000_000.0,
-                "median_ms": gpu_total.median_ns / 1_000_000.0,
-                "p95_ms": gpu_total.p95_ns / 1_000_000.0,
-                "min_ms": gpu_total.min_ns as f64 / 1_000_000.0,
-                "max_ms": gpu_total.max_ns as f64 / 1_000_000.0,
-            },
-            "cpu_render": {
-                "mean_ms": cpu.mean_ns / 1_000_000.0,
-                "median_ms": cpu.median_ns / 1_000_000.0,
-                "p95_ms": cpu.p95_ns / 1_000_000.0,
-                "min_ms": cpu.min_ns as f64 / 1_000_000.0,
-                "max_ms": cpu.max_ns as f64 / 1_000_000.0,
-            },
+            "gpu_pass_total": stats_json(&gpu_total),
+            "cpu_render": stats_json(&cpu),
             "estimated_persistent_gpu_state_vram_bytes": persistent_buffer_bytes,
         }),
     })
@@ -227,11 +457,7 @@ fn timing_stats(samples: &[u64]) -> TimingStats {
     };
     let mut sorted = samples.to_vec();
     sorted.sort_unstable();
-    let median_ns = match sorted.len() {
-        0 => 0.0,
-        len if len % 2 == 1 => sorted[len / 2] as f64,
-        len => (sorted[len / 2 - 1] as f64 + sorted[len / 2] as f64) / 2.0,
-    };
+    let median_ns = median_sorted(&sorted);
     let p95_ns = if sorted.is_empty() {
         0.0
     } else {
@@ -246,6 +472,75 @@ fn timing_stats(samples: &[u64]) -> TimingStats {
         min_ns,
         max_ns,
     }
+}
+
+fn median_sorted(sorted: &[u64]) -> f64 {
+    match sorted.len() {
+        0 => 0.0,
+        len if len % 2 == 1 => sorted[len / 2] as f64,
+        len => (sorted[len / 2 - 1] as f64 + sorted[len / 2] as f64) / 2.0,
+    }
+}
+
+fn outlier_mask(samples: &[u64]) -> Vec<bool> {
+    if samples.len() < 5 {
+        return vec![false; samples.len()];
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let median = median_sorted(&sorted);
+    let mut deviations = samples
+        .iter()
+        .map(|value| ((*value as f64) - median).abs() as u64)
+        .collect::<Vec<_>>();
+    deviations.sort_unstable();
+    let mad = median_sorted(&deviations);
+    let threshold = (6.0 * mad).max(0.5 * median).max(OUTLIER_ABSOLUTE_FLOOR_NS);
+    samples
+        .iter()
+        .map(|value| ((*value as f64) - median).abs() > threshold)
+        .collect()
+}
+
+fn combined_outlier_mask(series: &[&[u64]]) -> Vec<bool> {
+    let len = series.first().map_or(0, |samples| samples.len());
+    let mut combined = vec![false; len];
+    for samples in series {
+        debug_assert_eq!(samples.len(), len);
+        for (index, outlier) in outlier_mask(samples).into_iter().enumerate() {
+            combined[index] |= outlier;
+        }
+    }
+    combined
+}
+
+fn select_samples(samples: &[u64], outliers: &[bool], discard_outliers: bool) -> Vec<u64> {
+    samples
+        .iter()
+        .zip(outliers)
+        .filter_map(|(sample, outlier)| (!discard_outliers || !*outlier).then_some(*sample))
+        .collect()
+}
+
+fn stats_json(stats: &TimingStats) -> serde_json::Value {
+    if stats.count == 0 {
+        return json!({
+            "samples": 0,
+            "mean_ms": null,
+            "median_ms": null,
+            "p95_ms": null,
+            "min_ms": null,
+            "max_ms": null,
+        });
+    }
+    json!({
+        "samples": stats.count,
+        "mean_ms": stats.mean_ns / 1_000_000.0,
+        "median_ms": stats.median_ns / 1_000_000.0,
+        "p95_ms": stats.p95_ns / 1_000_000.0,
+        "min_ms": stats.min_ns as f64 / 1_000_000.0,
+        "max_ms": stats.max_ns as f64 / 1_000_000.0,
+    })
 }
 
 fn estimated_persistent_buffer_bytes(
@@ -329,5 +624,18 @@ mod tests {
         assert_eq!(values.mean_ns, 25.0);
         assert_eq!(values.median_ns, 25.0);
         assert_eq!(values.p95_ns, 40.0);
+    }
+
+    #[test]
+    fn outlier_detection_flags_large_stalls_without_hiding_normal_jitter() {
+        let values = [
+            7_000_000, 7_100_000, 6_900_000, 7_050_000, 7_200_000, 6_950_000, 39_500_000,
+        ];
+        let mask = outlier_mask(&values);
+        assert_eq!(mask.iter().filter(|value| **value).count(), 1);
+        assert!(mask[6]);
+
+        let normal = [6_000_000, 6_500_000, 7_000_000, 7_500_000, 8_000_000];
+        assert!(outlier_mask(&normal).iter().all(|value| !*value));
     }
 }

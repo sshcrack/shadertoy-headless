@@ -70,13 +70,17 @@ supported remote assets local.
    project's output dimensions by default; preset `render_scale` is reported
    separately and excluded from the comparison. Optimize internal pass
    dimensions, iterations, algorithms, or shader work instead.
-   Reports mean, median, p95, min, and max per-pass GPU timestamp durations plus
-   a total GPU-work duration and CPU render-call timing. Completion-synchronized
-   boundaries keep asynchronous compute attached to the issuing pass. The total is the
-   sum of those attributed intervals because portable whole-frame timer queries can
-   undercount async compute on affected drivers. For maximum-isolation diagnostics,
-   rerun with:
+   Profiling separates the raw GPU execution timestamp, CPU completion-wait
+   duration, and legacy post-completion attributed interval for every pass/sample.
+   Async compute timers that outrun the actual work are marked sample_valid=false
+   instead of being presented as trustworthy shader cost. The report also includes
+   an independent non-intrusive frame-level GPU timestamp interval and MAD-based
+   outlier flags. Prefer gpu_frame_timestamp for cross-run optimization comparisons;
+   use per-pass validity/wait data to localize changes.
+   Use --discard-outliers to exclude flagged samples from aggregates while keeping
+   all raw sample_details. For maximum-isolation diagnostics, rerun with:
      shadertoy profile --frame 120 --samples 30 --sync-per-pass --json
+   See shadertoy docs profile for interpretation guidance.
 
 9. Define deterministic [[test]] cases in ShaderToy.toml and run:
      shadertoy test --ci

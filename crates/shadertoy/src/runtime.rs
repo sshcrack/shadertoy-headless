@@ -1,6 +1,6 @@
 use crate::ffi::{check, last_error};
 use crate::types::{checked_image_len, zeroed_image_vec};
-use crate::{Error, HeadlessContext, PassTiming, Project, Result, RgbImage};
+use crate::{Error, HeadlessContext, PassProfileSample, PassTiming, Project, Result, RgbImage};
 use shadertoy_sys as sys;
 use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
@@ -389,7 +389,9 @@ impl<'context> Runtime<'context> {
     }
 
     pub fn set_profiling(&mut self, enabled: bool) -> Result<()> {
-        self.set_profiling_mode(enabled, false)
+        // Preserve the historical library behavior: plain profiling isolates
+        // pass completion. The CLI opts into non-intrusive profiling explicitly.
+        self.set_profiling_mode(enabled, true)
     }
 
     pub fn set_profiling_mode(&mut self, enabled: bool, sync_per_pass: bool) -> Result<()> {
@@ -409,6 +411,16 @@ impl<'context> Runtime<'context> {
         self.context.make_current()?;
         // SAFETY: runtime handle is valid and context is current.
         Ok(unsafe { sys::st_runtime_profile_frame_gpu_nanoseconds(self.handle.as_ptr()) })
+    }
+
+    pub fn frame_gpu_timestamp_nanoseconds(&self) -> Result<u64> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid and context is current.
+        Ok(
+            unsafe {
+                sys::st_runtime_profile_frame_gpu_timestamp_nanoseconds(self.handle.as_ptr())
+            },
+        )
     }
 
     pub fn pass_timings(&self) -> Result<Vec<PassTiming>> {
@@ -447,6 +459,47 @@ impl<'context> Runtime<'context> {
             });
         }
         Ok(timings)
+    }
+
+    pub fn pass_profile_samples(&self) -> Result<Vec<PassProfileSample>> {
+        self.context.make_current()?;
+        // SAFETY: runtime handle is valid; returned count indexes the runtime-owned sample vector.
+        let count = unsafe { sys::st_runtime_profile_pass_count(self.handle.as_ptr()) };
+        let mut samples = Vec::with_capacity(count);
+        for index in 0..count {
+            // Names use the same pass ordering and lengths as the legacy timing vector.
+            let name_len =
+                unsafe { sys::st_runtime_profile_pass_name_len(self.handle.as_ptr(), index) };
+            if name_len == 0 {
+                return Err(Error::Native("invalid native profiling pass name".into()));
+            }
+            let mut name = vec![0 as std::ffi::c_char; name_len];
+            let mut native = sys::st_pass_profile_sample::default();
+            // SAFETY: buffers are correctly sized and valid for the duration of the call.
+            check(unsafe {
+                sys::st_runtime_profile_pass_sample(
+                    self.handle.as_ptr(),
+                    index,
+                    name.as_mut_ptr(),
+                    name.len(),
+                    &mut native,
+                )
+            })?;
+            // SAFETY: native API guarantees NUL termination within the provided buffer.
+            let name = unsafe { CStr::from_ptr(name.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
+            samples.push(PassProfileSample {
+                name,
+                gpu_execution_nanoseconds: native.gpu_execution_nanoseconds,
+                attributed_nanoseconds: native.attributed_nanoseconds,
+                completion_wait_nanoseconds: native.completion_wait_nanoseconds,
+                width: native.width,
+                height: native.height,
+                sample_valid: native.sample_valid != 0,
+            });
+        }
+        Ok(samples)
     }
 
     pub fn override_pass_rgba8(

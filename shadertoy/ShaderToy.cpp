@@ -294,8 +294,16 @@ const std::vector<PassTiming>& Runtime::lastPassTimings() const {
     return mImpl->context.lastPassTimings();
 }
 
+const std::vector<PassProfileSample>& Runtime::lastPassProfileSamples() const {
+    return mImpl->context.lastPassProfileSamples();
+}
+
 uint64_t Runtime::lastFrameGpuNanoseconds() const {
     return mImpl->context.lastFrameGpuNanoseconds();
+}
+
+uint64_t Runtime::lastFrameGpuTimestampNanoseconds() const {
+    return mImpl->context.lastFrameGpuTimestampNanoseconds();
 }
 
 void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, const float frameRate) {

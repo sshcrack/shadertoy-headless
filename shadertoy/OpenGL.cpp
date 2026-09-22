@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -1263,16 +1264,23 @@ class OpenGLPipeline final : public Pipeline {
     KeyboardInput mKeyboardInput;
     struct PendingPassTiming final {
         std::string name;
-        std::array<GLuint, 2> queries{};
+        std::array<GLuint, 3> queries{};
+        uint64_t completionWaitNanoseconds{};
+        bool computePass{};
+        bool completionObserved{};
         uint32_t width{};
         uint32_t height{};
     };
 
     bool mProfilingEnabled{};
-    bool mProfilingSyncPerPass{};
+    bool mProfilingSyncPerPass{ true };
     std::vector<PendingPassTiming> mPendingPassTimings;
     std::vector<PassTiming> mLastPassTimings;
+    std::vector<PassProfileSample> mLastPassProfileSamples;
+    std::array<GLuint, 2> mFrameProfileQueries{};
+    bool mFrameProfileQueriesAllocated{};
     uint64_t mLastFrameGpuNanoseconds{};
+    uint64_t mLastFrameGpuTimestampNanoseconds{};
 
     void clearProfilingQueries() {
         for(const auto& pending : mPendingPassTimings)
@@ -1280,37 +1288,92 @@ class OpenGLPipeline final : public Pipeline {
         mPendingPassTimings.clear();
     }
 
+    void clearFrameProfilingQueries() {
+        if(mFrameProfileQueriesAllocated) {
+            glDeleteQueries(static_cast<GLsizei>(mFrameProfileQueries.size()), mFrameProfileQueries.data());
+            mFrameProfileQueries = {};
+            mFrameProfileQueriesAllocated = false;
+        }
+    }
+
     void beginProfileFrame() {
         mLastPassTimings.clear();
+        mLastPassProfileSamples.clear();
         mLastFrameGpuNanoseconds = 0;
+        mLastFrameGpuTimestampNanoseconds = 0;
         clearProfilingQueries();
+        clearFrameProfilingQueries();
+        if(mProfilingEnabled) {
+            glGenQueries(static_cast<GLsizei>(mFrameProfileQueries.size()), mFrameProfileQueries.data());
+            mFrameProfileQueriesAllocated = true;
+            glQueryCounter(mFrameProfileQueries[0], GL_TIMESTAMP);
+        }
     }
 
     void finishProfileFrame() {
         if(!mProfilingEnabled)
             return;
 
+        if(mFrameProfileQueriesAllocated)
+            glQueryCounter(mFrameProfileQueries[1], GL_TIMESTAMP);
+
         mLastPassTimings.reserve(mPendingPassTimings.size());
+        mLastPassProfileSamples.reserve(mPendingPassTimings.size());
         uint64_t totalNanoseconds = 0;
         for(const auto& pending : mPendingPassTimings) {
             GLuint64 start{};
-            GLuint64 end{};
+            GLuint64 executionEnd{};
+            GLuint64 attributedEnd{};
             glGetQueryObjectui64v(pending.queries[0], GL_QUERY_RESULT, &start);
-            glGetQueryObjectui64v(pending.queries[1], GL_QUERY_RESULT, &end);
-            const auto elapsed = end >= start ? static_cast<uint64_t>(end - start) : 0U;
-            totalNanoseconds += elapsed;
+            glGetQueryObjectui64v(pending.queries[1], GL_QUERY_RESULT, &executionEnd);
+            glGetQueryObjectui64v(pending.queries[2], GL_QUERY_RESULT, &attributedEnd);
+            const auto execution =
+                executionEnd >= start ? static_cast<uint64_t>(executionEnd - start) : 0U;
+            const auto attributed =
+                attributedEnd >= start ? static_cast<uint64_t>(attributedEnd - start) : 0U;
+            totalNanoseconds += attributed;
+
+            // A timer interval that is tiny compared with the isolated completion
+            // wait has outrun asynchronous work and cannot be treated as an
+            // execution measurement. Keep it, but mark it invalid.
+            constexpr uint64_t minRelevantWaitNanoseconds = 50'000U;
+            const bool timerOutranWork = pending.completionObserved &&
+                pending.completionWaitNanoseconds >= minRelevantWaitNanoseconds &&
+                execution < pending.completionWaitNanoseconds / 4U;
+            // Without an isolated completion observation, a graphics-queue timer
+            // cannot prove that an asynchronous compute dispatch has finished.
+            const bool unverifiedAsyncCompute = pending.computePass && !pending.completionObserved;
+            const bool sampleValid = execution > 0U && !timerOutranWork && !unverifiedAsyncCompute;
+
             mLastPassTimings.push_back(PassTiming{
                 pending.name,
-                elapsed,
+                attributed,
                 pending.width,
                 pending.height,
             });
+            mLastPassProfileSamples.push_back(PassProfileSample{
+                pending.name,
+                execution,
+                attributed,
+                pending.completionWaitNanoseconds,
+                pending.width,
+                pending.height,
+                sampleValid,
+            });
         }
-        // Whole-frame GPU work is deliberately defined as the sum of the same
-        // completion-synchronized pass intervals used for attribution. Whole-
-        // frame timer queries undercount asynchronous compute on some drivers.
         mLastFrameGpuNanoseconds = totalNanoseconds;
+
+        if(mFrameProfileQueriesAllocated) {
+            GLuint64 frameStart{};
+            GLuint64 frameEnd{};
+            glGetQueryObjectui64v(mFrameProfileQueries[0], GL_QUERY_RESULT, &frameStart);
+            glGetQueryObjectui64v(mFrameProfileQueries[1], GL_QUERY_RESULT, &frameEnd);
+            mLastFrameGpuTimestampNanoseconds =
+                frameEnd >= frameStart ? static_cast<uint64_t>(frameEnd - frameStart) : 0U;
+        }
+
         clearProfilingQueries();
+        clearFrameProfilingQueries();
     }
 
     static void waitForProfiledGpuCompletion() {
@@ -1335,15 +1398,34 @@ class OpenGLPipeline final : public Pipeline {
         glQueryCounter(pending.queries[0], GL_TIMESTAMP);
         pass.render(frameBufferSize, clipMin, clipMax, size, uniform,
                     pass.getType() == NodeType::Image ? mVAOImage : mVAOCubeMap, mVBO);
-        waitForProfiledGpuCompletion();
+
+        // Close an uncontaminated timestamp interval before any CPU completion
+        // wait. On drivers where asynchronous compute outruns this timestamp the
+        // sample is retained but marked invalid below.
         glQueryCounter(pending.queries[1], GL_TIMESTAMP);
+        pending.computePass = pass.getType() == NodeType::Compute;
+
+        if(mProfilingSyncPerPass) {
+            const auto waitStarted = std::chrono::steady_clock::now();
+            waitForProfiledGpuCompletion();
+            const auto waitFinished = std::chrono::steady_clock::now();
+            pending.completionWaitNanoseconds =
+                static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          waitFinished - waitStarted)
+                                          .count());
+            pending.completionObserved = true;
+        }
+
+        // Legacy attributed interval. In sync-per-pass mode it intentionally
+        // spans completion for compatibility; in normal mode it is effectively
+        // the raw timer interval and no host completion wait is inserted.
+        glQueryCounter(pending.queries[2], GL_TIMESTAMP);
         pending.width = pass.lastWidth();
         pending.height = pass.lastHeight();
         mPendingPassTimings.push_back(std::move(pending));
 
-        // The completion wait above makes attribution precise. Diagnostic mode
-        // additionally completes the end-timestamp command before the next pass,
-        // maximizing boundary isolation at the cost of extra synchronization.
+        // Diagnostic mode retires the attribution timestamp before the next pass.
+        // This second wait is outside every reported pass interval.
         if(mProfilingSyncPerPass)
             glFinish();
     }
@@ -1421,6 +1503,7 @@ public:
     OpenGLPipeline& operator=(OpenGLPipeline&&) = delete;
     ~OpenGLPipeline() override {
         clearProfilingQueries();
+        clearFrameProfilingQueries();
         if(!mStorageBuffers.empty())
             glDeleteBuffers(static_cast<GLsizei>(mStorageBuffers.size()), mStorageBuffers.data());
         glDeleteVertexArrays(1, &mVAOImage);
@@ -1490,8 +1573,11 @@ public:
         mProfilingEnabled = enabled;
         if(!enabled) {
             clearProfilingQueries();
+            clearFrameProfilingQueries();
             mLastPassTimings.clear();
+            mLastPassProfileSamples.clear();
             mLastFrameGpuNanoseconds = 0;
+            mLastFrameGpuTimestampNanoseconds = 0;
         }
     }
 
@@ -1503,8 +1589,16 @@ public:
         return mLastPassTimings;
     }
 
+    [[nodiscard]] const std::vector<PassProfileSample>& lastPassProfileSamples() const override {
+        return mLastPassProfileSamples;
+    }
+
     [[nodiscard]] uint64_t lastFrameGpuNanoseconds() const override {
         return mLastFrameGpuNanoseconds;
+    }
+
+    [[nodiscard]] uint64_t lastFrameGpuTimestampNanoseconds() const override {
+        return mLastFrameGpuTimestampNanoseconds;
     }
 
     void render(const Vec2 frameBufferSize, const Vec2 clipMin, const Vec2 clipMax, Vec2 size,

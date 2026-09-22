@@ -1122,6 +1122,10 @@ uint64_t st_runtime_profile_frame_gpu_nanoseconds(const st_runtime* runtime) {
     return runtime ? runtime->runtime.lastFrameGpuNanoseconds() : 0U;
 }
 
+uint64_t st_runtime_profile_frame_gpu_timestamp_nanoseconds(const st_runtime* runtime) {
+    return runtime ? runtime->runtime.lastFrameGpuTimestampNanoseconds() : 0U;
+}
+
 size_t st_runtime_profile_pass_count(const st_runtime* runtime) {
     return runtime ? runtime->runtime.lastPassTimings().size() : 0U;
 }
@@ -1153,6 +1157,33 @@ int st_runtime_profile_pass(const st_runtime* runtime, const size_t index, char*
         outTiming->gpu_nanoseconds = timing.gpuNanoseconds;
         outTiming->width = timing.width;
         outTiming->height = timing.height;
+    });
+}
+
+
+int st_runtime_profile_pass_sample(const st_runtime* runtime, const size_t index, char* outName,
+                                   const size_t outNameLen, st_pass_profile_sample* outSample) {
+    return guard([&] {
+        if(!runtime)
+            throw std::runtime_error("Runtime is null");
+        if(!outSample)
+            throw std::runtime_error("Pass profile sample output is null");
+        const auto& samples = runtime->runtime.lastPassProfileSamples();
+        if(index >= samples.size())
+            throw std::runtime_error("Pass profile sample index is out of range");
+        const auto& sample = samples[index];
+        if(!outName || outNameLen == 0)
+            throw std::runtime_error("Pass profile sample name buffer is null or empty");
+        if(sample.name.size() + 1U > outNameLen)
+            throw std::runtime_error("Pass profile sample name buffer is too small");
+        std::copy(sample.name.begin(), sample.name.end(), outName);
+        outName[sample.name.size()] = '\0';
+        outSample->gpu_execution_nanoseconds = sample.gpuExecutionNanoseconds;
+        outSample->attributed_nanoseconds = sample.attributedNanoseconds;
+        outSample->completion_wait_nanoseconds = sample.completionWaitNanoseconds;
+        outSample->width = sample.width;
+        outSample->height = sample.height;
+        outSample->sample_valid = sample.sampleValid ? 1 : 0;
     });
 }
 

@@ -33,6 +33,15 @@ typedef struct st_pass_timing {
     uint32_t height;
 } st_pass_timing;
 
+typedef struct st_pass_profile_sample {
+    uint64_t gpu_execution_nanoseconds;
+    uint64_t attributed_nanoseconds;
+    uint64_t completion_wait_nanoseconds;
+    uint32_t width;
+    uint32_t height;
+    int sample_valid;
+} st_pass_profile_sample;
+
 typedef uint32_t st_pass_kind;
 /* Plain constants (not an enum): MSVC fixes enum type to int while GCC/Clang
  * pick unsigned, which made bindgen emit i32 on Windows but u32 elsewhere. */
@@ -145,10 +154,13 @@ ST_NATIVE_EXPORT int st_runtime_restore_pass_rgba32f(st_runtime* runtime, const 
 ST_NATIVE_EXPORT void st_runtime_set_profiling(st_runtime* runtime, int enabled);
 ST_NATIVE_EXPORT void st_runtime_set_profiling_sync_per_pass(st_runtime* runtime, int enabled);
 ST_NATIVE_EXPORT uint64_t st_runtime_profile_frame_gpu_nanoseconds(const st_runtime* runtime);
+ST_NATIVE_EXPORT uint64_t st_runtime_profile_frame_gpu_timestamp_nanoseconds(const st_runtime* runtime);
 ST_NATIVE_EXPORT size_t st_runtime_profile_pass_count(const st_runtime* runtime);
 ST_NATIVE_EXPORT size_t st_runtime_profile_pass_name_len(const st_runtime* runtime, size_t index);
 ST_NATIVE_EXPORT int st_runtime_profile_pass(const st_runtime* runtime, size_t index, char* out_name, size_t out_name_len,
                                              st_pass_timing* out_timing);
+ST_NATIVE_EXPORT int st_runtime_profile_pass_sample(const st_runtime* runtime, size_t index, char* out_name,
+                                                    size_t out_name_len, st_pass_profile_sample* out_sample);
 
 #ifdef __cplusplus
 }

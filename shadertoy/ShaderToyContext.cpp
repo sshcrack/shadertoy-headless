@@ -253,8 +253,17 @@ const std::vector<PassTiming>& ShaderToyContext::lastPassTimings() const {
     return mPipeline ? mPipeline->lastPassTimings() : empty;
 }
 
+const std::vector<PassProfileSample>& ShaderToyContext::lastPassProfileSamples() const {
+    static const std::vector<PassProfileSample> empty;
+    return mPipeline ? mPipeline->lastPassProfileSamples() : empty;
+}
+
 uint64_t ShaderToyContext::lastFrameGpuNanoseconds() const {
     return mPipeline ? mPipeline->lastFrameGpuNanoseconds() : 0;
+}
+
+uint64_t ShaderToyContext::lastFrameGpuTimestampNanoseconds() const {
+    return mPipeline ? mPipeline->lastFrameGpuTimestampNanoseconds() : 0;
 }
 
 void ShaderToyContext::setFixedState(const float timeSeconds, const int32_t frame, const float frameRate) {

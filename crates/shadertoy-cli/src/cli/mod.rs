@@ -308,9 +308,12 @@ struct ProfileArgs {
     /// Consecutive measured frames.
     #[arg(long, default_value_t = 20)]
     samples: u32,
-    /// Also complete each end-timestamp before continuing; slower maximum-isolation diagnostics.
+    /// Also retire each post-completion timestamp before continuing; slower maximum-isolation diagnostics.
     #[arg(long)]
     sync_per_pass: bool,
+    /// Exclude MAD-flagged timing outliers from aggregate statistics while retaining every raw sample in JSON.
+    #[arg(long)]
+    discard_outliers: bool,
     /// Override a declared custom uniform during profiling.
     #[arg(long = "set", value_name = "NAME=VALUE")]
     set_uniforms: Vec<String>,
@@ -791,7 +794,7 @@ enum ChannelCommand {
 
 #[derive(Debug, Args)]
 struct DocsArgs {
-    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, test, trace, graph, or preview.
+    /// agent, project, import, manifest, passes, glsl, assets, buffers, channels, state, sweep, blind, experiment, profile, test, trace, graph, or preview.
     #[arg(default_value = "agent")]
     topic: String,
     /// Print the exact JSON Schema for ShaderToy.toml (manifest topic only).
@@ -1036,6 +1039,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
             warmup: args.warmup,
             samples: args.samples,
             sync_per_pass: args.sync_per_pass,
+            discard_outliers: args.discard_outliers,
             set_uniforms: args.set_uniforms,
         })?,
         Command::Sweep(args) => ops::sweep_project(&SweepOptions {

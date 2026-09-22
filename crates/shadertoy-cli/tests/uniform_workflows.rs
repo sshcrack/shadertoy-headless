@@ -773,7 +773,18 @@ height = 2
     assert_eq!(report["preset_requested_width"], 2);
     assert_eq!(report["preset_requested_height"], 2);
     assert_eq!(report["timing_mode"], "completion_synchronized");
+    assert_eq!(report["recommended_gpu_metric"], "gpu_frame_timestamp");
     assert_eq!(report["gpu_frame_mode"], "attributed_pass_sum");
+    assert!(
+        report["gpu_frame_timestamp"]["median_ms"]
+            .as_f64()
+            .is_some_and(|value| value > 0.0)
+    );
+    assert!(
+        report["completion_wait_total"]["median_ms"]
+            .as_f64()
+            .is_some_and(|value| value >= 0.0)
+    );
     assert!(
         report["gpu_frame"]["median_ms"]
             .as_f64()
@@ -788,6 +799,13 @@ height = 2
         .unwrap();
     assert_eq!(buffer["width"], 2);
     assert_eq!(buffer["height"], 2);
+    assert!(buffer["gpu_execution"]["samples"].as_u64().is_some());
+    assert!(buffer["completion_wait"]["median_ms"].as_f64().is_some());
+    assert!(
+        buffer["sample_details"]
+            .as_array()
+            .is_some_and(|values| values.len() == 2)
+    );
 
     let high_source = format!("project:{project_arg}@preset=high");
     let low_source = format!("project:{project_arg}@preset=low");
@@ -831,4 +849,6 @@ height = 2
         serde_json::from_slice(&sync_profile.stdout).expect("parse sync profile report");
     assert_eq!(sync_report["timing_mode"], "sync_per_pass");
     assert_eq!(sync_report["sync_per_pass"], true);
+    assert!(sync_report["passes"][0]["sample_details"][0]["sample_valid"].is_boolean());
+    assert!(sync_report["passes"][0]["sample_details"][0]["outlier"].is_boolean());
 }

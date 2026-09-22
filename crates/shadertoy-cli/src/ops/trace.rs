@@ -103,7 +103,7 @@ pub fn capture_trace(options: &TraceCaptureOptions) -> Result<Output> {
     let project = build_native_project(&loaded)?;
     runtime.load_project(&project)?;
     crate::uniforms::apply_to_runtime(&mut runtime, &uniform_values)?;
-    runtime.set_profiling(true)?;
+    runtime.set_profiling_mode(true, true)?;
     let final_image = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?
         .context("trace capture did not produce a final image")?;
     let timings = runtime.pass_timings()?;

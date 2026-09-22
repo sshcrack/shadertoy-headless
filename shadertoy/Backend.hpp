@@ -51,6 +51,16 @@ struct PassTiming final {
     uint32_t height{};
 };
 
+struct PassProfileSample final {
+    std::string name;
+    uint64_t gpuExecutionNanoseconds{};
+    uint64_t attributedNanoseconds{};
+    uint64_t completionWaitNanoseconds{};
+    uint32_t width{};
+    uint32_t height{};
+    bool sampleValid{};
+};
+
 struct ShaderToyUniform final {
     float time{};
     float timeDelta{};
@@ -140,7 +150,9 @@ public:
     virtual void setProfilingEnabled(bool enabled) = 0;
     virtual void setProfilingSyncPerPass(bool enabled) = 0;
     [[nodiscard]] virtual const std::vector<PassTiming>& lastPassTimings() const = 0;
+    [[nodiscard]] virtual const std::vector<PassProfileSample>& lastPassProfileSamples() const = 0;
     [[nodiscard]] virtual uint64_t lastFrameGpuNanoseconds() const = 0;
+    [[nodiscard]] virtual uint64_t lastFrameGpuTimestampNanoseconds() const = 0;
 
     virtual TextureId createTexture(std::string name, uint32_t width, uint32_t height, const uint32_t* data) = 0;
     virtual void updateTexture(std::string_view name, uint32_t width, uint32_t height, const uint32_t* data) = 0;

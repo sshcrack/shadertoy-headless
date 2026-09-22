@@ -365,6 +365,7 @@ fn profile_project_source(
         warmup: 2,
         samples: options.profile_samples,
         sync_per_pass: false,
+        discard_outliers: false,
         set_uniforms: Vec::new(),
     })?;
     Ok(Some(profile.json))

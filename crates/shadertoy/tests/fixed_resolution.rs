@@ -262,7 +262,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     let mut runtime = Runtime::new(&context).expect("create runtime");
     runtime.load_project(&project).expect("load project");
-    runtime.set_profiling(true).expect("enable profiling");
+    runtime
+        .set_profiling_mode(true, true)
+        .expect("enable isolated profiling");
     runtime.render(32, 16).expect("render profiled frame");
 
     let timings = runtime.pass_timings().expect("read timings");
@@ -293,23 +295,52 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         .expect("read whole-frame GPU timing");
     assert!(
         frame_gpu > 0,
-        "whole-frame GPU timestamp duration must be reported"
+        "whole-frame attributed duration must be reported"
     );
     assert_eq!(
         frame_gpu,
         compute.gpu_nanoseconds + image.gpu_nanoseconds,
-        "GPU total must be the exact sum of precisely attributed pass intervals"
+        "compatibility GPU total must remain the exact attributed pass sum"
+    );
+
+    let profile_samples = runtime
+        .pass_profile_samples()
+        .expect("read detailed profiling samples");
+    assert_eq!(profile_samples.len(), 2);
+    for sample in &profile_samples {
+        assert!(sample.gpu_execution_nanoseconds > 0);
+        assert!(sample.attributed_nanoseconds >= sample.gpu_execution_nanoseconds);
+        assert!(sample.completion_wait_nanoseconds > 0);
+    }
+    assert!(
+        runtime
+            .frame_gpu_timestamp_nanoseconds()
+            .expect("read frame timestamp interval")
+            > 0,
+        "independent frame GPU timestamp interval must be reported"
     );
 
     runtime
-        .set_profiling_mode(true, true)
-        .expect("enable synchronized profiling");
+        .set_profiling_mode(true, false)
+        .expect("enable non-intrusive profiling");
     runtime
         .render(32, 16)
-        .expect("render synchronized profiled frame");
+        .expect("render non-intrusive profiled frame");
     assert!(
-        runtime.frame_gpu_nanoseconds().expect("sync frame timing") > 0,
-        "synchronized diagnostic mode must still report frame timing"
+        runtime
+            .frame_gpu_timestamp_nanoseconds()
+            .expect("non-intrusive frame timing")
+            > 0,
+        "non-intrusive profiling must still report the frame timestamp interval"
     );
-    assert_eq!(runtime.pass_timings().expect("sync pass timings").len(), 2);
+    let non_intrusive = runtime
+        .pass_profile_samples()
+        .expect("read non-intrusive samples");
+    assert_eq!(non_intrusive.len(), 2);
+    assert!(
+        non_intrusive
+            .iter()
+            .all(|sample| sample.completion_wait_nanoseconds == 0),
+        "normal profiling must not insert per-pass CPU completion waits"
+    );
 }

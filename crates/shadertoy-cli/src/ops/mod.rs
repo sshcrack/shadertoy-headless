@@ -113,6 +113,7 @@ pub struct ProfileOptions {
     pub warmup: u32,
     pub samples: u32,
     pub sync_per_pass: bool,
+    pub discard_outliers: bool,
     pub set_uniforms: Vec<String>,
 }
 

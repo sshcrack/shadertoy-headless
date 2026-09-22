@@ -70,7 +70,9 @@ public:
     void setProfilingEnabled(bool enabled);
     void setProfilingSyncPerPass(bool enabled);
     [[nodiscard]] const std::vector<PassTiming>& lastPassTimings() const;
+    [[nodiscard]] const std::vector<PassProfileSample>& lastPassProfileSamples() const;
     [[nodiscard]] uint64_t lastFrameGpuNanoseconds() const;
+    [[nodiscard]] uint64_t lastFrameGpuTimestampNanoseconds() const;
     void setFixedState(float timeSeconds, int32_t frame, float frameRate);
     void setReplayState(float timeSeconds, float timeDelta, int32_t frame, float frameRate);
     [[nodiscard]] float getTimeDelta() const noexcept {

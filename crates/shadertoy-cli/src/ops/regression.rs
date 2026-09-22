@@ -503,7 +503,7 @@ fn render_variant(
     runtime.load_project(&project)?;
     crate::uniforms::apply_to_runtime(&mut runtime, uniform_values)?;
     if profile_requested {
-        runtime.set_profiling(true)?;
+        runtime.set_profiling_mode(true, true)?;
     }
     let final_image = render_from_zero(&mut runtime, frame, fps, width, height, &[], &media)?
         .context("test render did not produce a final image")?;

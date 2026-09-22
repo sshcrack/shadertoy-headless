@@ -11,4 +11,6 @@ pub use context::HeadlessContext;
 pub use error::{Error, Result};
 pub use project::Project;
 pub use runtime::Runtime;
-pub use types::{Filter, InputKind, PassKind, PassTiming, RenderFormat, RgbImage, Wrap};
+pub use types::{
+    Filter, InputKind, PassKind, PassProfileSample, PassTiming, RenderFormat, RgbImage, Wrap,
+};
