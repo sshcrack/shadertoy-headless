@@ -52,6 +52,10 @@ public:
     void setAudioInput(const AudioInput& input);
     void setUniformFloats(std::string name, const float* values, uint32_t count);
     void setUniformInt(std::string name, int32_t value);
+    void setCustomUniforms(const CustomUniformMap& uniforms);
+    [[nodiscard]] const CustomUniformMap& customUniforms() const noexcept {
+        return mCustomUniforms;
+    }
 
     void render(const RenderRegion& region);
     [[nodiscard]] std::vector<uint8_t> renderToBuffer(Vec2 size);

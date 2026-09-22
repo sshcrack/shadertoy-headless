@@ -33,7 +33,9 @@ the original browser response under .shadertoy/import-response.json.
 STTF export limits
 ------------------
 
-`shadertoy build` serializes the native static render graph. Directory projects
+`shadertoy build` serializes the native static render graph together with the
+current typed custom-uniform values (manifest defaults unless the runtime changed
+them before saving). Loading the STTF restores those values. Directory projects
 that contain Sound passes or dynamic video/webcam channels must stay in directory
 form; build rejects them rather than silently dropping Sound or freezing media to
 one frame.

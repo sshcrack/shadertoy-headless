@@ -481,6 +481,147 @@ fn blind_create_renders_projects_and_sttf_builds() {
     assert_eq!(report["height"], 1);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn blind_create_sttf_preserves_distinct_uniform_defaults() {
+    let temp = TempRoot::new("blind-sttf-uniform-defaults");
+    let open = temp.path().join("open");
+    let storm = temp.path().join("storm");
+    write_uniform_project(&open);
+    write_uniform_project(&storm);
+
+    let storm_manifest = std::fs::read_to_string(storm.join("ShaderToy.toml"))
+        .expect("read storm manifest")
+        .replace("default = 0.25", "default = 0.75");
+    std::fs::write(storm.join("ShaderToy.toml"), storm_manifest).expect("write storm manifest");
+
+    let open_arg = open.to_string_lossy().into_owned();
+    let storm_arg = storm.to_string_lossy().into_owned();
+    let open_sttf = temp.path().join("open.sttf");
+    let storm_sttf = temp.path().join("storm.sttf");
+    let open_sttf_arg = open_sttf.to_string_lossy().into_owned();
+    let storm_sttf_arg = storm_sttf.to_string_lossy().into_owned();
+
+    assert!(
+        shadertoy(&["build", "--project", &open_arg, "-o", &open_sttf_arg])
+            .status
+            .success()
+    );
+    assert!(
+        shadertoy(&["build", "--project", &storm_arg, "-o", &storm_sttf_arg])
+            .status
+            .success()
+    );
+
+    let output_dir = temp.path().join("blind");
+    let output_arg = output_dir.to_string_lossy().into_owned();
+    let created = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &open_sttf_arg,
+        &storm_sttf_arg,
+        "--frames",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--output-dir",
+        &output_arg,
+    ]);
+    assert!(created.status.success(), "{created:?}");
+
+    let mut reds = ["A", "B"]
+        .map(|label| {
+            image::open(output_dir.join(format!("variants/{label}/image-000.png")))
+                .expect("open blinded STTF render")
+                .to_rgb8()
+                .get_pixel(0, 0)[0]
+        })
+        .to_vec();
+    reds.sort_unstable();
+    assert!(
+        (60..=70).contains(&reds[0]) && (185..=195).contains(&reds[1]),
+        "STTF uniform defaults were not restored: {reds:?}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn blind_create_bare_git_refs_follow_current_nested_project_before_images() {
+    let temp = TempRoot::new("blind-git-nested-project");
+    let repo = temp.path().join("repo");
+    let project = repo.join("fable");
+    write_uniform_project(&project);
+    std::fs::create_dir_all(project.join("assets")).expect("create project assets");
+    write_solid_png(&project.join("assets/foam-a.png"), [255, 255, 255]);
+    write_solid_png(&project.join("assets/foam-b.png"), [192, 192, 192]);
+    write_solid_png(&project.join("assets/foam-c.png"), [128, 128, 128]);
+
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(output.status.success(), "{output:?}");
+        output
+    };
+    git(&["init", "--quiet"]);
+    git(&["config", "user.email", "tests@example.invalid"]);
+    git(&["config", "user.name", "ShaderToy Tests"]);
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "old"]);
+    let old_ref = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout)
+        .expect("old ref UTF-8")
+        .trim()
+        .to_string();
+
+    std::fs::write(project.join("revision.txt"), "new").expect("write second revision marker");
+    git(&["add", "fable/revision.txt"]);
+    git(&["commit", "--quiet", "-m", "new"]);
+    let new_ref = String::from_utf8(git(&["rev-parse", "HEAD"]).stdout)
+        .expect("new ref UTF-8")
+        .trim()
+        .to_string();
+
+    let old_source = format!("git:{old_ref}");
+    let new_source = format!("git:{new_ref}");
+    let repo_arg = repo.to_string_lossy().into_owned();
+    let output_dir = temp.path().join("blind");
+    let output_arg = output_dir.to_string_lossy().into_owned();
+    let created = Command::new(env!("CARGO_BIN_EXE_shadertoy"))
+        .current_dir(&project)
+        .args([
+            "--json",
+            "blind",
+            "create",
+            &old_source,
+            &new_source,
+            "--git-root",
+            &repo_arg,
+            "--frames",
+            "0",
+            "--width",
+            "3",
+            "--height",
+            "2",
+            "--output-dir",
+            &output_arg,
+        ])
+        .output()
+        .expect("run nested git blind comparison");
+    assert!(created.status.success(), "{created:?}");
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&created.stdout).expect("parse nested git blind JSON");
+    assert_eq!(report["images_per_variant"], 1);
+    assert_eq!(report["width"], 3);
+    assert_eq!(report["height"], 2);
+}
+
 #[test]
 fn blind_create_materializes_git_revisions_without_leaking_refs() {
     let temp = TempRoot::new("blind-git-refs");

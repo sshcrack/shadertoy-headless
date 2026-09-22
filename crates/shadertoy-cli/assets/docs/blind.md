@@ -7,7 +7,9 @@ Create a blind comparison from arbitrary existing images or render directories:
   shadertoy blind create target/old-renders target/new-renders \
     --output-dir target/old-vs-new
 
-Image directories are searched recursively for PNG/JPEG files and sorted
+Source auto-detection prefers a ShaderToy project, then a unique STTF build,
+then PNG/JPEG images. This keeps project texture assets from being mistaken for
+comparison inputs. Image-only directories are searched recursively and sorted
 deterministically. Every source must contain the same number of images at the
 same dimensions. The contact sheet uses anonymous variants A/B/C as columns and
 corresponding source images as rows.
@@ -30,11 +32,15 @@ Git revisions can be compared without manually checking them out:
     'git:HEAD::examples/demo' \
     --frames 0,60,120
 
-Use --git-root PATH when the command is not running inside the repository. The
-form git:REF points at the worktree root; git:REF::SUBDIR selects a file or
-directory inside that revision. Comparing a live working tree against its
-committed base is therefore as simple as passing the project directory as one
-source and git:HEAD::PATH as the other.
+Use --git-root PATH when the command is not running inside the repository. When
+the command runs inside a nested ShaderToy project, bare `git:REF` sources keep
+that project-relative path across revisions. Otherwise a bare revision is
+auto-detected from the worktree root; a single nested ShaderToy project or STTF
+build is preferred over image assets. `git:REF::SUBDIR` always selects an
+explicit file or directory and overrides implicit project selection. Comparing
+a live working tree against its committed base can therefore use the project
+directory as one source and either `git:HEAD` from inside that project or
+`git:HEAD::PATH` explicitly as the other.
 
 Parameter sweeps can still create the same blind workflow directly:
 

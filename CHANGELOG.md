@@ -4,6 +4,11 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.8
+
+- Fixed blind source auto-detection so ShaderToy projects and STTF builds take precedence over texture/image assets; bare Git revisions invoked from a nested ShaderToy project now compare that project instead of recursively collecting repository PNGs.
+- Persisted typed custom-uniform values in STTF artifacts and restore them when loading a build, so project defaults survive `shadertoy build` and STTF blind comparisons preserve distinct configurations.
+
 ## 2.2.7
 
 - Fixed per-pass GPU profiling attribution for deferred compute work by isolating pass completion while profiling, so compute-heavy passes no longer report near-zero time while their cost is charged to a later consumer.

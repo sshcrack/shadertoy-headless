@@ -28,6 +28,10 @@ int main() {
         return 1;
     if(!require(image->nodes.size() == 2 && image->links.size() == 1, "unexpected one-pass document shape"))
         return 1;
+    ShaderToy::CustomUniformValue stormUniform;
+    stormUniform.type = ShaderToy::CustomUniformType::Float;
+    stormUniform.value.x = 0.75f;
+    image->uniforms.emplace("u_storm", stormUniform);
 
     const auto roundTripPath = std::filesystem::temp_directory_path() / "shadertoy-library-smoke.sttf";
     image->save(roundTripPath.string());
@@ -38,6 +42,12 @@ int main() {
     if(!require(roundTrip.nodes.size() == 2 && roundTrip.links.size() == 1, "STTF round-trip changed document shape"))
         return 1;
     if(!require(roundTrip.metadata.at("Name") == "smoke", "STTF round-trip lost metadata"))
+        return 1;
+    if(!require(roundTrip.uniforms.contains("u_storm"), "STTF round-trip lost custom uniform"))
+        return 1;
+    if(!require(roundTrip.uniforms.at("u_storm").type == ShaderToy::CustomUniformType::Float &&
+                    roundTrip.uniforms.at("u_storm").value.x == 0.75f,
+                "STTF round-trip changed custom uniform value"))
         return 1;
 
     const auto overflowPath = std::filesystem::temp_directory_path() / "shadertoy-library-overflow.sttf";
@@ -84,8 +94,7 @@ int main() {
     if(!require(rejectedChannels, "unsupported STTF volume channels were not rejected"))
         return 1;
 
-    const auto duplicateStoragePath =
-        std::filesystem::temp_directory_path() / "shadertoy-library-duplicate-storage-binding.sttf";
+    const auto duplicateStoragePath = std::filesystem::temp_directory_path() / "shadertoy-library-duplicate-storage-binding.sttf";
     {
         std::ofstream file(duplicateStoragePath);
         file << R"json({

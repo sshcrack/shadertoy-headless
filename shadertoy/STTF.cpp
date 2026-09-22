@@ -11,12 +11,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "shadertoy/SuppressWarningPop.hpp"
 #include "shadertoy/SuppressWarningPush.hpp"
 #include <cpp-base64/base64.h>
 #include <gsl/gsl>
 #include <magic_enum/magic_enum.hpp>
 #include <nlohmann/json.hpp>
-#include "shadertoy/SuppressWarningPop.hpp"
 
 SHADERTOY_NAMESPACE_BEGIN
 
@@ -41,6 +41,52 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
 
         ShaderToyTransmissionFormat parsed;
         json.at("metadata").get_to(parsed.metadata);
+        if(json.contains("uniforms")) {
+            const auto& uniforms = json.at("uniforms");
+            if(!uniforms.is_object())
+                throw Error("STTF uniforms must be an object");
+            for(auto it = uniforms.begin(); it != uniforms.end(); ++it) {
+                const auto& encoded = it.value();
+                CustomUniformValue uniform;
+                uniform.type = parseEnum<CustomUniformType>(encoded.at("type"), "custom uniform type");
+                switch(uniform.type) {
+                    case CustomUniformType::Int:
+                        uniform.intValue = encoded.at("value").get<int32_t>();
+                        break;
+                    case CustomUniformType::Float:
+                        uniform.value.x = encoded.at("value").get<float>();
+                        break;
+                    case CustomUniformType::Vec2: {
+                        const auto value = encoded.at("value").get<std::vector<float>>();
+                        if(value.size() != 2)
+                            throw Error("Vec2 custom uniform must contain exactly 2 values");
+                        uniform.value.x = value[0];
+                        uniform.value.y = value[1];
+                        break;
+                    }
+                    case CustomUniformType::Vec3: {
+                        const auto value = encoded.at("value").get<std::vector<float>>();
+                        if(value.size() != 3)
+                            throw Error("Vec3 custom uniform must contain exactly 3 values");
+                        uniform.value.x = value[0];
+                        uniform.value.y = value[1];
+                        uniform.value.z = value[2];
+                        break;
+                    }
+                    case CustomUniformType::Vec4: {
+                        const auto value = encoded.at("value").get<std::vector<float>>();
+                        if(value.size() != 4)
+                            throw Error("Vec4 custom uniform must contain exactly 4 values");
+                        uniform.value.x = value[0];
+                        uniform.value.y = value[1];
+                        uniform.value.z = value[2];
+                        uniform.value.w = value[3];
+                        break;
+                    }
+                }
+                parsed.uniforms.insert_or_assign(it.key(), uniform);
+            }
+        }
 
         std::unordered_map<std::string, Node*> nodeMap;
         for(const auto& node : json.at("nodes")) {
@@ -83,7 +129,8 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
                     if(shader->nodeType == NodeType::Compute) {
                         if(shader->localSizeX == 0 || shader->localSizeY == 0 || shader->localSizeZ == 0)
                             throw Error("Compute local sizes must be positive");
-                        const uint64_t invocations = static_cast<uint64_t>(shader->localSizeX) * shader->localSizeY * shader->localSizeZ;
+                        const uint64_t invocations =
+                            static_cast<uint64_t>(shader->localSizeX) * shader->localSizeY * shader->localSizeZ;
                         if(invocations > 1024)
                             throw Error("Compute local workgroup size exceeds 1024 invocations");
                         if(shader->localSizeZ != 1)
@@ -223,6 +270,31 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
     try {
         nlohmann::json json;
         nlohmann::to_json(json["metadata"], metadata);
+        if(!uniforms.empty()) {
+            auto& jsonUniforms = json["uniforms"];
+            for(const auto& [name, uniform] : uniforms) {
+                nlohmann::json encoded;
+                encoded["type"] = magic_enum::enum_name(uniform.type);
+                switch(uniform.type) {
+                    case CustomUniformType::Int:
+                        encoded["value"] = uniform.intValue;
+                        break;
+                    case CustomUniformType::Float:
+                        encoded["value"] = uniform.value.x;
+                        break;
+                    case CustomUniformType::Vec2:
+                        encoded["value"] = { uniform.value.x, uniform.value.y };
+                        break;
+                    case CustomUniformType::Vec3:
+                        encoded["value"] = { uniform.value.x, uniform.value.y, uniform.value.z };
+                        break;
+                    case CustomUniformType::Vec4:
+                        encoded["value"] = { uniform.value.x, uniform.value.y, uniform.value.z, uniform.value.w };
+                        break;
+                }
+                jsonUniforms[name] = std::move(encoded);
+            }
+        }
         auto& jsonNodes = json["nodes"];
 
         for(const auto& node : nodes) {

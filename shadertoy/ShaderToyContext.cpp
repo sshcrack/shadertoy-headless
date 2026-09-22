@@ -151,8 +151,10 @@ void ShaderToyContext::setUniformFloats(std::string name, const float* values, c
     if(!values || count == 0 || count > 4)
         throw Error("Custom float uniforms require 1 to 4 values");
     CustomUniformValue value;
-    value.type = count == 1 ? CustomUniformType::Float : count == 2 ? CustomUniformType::Vec2 :
-        count == 3 ? CustomUniformType::Vec3 : CustomUniformType::Vec4;
+    value.type = count == 1 ? CustomUniformType::Float :
+        count == 2          ? CustomUniformType::Vec2 :
+        count == 3          ? CustomUniformType::Vec3 :
+                              CustomUniformType::Vec4;
     value.value.x = values[0];
     value.value.y = count > 1 ? values[1] : 0.0f;
     value.value.z = count > 2 ? values[2] : 0.0f;
@@ -167,6 +169,10 @@ void ShaderToyContext::setUniformInt(std::string name, const int32_t intValue) {
     value.type = CustomUniformType::Int;
     value.intValue = intValue;
     mCustomUniforms.insert_or_assign(std::move(name), value);
+}
+
+void ShaderToyContext::setCustomUniforms(const CustomUniformMap& uniforms) {
+    mCustomUniforms = uniforms;
 }
 
 void ShaderToyContext::render(const RenderRegion& region) {

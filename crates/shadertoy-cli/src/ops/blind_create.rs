@@ -17,6 +17,12 @@ struct GitWorktree {
     _parent: TempDir,
 }
 
+enum DirectorySource {
+    Project(PathBuf),
+    Sttf(PathBuf),
+    Images(Vec<PathBuf>),
+}
+
 impl Drop for GitWorktree {
     fn drop(&mut self) {
         let _ = Command::new("git")
@@ -52,13 +58,19 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
     } else {
         None
     };
+    let implicit_git_subdir = git_root
+        .as_deref()
+        .map(current_project_subdir)
+        .transpose()?
+        .flatten();
 
     let mut worktrees = Vec::new();
     let mut prepared = Vec::with_capacity(options.sources.len());
     for source in &options.sources {
         if source.starts_with("git:") {
             let root = git_root.as_deref().expect("git root resolved above");
-            let (identity, project, worktree) = materialize_git_source(root, source)?;
+            let (identity, project, worktree) =
+                materialize_git_source(root, source, implicit_git_subdir.as_deref())?;
             let images = prepare_path_source(
                 &project,
                 &frames,
@@ -240,28 +252,69 @@ fn prepare_path_source(
     if !path.is_dir() {
         bail!("blind source does not exist: {}", path.display());
     }
-    if path.join("ShaderToy.toml").is_file() {
-        return render_project_frames(path, frames, width, height, fps);
+    match classify_directory_source(path)? {
+        DirectorySource::Project(project) => {
+            render_project_frames(&project, frames, width, height, fps)
+        }
+        DirectorySource::Sttf(sttf) => render_sttf_frames(&sttf, frames, width, height, fps),
+        DirectorySource::Images(paths) => paths.iter().map(|path| load_image(path)).collect(),
+    }
+}
+
+fn classify_directory_source(root: &Path) -> Result<DirectorySource> {
+    if root.join("ShaderToy.toml").is_file() {
+        return Ok(DirectorySource::Project(root.to_path_buf()));
     }
 
-    let mut paths = Vec::new();
-    collect_images(path, &mut paths)?;
-    paths.sort();
-    if paths.is_empty() {
+    let mut projects = Vec::new();
+    collect_named_files(root, "ShaderToy.toml", &mut projects)?;
+    projects.sort();
+    if projects.len() == 1 {
+        return Ok(DirectorySource::Project(
+            projects[0]
+                .parent()
+                .expect("ShaderToy.toml discovered below a directory")
+                .to_path_buf(),
+        ));
+    }
+    if projects.len() > 1 {
         bail!(
-            "blind source directory {} contains no PNG/JPEG images and is not a ShaderToy project",
-            path.display()
+            "blind source directory {} contains multiple ShaderToy projects; choose one explicitly",
+            root.display()
         );
     }
-    if paths.len() > MAX_BLIND_IMAGES_PER_SOURCE {
+
+    let mut sttfs = Vec::new();
+    collect_extension_files(root, "sttf", &mut sttfs)?;
+    sttfs.sort();
+    if sttfs.len() == 1 {
+        return Ok(DirectorySource::Sttf(sttfs.remove(0)));
+    }
+    if sttfs.len() > 1 {
+        bail!(
+            "blind source directory {} contains multiple STTF builds; choose one explicitly",
+            root.display()
+        );
+    }
+
+    let mut images = Vec::new();
+    collect_images(root, &mut images)?;
+    images.sort();
+    if images.is_empty() {
+        bail!(
+            "blind source directory {} contains no ShaderToy project, STTF build, or PNG/JPEG images",
+            root.display()
+        );
+    }
+    if images.len() > MAX_BLIND_IMAGES_PER_SOURCE {
         bail!(
             "blind source directory {} contains {} images; limit is {}",
-            path.display(),
-            paths.len(),
+            root.display(),
+            images.len(),
             MAX_BLIND_IMAGES_PER_SOURCE
         );
     }
-    paths.iter().map(|path| load_image(path)).collect()
+    Ok(DirectorySource::Images(images))
 }
 
 fn render_project_frames(
@@ -365,6 +418,43 @@ fn collect_images(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+fn collect_named_files(root: &Path, name: &str, out: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("failed to read blind source directory {}", root.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_named_files(&path, name, out)?;
+        } else if file_type.is_file() && entry.file_name() == OsStr::new(name) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn collect_extension_files(root: &Path, extension: &str, out: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(root)
+        .with_context(|| format!("failed to read blind source directory {}", root.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_extension_files(&path, extension, out)?;
+        } else if file_type.is_file()
+            && path
+                .extension()
+                .and_then(OsStr::to_str)
+                .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 fn is_image_path(path: &Path) -> bool {
     matches!(
         path.extension()
@@ -407,18 +497,61 @@ fn resolve_git_root(explicit: Option<&Path>) -> Result<PathBuf> {
     Ok(PathBuf::from(root.trim()))
 }
 
+fn current_project_subdir(repo_root: &Path) -> Result<Option<PathBuf>> {
+    let cwd = std::env::current_dir().context("failed to resolve current directory")?;
+    project_subdir_for_cwd(repo_root, &cwd)
+}
+
+fn project_subdir_for_cwd(repo_root: &Path, cwd: &Path) -> Result<Option<PathBuf>> {
+    let repo_root = fs::canonicalize(repo_root)
+        .with_context(|| format!("failed to resolve git root {}", repo_root.display()))?;
+    let cwd = fs::canonicalize(cwd)
+        .with_context(|| format!("failed to resolve current directory {}", cwd.display()))?;
+    if !cwd.starts_with(&repo_root) {
+        return Ok(None);
+    }
+
+    let mut cursor = cwd.as_path();
+    loop {
+        if cursor.join("ShaderToy.toml").is_file() {
+            let relative = cursor
+                .strip_prefix(&repo_root)
+                .expect("cursor remains inside canonical git root");
+            return Ok(Some(if relative.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                relative.to_path_buf()
+            }));
+        }
+        if cursor == repo_root {
+            break;
+        }
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent;
+    }
+    Ok(None)
+}
+
 fn materialize_git_source(
     repo_root: &Path,
     source: &str,
+    implicit_subdir: Option<&Path>,
 ) -> Result<(String, PathBuf, GitWorktree)> {
     let spec = source
         .strip_prefix("git:")
         .context("internal blind git source parse error")?;
-    let (git_ref, subdir) = spec.split_once("::").unwrap_or((spec, "."));
+    let (git_ref, explicit_subdir) = match spec.split_once("::") {
+        Some((git_ref, subdir)) => (git_ref, Some(Path::new(subdir))),
+        None => (spec, None),
+    };
     if git_ref.trim().is_empty() {
         bail!("git blind source must name a revision, e.g. git:HEAD::path/to/project");
     }
-    let subdir = Path::new(subdir);
+    let subdir = explicit_subdir
+        .or(implicit_subdir)
+        .unwrap_or_else(|| Path::new("."));
     if subdir.is_absolute()
         || subdir
             .components()
@@ -476,4 +609,68 @@ fn materialize_git_source(
             _parent: parent,
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_file(path: &Path, contents: &[u8]) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+    }
+
+    #[test]
+    fn directory_project_wins_over_texture_assets() {
+        let root = tempfile::tempdir().unwrap();
+        write_file(&root.path().join("ShaderToy.toml"), b"format = 1\n");
+        write_file(&root.path().join("assets/foam.png"), b"not-an-image");
+
+        match classify_directory_source(root.path()).unwrap() {
+            DirectorySource::Project(project) => assert_eq!(project, root.path()),
+            _ => panic!("ShaderToy project should win over image discovery"),
+        }
+    }
+
+    #[test]
+    fn unique_nested_project_wins_over_texture_assets() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("fable");
+        write_file(&project.join("ShaderToy.toml"), b"format = 1\n");
+        write_file(&project.join("assets/foam.png"), b"not-an-image");
+
+        match classify_directory_source(root.path()).unwrap() {
+            DirectorySource::Project(detected) => assert_eq!(detected, project),
+            _ => panic!("nested ShaderToy project should win over image discovery"),
+        }
+    }
+
+    #[test]
+    fn unique_sttf_wins_over_image_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let sttf = root.path().join("build.sttf");
+        write_file(&sttf, b"{}");
+        write_file(&root.path().join("foam.png"), b"not-an-image");
+
+        match classify_directory_source(root.path()).unwrap() {
+            DirectorySource::Sttf(detected) => assert_eq!(detected, sttf),
+            _ => panic!("STTF should win over image discovery"),
+        }
+    }
+
+    #[test]
+    fn current_nested_project_becomes_implicit_git_subdir() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("fable");
+        let child = project.join("assets");
+        fs::create_dir_all(&child).unwrap();
+        write_file(&project.join("ShaderToy.toml"), b"format = 1\n");
+
+        assert_eq!(
+            project_subdir_for_cwd(root.path(), &child).unwrap(),
+            Some(PathBuf::from("fable"))
+        );
+    }
 }

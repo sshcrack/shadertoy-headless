@@ -15,6 +15,8 @@
 #pragma once
 
 #include "shadertoy/Config.hpp"
+#include "shadertoy/Types.hpp"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -25,6 +27,15 @@ SHADERTOY_NAMESPACE_BEGIN
 enum class NodeClass { RenderOutput, SoundOutput, GLSLShader, Texture, CubeMap, LastFrame, Keyboard, Music, Volume, Unknown };
 enum class NodeType { Image, CubeMap, Volume, Sound, Compute };
 enum class RenderFormat { R32F, RG32F, RGBA16F, RGBA32F };
+enum class CustomUniformType { Float, Int, Vec2, Vec3, Vec4 };
+
+struct CustomUniformValue final {
+    CustomUniformType type{ CustomUniformType::Float };
+    Vec4 value;
+    int32_t intValue{};
+};
+
+using CustomUniformMap = std::unordered_map<std::string, CustomUniformValue>;
 
 struct StorageBufferBinding final {
     std::string name;
@@ -185,6 +196,7 @@ struct ShaderToyTransmissionFormat final {
     ShaderToyTransmissionFormat& operator=(ShaderToyTransmissionFormat&&) noexcept = default;
 
     Metadata metadata;
+    CustomUniformMap uniforms;
     std::vector<std::unique_ptr<Node>> nodes;
     std::vector<Link> links;
 

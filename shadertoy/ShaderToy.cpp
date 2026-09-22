@@ -28,6 +28,7 @@ Result<void> Runtime::setDocument(ShaderDocument document) {
     try {
         auto pipeline = compilePipeline(document);
         mImpl->context.setPipeline(std::move(pipeline));
+        mImpl->context.setCustomUniforms(document.uniforms);
         mImpl->document.emplace(std::move(document));
         return {};
     } catch(const Error& error) {
@@ -150,6 +151,8 @@ void Runtime::setAudioInput(const AudioInput& input) {
 Result<void> Runtime::setUniformFloats(std::string name, const float* values, const uint32_t count) {
     try {
         mImpl->context.setUniformFloats(std::move(name), values, count);
+        if(mImpl->document)
+            mImpl->document->uniforms = mImpl->context.customUniforms();
         return {};
     } catch(const Error& error) {
         return std::unexpected(error);
@@ -161,6 +164,8 @@ Result<void> Runtime::setUniformFloats(std::string name, const float* values, co
 Result<void> Runtime::setUniformInt(std::string name, const int32_t value) {
     try {
         mImpl->context.setUniformInt(std::move(name), value);
+        if(mImpl->document)
+            mImpl->document->uniforms = mImpl->context.customUniforms();
         return {};
     } catch(const Error& error) {
         return std::unexpected(error);
@@ -289,8 +294,7 @@ void Runtime::setFixedState(const float timeSeconds, const int32_t frameValue, c
     mImpl->context.setFixedState(timeSeconds, frameValue, frameRate);
 }
 
-void Runtime::setReplayState(const float timeSeconds, const float timeDelta, const int32_t frameValue,
-                             const float frameRate) {
+void Runtime::setReplayState(const float timeSeconds, const float timeDelta, const int32_t frameValue, const float frameRate) {
     mImpl->context.setReplayState(timeSeconds, timeDelta, frameValue, frameRate);
 }
 
