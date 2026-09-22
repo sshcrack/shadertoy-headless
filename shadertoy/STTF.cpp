@@ -271,7 +271,7 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
         nlohmann::json json;
         nlohmann::to_json(json["metadata"], metadata);
         if(!uniforms.empty()) {
-            auto& jsonUniforms = json["uniforms"];
+            auto jsonUniforms = nlohmann::json::object();
             for(const auto& [name, uniform] : uniforms) {
                 nlohmann::json encoded;
                 encoded["type"] = magic_enum::enum_name(uniform.type);
@@ -292,8 +292,9 @@ void ShaderToyTransmissionFormat::save(const std::string& filePath) const {
                         encoded["value"] = { uniform.value.x, uniform.value.y, uniform.value.z, uniform.value.w };
                         break;
                 }
-                jsonUniforms[name] = std::move(encoded);
+                jsonUniforms.emplace(name, std::move(encoded));
             }
+            json["uniforms"] = std::move(jsonUniforms);
         }
         auto& jsonNodes = json["nodes"];
 
