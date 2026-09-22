@@ -113,6 +113,8 @@ let status = null;
 let down = false;
 let decodingFrame = false;
 let pendingFrame = null;
+const displayedFrameTimes = [];
+let actualFps = 0;
 
 function send(value) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(value));
@@ -247,9 +249,35 @@ webcamToggle.onclick = async () => {
   }
 };
 
+function renderMeta() {
+  if (!status) return;
+  const actual = status.paused ? "paused" : actualFps.toFixed(1) + " actual fps";
+  meta.textContent = status.project
+    + "\nframe " + status.frame + "  time " + status.time.toFixed(3) + "s"
+    + "\n" + status.width + "x" + status.height
+    + "  " + actual + "  (target " + status.fps + " fps)";
+}
+function refreshActualFps(now=performance.now()) {
+  const cutoff = now - 1000;
+  while (displayedFrameTimes.length && displayedFrameTimes[0] < cutoff) {
+    displayedFrameTimes.shift();
+  }
+  if (displayedFrameTimes.length >= 2) {
+    const elapsed = displayedFrameTimes[displayedFrameTimes.length - 1] - displayedFrameTimes[0];
+    actualFps = elapsed > 0 ? (displayedFrameTimes.length - 1) * 1000 / elapsed : 0;
+  } else {
+    actualFps = 0;
+  }
+  renderMeta();
+}
+
 function update(s) {
   status = s;
-  meta.textContent = s.project + "\nframe " + s.frame + "  time " + s.time.toFixed(3) + "s\n" + s.width + "x" + s.height + " @ " + s.fps + " fps";
+  if (s.paused) {
+    displayedFrameTimes.length = 0;
+    actualFps = 0;
+  }
+  renderMeta();
   error.textContent = s.error || "";
   pause.textContent = s.paused ? "Resume" : "Pause";
   if (document.activeElement !== width) width.value = s.width;
@@ -286,6 +314,9 @@ async function queueFrame(payload) {
       }
       frameContext.drawImage(bitmap, 0, 0);
       bitmap.close();
+      const now = performance.now();
+      displayedFrameTimes.push(now);
+      refreshActualFps(now);
     }
   } finally {
     decodingFrame = false;
@@ -344,6 +375,7 @@ function keyEvent(e, isDown) {
 }
 window.addEventListener("keydown", e => keyEvent(e,true));
 window.addEventListener("keyup", e => keyEvent(e,false));
+setInterval(() => refreshActualFps(), 250);
 window.addEventListener("beforeunload", stopWebcam);
 </script>
 </body>

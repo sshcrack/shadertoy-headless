@@ -2,8 +2,10 @@ shadertoy preview runs the native C++ renderer behind a small local web server.
 
 The browser is a viewer/controller; it does not execute a second WebGL renderer.
 Native PNG frames are pushed as binary WebSocket messages and drawn to a canvas;
-there is no per-frame HTTP image polling. ShaderToy.toml, shader sources, and
-assets are watched for changes.
+there is no per-frame HTTP image polling. The preview reports a rolling end-to-end
+actual FPS based on frames successfully decoded and drawn by the browser, alongside
+the configured target FPS. ShaderToy.toml, shader sources, and assets are watched
+for changes.
 
 Shader/source edits use an include-aware dependency graph. A successful source
 reload recompiles only affected passes and leaves existing render targets and

@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.2.9
+
+- Preview now shows a rolling actual FPS measured from browser-displayed frames, alongside the configured target FPS.
+
 ## 2.2.8
 
 - Fixed blind source auto-detection so ShaderToy projects and STTF builds take precedence over texture/image assets; bare Git revisions invoked from a nested ShaderToy project now compare that project instead of recursively collecting repository PNGs.
