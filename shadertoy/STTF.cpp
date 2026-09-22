@@ -42,10 +42,10 @@ void ShaderToyTransmissionFormat::load(const std::string& filePath) {
         ShaderToyTransmissionFormat parsed;
         json.at("metadata").get_to(parsed.metadata);
         if(json.contains("uniforms")) {
-            const auto& uniforms = json.at("uniforms");
-            if(!uniforms.is_object())
+            const auto& uniformsJson = json.at("uniforms");
+            if(!uniformsJson.is_object())
                 throw Error("STTF uniforms must be an object");
-            for(auto it = uniforms.begin(); it != uniforms.end(); ++it) {
+            for(auto it = uniformsJson.begin(); it != uniformsJson.end(); ++it) {
                 const auto& encoded = it.value();
                 CustomUniformValue uniform;
                 uniform.type = parseEnum<CustomUniformType>(encoded.at("type"), "custom uniform type");
