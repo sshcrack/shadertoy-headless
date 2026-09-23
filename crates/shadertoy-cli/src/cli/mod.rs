@@ -9,7 +9,7 @@ use crate::ops::{
     TestOptions, TraceCaptureOptions, TraceReplayOptions,
 };
 use crate::preview;
-use crate::preview::PreviewConfig;
+use crate::preview::{PreviewConfig, PreviewTransport};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::json;
@@ -574,6 +574,9 @@ struct PreviewArgs {
     /// Record shader-affecting preview input and exact rendered frame/time markers.
     #[arg(long, value_name = "PATH")]
     record: Option<PathBuf>,
+    /// Live frame transport: auto uses raw RGB on loopback and MJPEG otherwise.
+    #[arg(long = "preview-transport", value_enum, default_value_t = PreviewTransport::Auto)]
+    preview_transport: PreviewTransport,
 }
 
 #[derive(Debug, Args)]
@@ -1141,6 +1144,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                     token: args.token,
                     preserve_reload_state: !args.reset_on_reload,
                     record: args.record,
+                    transport: args.preview_transport,
                 },
                 json_mode,
             )?;

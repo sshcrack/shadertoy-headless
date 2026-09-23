@@ -1,14 +1,30 @@
 shadertoy preview runs the native C++ renderer behind a small local web server.
 
-The browser is a viewer/controller; it does not execute a second WebGL renderer.
-Native PNG frames are pushed as binary WebSocket messages and drawn to a canvas;
-there is no per-frame HTTP image polling. The preview reports a rolling end-to-end
-actual FPS based on frames successfully decoded and drawn by the browser, alongside
-the configured target FPS. ShaderToy.toml, shader sources, and assets are watched
-for changes. `shadertoy preview --preset NAME` applies a named manifest quality
-preset and keeps that preset active across full hot reloads. When presets exist,
-the browser exposes a Quality preset selector (including the base manifest) and can
-switch tiers live without restarting preview.
+The browser is a viewer/controller; it does not execute a second shader renderer.
+Native RGB frames are handed to a bounded latest-frame transport worker. Choose
+the transport with --preview-transport auto|raw|mjpeg|png. The default auto mode
+uses raw RGB when preview is bound to localhost/127.0.0.1/::1, avoiding image
+encode/decode entirely for local review. Any externally reachable bind, including
+0.0.0.0 and ::, defaults to MJPEG so a proxied or LAN preview does not accidentally
+send roughly 3 bytes per pixel per frame. Use --preview-transport raw to force the
+uncompressed fast path, --preview-transport png for lossless compressed frames,
+or --preview-transport mjpeg to force the low-bandwidth live path.
+
+MJPEG keeps one persistent low-latency ffmpeg encoder alive and pushes independent
+JPEG frames as binary WebSocket messages; if ffmpeg is unavailable, an in-process
+JPEG encoder is used as a compatibility fallback. PNG uses a low-compression
+preview encoder off the graphics thread. Raw frames carry an 8-byte little-endian
+width/height header followed by RGB24 pixels and are uploaded directly to a WebGL2
+texture in the browser. Compressed frames use native browser image decode and
+BitmapRenderer when available. There is no per-frame HTTP polling and a slow
+encoder/browser cannot build an unbounded stale-frame queue. Set SHADERTOY_FFMPEG
+to override the ffmpeg executable. The preview reports a rolling end-to-end actual
+FPS based on frames successfully drawn by the browser, alongside the configured
+target FPS. ShaderToy.toml, shader sources, and assets are watched for changes.
+shadertoy preview --preset NAME applies a named manifest quality preset and keeps
+that preset active across full hot reloads. When presets exist, the browser exposes
+a Quality preset selector (including the base manifest) and can switch tiers live
+without restarting preview.
 
 Preview is deliberately a human-review surface. Its final Image output stays at
 the base project's render width/height while switching presets, even when a

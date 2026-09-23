@@ -225,31 +225,21 @@ pub(super) fn render_loop(
                     };
 
                     if let Some(image) = selected {
-                        match rgb_png_bytes(&image) {
-                            Ok(png) => {
-                                let png = Bytes::from(png);
-                                *shared
-                                    .frame_png
-                                    .write()
-                                    .expect("preview frame lock poisoned") = png.clone();
-                                update_status(
-                                    &shared,
-                                    loaded.as_ref(),
-                                    runtime,
-                                    width,
-                                    height,
-                                    resolution_override.is_some(),
-                                    fps,
-                                    paused,
-                                    &view,
-                                    &uniform_values,
-                                    None,
-                                    true,
-                                );
-                                let _ = shared.frames.send(png);
-                            }
-                            Err(error) => set_error(&shared, error.to_string()),
-                        }
+                        shared.frame_submitter.submit(image);
+                        update_status(
+                            &shared,
+                            loaded.as_ref(),
+                            runtime,
+                            width,
+                            height,
+                            resolution_override.is_some(),
+                            fps,
+                            paused,
+                            &view,
+                            &uniform_values,
+                            None,
+                            true,
+                        );
                     }
                     if let Some(recorder) = &mut recorder
                         && let Err(error) = recorder.record_frame(
@@ -267,7 +257,7 @@ pub(super) fn render_loop(
             }
             fresh = false;
             force_render = false;
-            next_frame = Instant::now() + Duration::from_secs_f64(1.0 / f64::from(fps.max(1.0)));
+            next_frame = next_frame_deadline_after_render(next_frame, Instant::now(), fps);
         }
 
         let timeout = if !paused && shared.clients.load(Ordering::Relaxed) > 0 {
@@ -312,6 +302,20 @@ pub(super) fn render_loop(
         && let Err(error) = recorder.flush()
     {
         set_error(&shared, format!("replay recording flush failed: {error:#}"));
+    }
+}
+
+fn next_frame_deadline_after_render(
+    previous_deadline: Instant,
+    completed_at: Instant,
+    fps: f32,
+) -> Instant {
+    let interval = Duration::from_secs_f64(1.0 / f64::from(fps.max(1.0)));
+    let scheduled = previous_deadline + interval;
+    if scheduled <= completed_at {
+        completed_at
+    } else {
+        scheduled
     }
 }
 
@@ -630,5 +634,31 @@ fn record_action(recorder: &mut Option<ReplayRecorder>, shared: &Shared, action:
         && let Err(error) = recorder.record(action)
     {
         set_error(shared, format!("replay recording failed: {error:#}"));
+    }
+}
+
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+
+    #[test]
+    fn render_work_does_not_get_added_to_the_frame_interval() {
+        let start = Instant::now();
+        let interval = Duration::from_secs_f64(1.0 / 60.0);
+        let completed = start + Duration::from_millis(10);
+
+        let next = next_frame_deadline_after_render(start, completed, 60.0);
+
+        assert_eq!(next, start + interval);
+    }
+
+    #[test]
+    fn over_budget_render_can_continue_without_an_extra_frame_sleep() {
+        let start = Instant::now();
+        let completed = start + Duration::from_millis(25);
+
+        let next = next_frame_deadline_after_render(start, completed, 60.0);
+
+        assert!(next <= completed);
     }
 }

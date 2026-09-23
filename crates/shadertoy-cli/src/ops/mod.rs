@@ -33,7 +33,7 @@ pub use blind::{judge_blind, reveal_blind};
 pub use blind_create::create_blind_comparison;
 pub use experiment::{ExperimentOptions, run_experiment};
 pub use graph::{GraphOptions, graph_project};
-pub use images::rgb_png_bytes;
+pub use images::{preview_jpeg_bytes, preview_png_bytes, preview_raw_rgb_bytes};
 pub use importer::import_project;
 pub use inspect::{inspect_buffer, inspect_project, inspect_storage};
 pub use mutate::{ChannelSetOptions, add_pass, remove_channel, remove_pass, set_channel};

@@ -4,6 +4,17 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.4.5
+
+- Added --preview-transport auto|raw|mjpeg|png. Auto selects raw RGB24 WebSocket frames for loopback-bound previews and MJPEG for externally reachable binds; explicit raw, lossless PNG, and MJPEG overrides are available.
+- Added direct WebGL2 upload for raw RGB preview frames, preserving the bounded latest-frame queue while removing image encode/decode entirely on the local fast path.
+
+
+## 2.4.4
+
+- Fixed live-preview pacing so render/readback work is no longer followed by an additional full frame interval; over-budget frames continue immediately instead of compounding work time with scheduler sleep.
+- Moved live-preview frame transport off the graphics thread onto a bounded latest-frame worker. Preview now uses a persistent single-threaded FFmpeg MJPEG encoder for low-latency JPEG WebSocket frames (with an in-process JPEG fallback when FFmpeg is unavailable), so stale frames are dropped instead of queued and PNG encode/decode is removed from the live path.
+
 ## 2.4.3
 
 - Fixed live preview quality-preset switching so each preset change starts with a cold graph/resource state instead of restoring persistent Buffer/Compute history from the previously selected tier. Custom-uniform review values still survive the switch.

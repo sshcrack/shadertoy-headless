@@ -77,20 +77,56 @@ pub(super) fn save_rgb_png(image: &RgbImage, output: &Path) -> Result<()> {
     .with_context(|| format!("failed to write PNG {}", output.display()))
 }
 
-pub fn rgb_png_bytes(image: &RgbImage) -> Result<Vec<u8>> {
+pub fn preview_raw_rgb_bytes(image: &RgbImage) -> Result<Vec<u8>> {
+    let payload_len = image
+        .pixels
+        .len()
+        .checked_add(8)
+        .context("preview raw frame size overflow")?;
+    let mut payload = Vec::with_capacity(payload_len);
+    payload.extend_from_slice(&image.width.to_le_bytes());
+    payload.extend_from_slice(&image.height.to_le_bytes());
+    payload.extend_from_slice(&image.pixels);
+    Ok(payload)
+}
+
+pub fn preview_png_bytes(image: &RgbImage) -> Result<Vec<u8>> {
+    use ::image::ImageEncoder;
+    use ::image::codecs::png::{CompressionType, FilterType, PngEncoder};
+
     let mut pixels = image.pixels.clone();
     flip_rgb_rows(&mut pixels, image.width, image.height);
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    ::image::write_buffer_with_format(
-        &mut cursor,
+    let mut encoded = Vec::new();
+    PngEncoder::new_with_quality(
+        &mut encoded,
+        CompressionType::Level(1),
+        FilterType::Adaptive,
+    )
+    .write_image(
         &pixels,
         image.width,
         image.height,
-        ::image::ColorType::Rgb8,
-        ::image::ImageFormat::Png,
+        ::image::ExtendedColorType::Rgb8,
     )
     .context("failed to encode preview PNG")?;
-    Ok(cursor.into_inner())
+    Ok(encoded)
+}
+
+pub fn preview_jpeg_bytes(image: &RgbImage) -> Result<Vec<u8>> {
+    use ::image::codecs::jpeg::JpegEncoder;
+
+    let mut pixels = image.pixels.clone();
+    flip_rgb_rows(&mut pixels, image.width, image.height);
+    let mut encoded = Vec::new();
+    JpegEncoder::new_with_quality(&mut encoded, 90)
+        .encode(
+            &pixels,
+            image.width,
+            image.height,
+            ::image::ExtendedColorType::Rgb8,
+        )
+        .context("failed to encode preview JPEG")?;
+    Ok(encoded)
 }
 
 pub fn flip_rgb_rows(data: &mut [u8], width: u32, height: u32) {
@@ -117,5 +153,44 @@ fn flip_rows(data: &mut [u8], width: u32, height: u32, channels: usize) {
         let top = &mut before_opposite[y * row..(y + 1) * row];
         let bottom = &mut opposite_and_after[..row];
         top.swap_with_slice(bottom);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_image() -> RgbImage {
+        RgbImage::new(2, 2, vec![255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255])
+    }
+
+    #[test]
+    fn preview_jpeg_is_valid() {
+        let jpeg = preview_jpeg_bytes(&test_image()).unwrap();
+        let decoded = ::image::load_from_memory_with_format(&jpeg, ::image::ImageFormat::Jpeg)
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(decoded.dimensions(), (2, 2));
+    }
+
+    #[test]
+    fn preview_png_is_valid_and_flips_gl_rows() {
+        let png = preview_png_bytes(&test_image()).unwrap();
+        let decoded = ::image::load_from_memory_with_format(&png, ::image::ImageFormat::Png)
+            .unwrap()
+            .to_rgb8();
+        assert_eq!(
+            decoded.into_raw(),
+            vec![0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 0,]
+        );
+    }
+
+    #[test]
+    fn preview_raw_rgb_preserves_gl_pixels_and_dimensions() {
+        let image = test_image();
+        let raw = preview_raw_rgb_bytes(&image).unwrap();
+        assert_eq!(&raw[..4], &2u32.to_le_bytes());
+        assert_eq!(&raw[4..8], &2u32.to_le_bytes());
+        assert_eq!(&raw[8..], image.pixels.as_slice());
     }
 }

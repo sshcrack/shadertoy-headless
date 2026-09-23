@@ -234,7 +234,83 @@ const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
 const ws = new WebSocket(wsProto + "//" + location.host + "/ws" + query);
 ws.binaryType = "arraybuffer";
 const frame = document.getElementById("frame");
-const frameContext = frame.getContext("2d", {alpha:false});
+let frameBitmapContext = null;
+let frameContext = null;
+let rawRenderer = null;
+
+function ensureImageRenderer() {
+  if (frameBitmapContext || frameContext) return;
+  frameBitmapContext = frame.getContext("bitmaprenderer");
+  if (!frameBitmapContext) frameContext = frame.getContext("2d", {alpha:false});
+  if (!frameBitmapContext && !frameContext) throw new Error("canvas image rendering is unavailable");
+}
+
+function ensureRawRenderer() {
+  if (rawRenderer) return rawRenderer;
+  const gl = frame.getContext("webgl2", {
+    alpha:false,
+    antialias:false,
+    depth:false,
+    stencil:false,
+    preserveDrawingBuffer:false
+  });
+  if (!gl) {
+    const context = frame.getContext("2d", {alpha:false});
+    if (!context) throw new Error("canvas rendering is unavailable");
+    rawRenderer = {gl:null, context, width:0, height:0};
+    return rawRenderer;
+  }
+
+  const vertex = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vertex,
+    "#version 300 es\n" +
+    "precision highp float;\n" +
+    "const vec2 p[4]=vec2[4](vec2(-1.0,-1.0),vec2(1.0,-1.0),vec2(-1.0,1.0),vec2(1.0,1.0));\n" +
+    "const vec2 uv[4]=vec2[4](vec2(0.0,0.0),vec2(1.0,0.0),vec2(0.0,1.0),vec2(1.0,1.0));\n" +
+    "out vec2 vUv;\n" +
+    "void main(){gl_Position=vec4(p[gl_VertexID],0.0,1.0);vUv=uv[gl_VertexID];}\n"
+  );
+  gl.compileShader(vertex);
+  if (!gl.getShaderParameter(vertex, gl.COMPILE_STATUS)) {
+    throw new Error("raw preview vertex shader failed: " + gl.getShaderInfoLog(vertex));
+  }
+
+  const fragment = gl.createShader(gl.FRAGMENT_SHADER);
+  gl.shaderSource(fragment,
+    "#version 300 es\n" +
+    "precision highp float;\n" +
+    "uniform sampler2D uFrame;\n" +
+    "in vec2 vUv;\n" +
+    "out vec4 fragColor;\n" +
+    "void main(){fragColor=texture(uFrame,vUv);}\n"
+  );
+  gl.compileShader(fragment);
+  if (!gl.getShaderParameter(fragment, gl.COMPILE_STATUS)) {
+    throw new Error("raw preview fragment shader failed: " + gl.getShaderInfoLog(fragment));
+  }
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, fragment);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error("raw preview program failed: " + gl.getProgramInfoLog(program));
+  }
+
+  gl.useProgram(program);
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+  rawRenderer = {gl, texture, vao, width:0, height:0};
+  return rawRenderer;
+}
 const view = document.getElementById("view");
 const presetSelect = document.getElementById("preset");
 const presetSection = document.getElementById("preset-section");
@@ -458,7 +534,7 @@ function renderMeta() {
   resolutionBadge.textContent = status.width + "×" + status.height + (status.custom_resolution ? " review" : " project");
   fpsBadge.textContent = status.paused ? "paused" : actualFps.toFixed(1) + " fps";
   meta.textContent = "frame " + status.frame + "  time " + status.time.toFixed(3) + "s"
-    + "\n" + actual + "  ·  target " + status.fps + " fps";
+    + "\n" + actual + "  ·  target " + status.fps + " fps  ·  " + status.transport + " transport";
 }
 function refreshActualFps(now=performance.now()) {
   const cutoff = now - 1000;
@@ -502,6 +578,79 @@ function update(s) {
     view.value = s.view;
   }
 }
+function drawRawFrame(next) {
+  if (next.byteLength < 8) throw new Error("raw RGB frame is truncated");
+  const header = new DataView(next, 0, 8);
+  const nextWidth = header.getUint32(0, true);
+  const nextHeight = header.getUint32(4, true);
+  const expected = 8 + nextWidth * nextHeight * 3;
+  if (next.byteLength !== expected) {
+    throw new Error("raw RGB frame has " + next.byteLength + " bytes, expected " + expected);
+  }
+
+  const renderer = ensureRawRenderer();
+  const pixels = new Uint8Array(next, 8);
+  if (!renderer.gl) {
+    if (frame.width !== nextWidth || frame.height !== nextHeight) {
+      frame.width = nextWidth;
+      frame.height = nextHeight;
+    }
+    const rgba = new Uint8ClampedArray(nextWidth * nextHeight * 4);
+    for (let y = 0; y < nextHeight; y++) {
+      let src = (nextHeight - 1 - y) * nextWidth * 3;
+      let dst = y * nextWidth * 4;
+      for (let x = 0; x < nextWidth; x++, src += 3, dst += 4) {
+        rgba[dst] = pixels[src];
+        rgba[dst + 1] = pixels[src + 1];
+        rgba[dst + 2] = pixels[src + 2];
+        rgba[dst + 3] = 255;
+      }
+    }
+    renderer.context.putImageData(new ImageData(rgba, nextWidth, nextHeight), 0, 0);
+    return;
+  }
+
+  const gl = renderer.gl;
+  if (frame.width !== nextWidth || frame.height !== nextHeight) {
+    frame.width = nextWidth;
+    frame.height = nextHeight;
+    gl.viewport(0, 0, nextWidth, nextHeight);
+  }
+
+  gl.bindTexture(gl.TEXTURE_2D, renderer.texture);
+  if (renderer.width !== nextWidth || renderer.height !== nextHeight) {
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGB8,
+      nextWidth, nextHeight, 0,
+      gl.RGB, gl.UNSIGNED_BYTE, pixels
+    );
+    renderer.width = nextWidth;
+    renderer.height = nextHeight;
+  } else {
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0, 0, 0,
+      nextWidth, nextHeight,
+      gl.RGB, gl.UNSIGNED_BYTE, pixels
+    );
+  }
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+async function drawCompressedFrame(next, mime) {
+  ensureImageRenderer();
+  const bitmap = await createImageBitmap(new Blob([next], {type:mime}));
+  if (frame.width !== bitmap.width || frame.height !== bitmap.height) {
+    frame.width = bitmap.width;
+    frame.height = bitmap.height;
+  }
+  if (frameBitmapContext) {
+    frameBitmapContext.transferFromImageBitmap(bitmap);
+  } else {
+    frameContext.drawImage(bitmap, 0, 0);
+    bitmap.close();
+  }
+}
+
 async function queueFrame(payload) {
   pendingFrame = payload;
   if (decodingFrame) return;
@@ -510,13 +659,12 @@ async function queueFrame(payload) {
     while (pendingFrame !== null) {
       const next = pendingFrame;
       pendingFrame = null;
-      const bitmap = await createImageBitmap(new Blob([next], {type:"image/png"}));
-      if (frame.width !== bitmap.width || frame.height !== bitmap.height) {
-        frame.width = bitmap.width;
-        frame.height = bitmap.height;
+      const transport = status?.transport || "mjpeg";
+      if (transport === "raw") {
+        drawRawFrame(next);
+      } else {
+        await drawCompressedFrame(next, transport === "png" ? "image/png" : "image/jpeg");
       }
-      frameContext.drawImage(bitmap, 0, 0);
-      bitmap.close();
       const now = performance.now();
       displayedFrameTimes.push(now);
       refreshActualFps(now);

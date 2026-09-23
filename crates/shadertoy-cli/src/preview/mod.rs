@@ -1,5 +1,4 @@
 use crate::manifest::{LoadedManifest, PassKind};
-use crate::ops::rgb_png_bytes;
 use crate::project::{build_native_project_with_sources, ensure_source_files_exist};
 use crate::replay::{ReplayAction, ReplayRecorder};
 use crate::source::{SourceGraph, expand_pass};
@@ -29,13 +28,69 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, oneshot};
 
+mod frame_encoder;
 mod renderer;
 mod state;
 mod web;
 
+use frame_encoder::{FrameEncoder, FrameSubmitter};
 use renderer::render_loop;
 use state::{relevant_watch_path, reload_event_kind};
-use web::{frame_png, index, status, validate_remote_auth, websocket};
+use web::{frame_image, index, status, validate_remote_auth, websocket};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum PreviewTransport {
+    Auto,
+    Raw,
+    Mjpeg,
+    Png,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectivePreviewTransport {
+    Raw,
+    Mjpeg,
+    Png,
+}
+
+impl EffectivePreviewTransport {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Mjpeg => "mjpeg",
+            Self::Png => "png",
+        }
+    }
+
+    fn content_type(self) -> &'static str {
+        match self {
+            Self::Raw => "application/octet-stream",
+            Self::Mjpeg => "image/jpeg",
+            Self::Png => "image/png",
+        }
+    }
+}
+
+impl PreviewTransport {
+    fn resolve(self, host: &str) -> EffectivePreviewTransport {
+        match self {
+            Self::Auto if is_loopback_host(host) => EffectivePreviewTransport::Raw,
+            Self::Auto => EffectivePreviewTransport::Mjpeg,
+            Self::Raw => EffectivePreviewTransport::Raw,
+            Self::Mjpeg => EffectivePreviewTransport::Mjpeg,
+            Self::Png => EffectivePreviewTransport::Png,
+        }
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .map(|address| address.is_loopback())
+            .unwrap_or(false)
+}
 
 #[derive(Debug, Clone)]
 pub struct PreviewConfig {
@@ -48,6 +103,7 @@ pub struct PreviewConfig {
     pub token: Option<String>,
     pub preserve_reload_state: bool,
     pub record: Option<PathBuf>,
+    pub transport: PreviewTransport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -81,6 +137,7 @@ pub struct PreviewStatus {
     pub passes: Vec<String>,
     pub uniforms: Vec<PreviewUniformStatus>,
     pub webcam: bool,
+    pub transport: String,
     pub error: Option<String>,
 }
 
@@ -106,6 +163,7 @@ impl Default for PreviewStatus {
             passes: Vec::new(),
             uniforms: Vec::new(),
             webcam: false,
+            transport: "mjpeg".into(),
             error: None,
         }
     }
@@ -113,13 +171,15 @@ impl Default for PreviewStatus {
 
 #[derive(Clone)]
 struct Shared {
-    frame_png: Arc<RwLock<Bytes>>,
+    frame_image: Arc<RwLock<Bytes>>,
     status: Arc<RwLock<PreviewStatus>>,
     controls: mpsc::Sender<Control>,
     updates: broadcast::Sender<String>,
     frames: broadcast::Sender<Bytes>,
     clients: Arc<AtomicUsize>,
     token: Option<Arc<String>>,
+    frame_submitter: FrameSubmitter,
+    transport: EffectivePreviewTransport,
 }
 
 #[derive(Debug)]
@@ -211,6 +271,7 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         bail!("--open and --no-open are mutually exclusive");
     }
     validate_remote_auth(&config)?;
+    let transport = config.transport.resolve(&config.host);
 
     let loaded = LoadedManifest::load_with_preset(&config.project, config.preset.as_deref())?;
     validate_preview_dimensions(&loaded)?;
@@ -267,20 +328,32 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
             })
             .collect(),
         webcam: crate::media::manifest_uses_webcam(&loaded),
+        transport: transport.as_str().into(),
         ..PreviewStatus::default()
     };
 
     let (control_tx, control_rx) = mpsc::channel();
     let (update_tx, _) = broadcast::channel(128);
     let (frame_tx, _) = broadcast::channel(2);
+    let current_frame = Arc::new(RwLock::new(Bytes::new()));
+    let current_status = Arc::new(RwLock::new(initial_status));
+    let frame_encoder = FrameEncoder::start(
+        current_frame.clone(),
+        current_status.clone(),
+        update_tx.clone(),
+        frame_tx.clone(),
+        transport,
+    )?;
     let shared = Shared {
-        frame_png: Arc::new(RwLock::new(Bytes::new())),
-        status: Arc::new(RwLock::new(initial_status)),
+        frame_image: current_frame,
+        status: current_status,
         controls: control_tx.clone(),
         updates: update_tx.clone(),
         frames: frame_tx,
         clients: Arc::new(AtomicUsize::new(0)),
         token: config.token.clone().map(Arc::new),
+        frame_submitter: frame_encoder.submitter(),
+        transport,
     };
 
     let watcher_tx = control_tx.clone();
@@ -332,7 +405,10 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/frame.png", get(frame_png))
+        .route("/frame", get(frame_image))
+        .route("/frame.raw", get(frame_image))
+        .route("/frame.jpg", get(frame_image))
+        .route("/frame.png", get(frame_image))
         .route("/api/status", get(status))
         .route("/ws", get(websocket))
         .with_state(shared.clone());
@@ -399,6 +475,7 @@ pub fn run(config: PreviewConfig, json_mode: bool) -> Result<()> {
         &mut runtime,
         recorder,
     );
+    drop(frame_encoder);
 
     let _ = server_shutdown_tx.send(());
     drop(watcher);
@@ -462,5 +539,35 @@ mod tests {
             "http://[::1]:4321?token=a%20b%26c"
         );
         assert_eq!(preview_url("::", 4321, None), "http://[::1]:4321");
+    }
+
+    #[test]
+    fn auto_transport_uses_raw_only_for_loopback_bindings() {
+        for host in ["localhost", "127.0.0.1", "::1"] {
+            assert_eq!(
+                PreviewTransport::Auto.resolve(host),
+                EffectivePreviewTransport::Raw,
+                "{host}"
+            );
+        }
+        for host in ["0.0.0.0", "::", "192.168.1.20"] {
+            assert_eq!(
+                PreviewTransport::Auto.resolve(host),
+                EffectivePreviewTransport::Mjpeg,
+                "{host}"
+            );
+        }
+        assert_eq!(
+            PreviewTransport::Raw.resolve("0.0.0.0"),
+            EffectivePreviewTransport::Raw
+        );
+        assert_eq!(
+            PreviewTransport::Png.resolve("127.0.0.1"),
+            EffectivePreviewTransport::Png
+        );
+        assert_eq!(
+            PreviewTransport::Mjpeg.resolve("127.0.0.1"),
+            EffectivePreviewTransport::Mjpeg
+        );
     }
 }

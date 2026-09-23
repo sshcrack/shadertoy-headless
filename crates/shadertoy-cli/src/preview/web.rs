@@ -1,12 +1,7 @@
 use super::*;
 
 pub(super) fn validate_remote_auth(config: &PreviewConfig) -> Result<()> {
-    let loopback = config.host == "localhost"
-        || config
-            .host
-            .parse::<IpAddr>()
-            .map(|address| address.is_loopback())
-            .unwrap_or(false);
+    let loopback = is_loopback_host(&config.host);
     if !loopback && config.token.as_deref().unwrap_or_default().is_empty() {
         bail!(
             "non-loopback preview binding requires --token; bind to 127.0.0.1 for local-only preview"
@@ -32,7 +27,7 @@ pub(super) async fn index(
     Html(INDEX_HTML).into_response()
 }
 
-pub(super) async fn frame_png(
+pub(super) async fn frame_image(
     State(shared): State<Shared>,
     Query(query): Query<AuthQuery>,
 ) -> Response {
@@ -40,7 +35,7 @@ pub(super) async fn frame_png(
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let frame = shared
-        .frame_png
+        .frame_image
         .read()
         .expect("preview frame lock poisoned")
         .clone();
@@ -48,7 +43,10 @@ pub(super) async fn frame_png(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(shared.transport.content_type()),
+    );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     (StatusCode::OK, headers, frame).into_response()
 }
@@ -93,7 +91,7 @@ async fn websocket_loop(mut socket: WebSocket, shared: Shared) {
         let _ = socket.send(Message::Text(message.into())).await;
     }
     let initial_frame = shared
-        .frame_png
+        .frame_image
         .read()
         .expect("preview frame lock poisoned")
         .clone();
