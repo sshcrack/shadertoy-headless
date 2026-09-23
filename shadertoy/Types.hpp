@@ -11,6 +11,8 @@
 
 SHADERTOY_NAMESPACE_BEGIN
 
+inline constexpr std::uint32_t MaxInputChannels = 16;
+
 struct Vec2 final {
     float x{};
     float y{};

@@ -33,8 +33,8 @@ std::unique_ptr<Pipeline> compilePipeline(const ShaderDocument& document) {
         if(!link.start || !link.end || !allNodes.contains(link.start) || !allNodes.contains(link.end))
             throw Error("Pipeline contains a link with an invalid endpoint");
         if(link.end->getNodeClass() == NodeClass::GLSLShader) {
-            if(link.slot > 3)
-                throw Error("Shader input channel index must be between 0 and 3");
+            if(link.slot >= MaxInputChannels)
+                throw Error("Shader input channel index must be between 0 and 15");
             if(!shaderInputSlots[link.end].insert(link.slot).second)
                 throw Error("Shader input channel is assigned more than once");
         }

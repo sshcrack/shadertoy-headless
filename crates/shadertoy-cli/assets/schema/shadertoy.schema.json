@@ -115,10 +115,10 @@
       "type": "object",
       "properties": {
         "channel": {
-          "description": "ShaderToy iChannel index. Must be between 0 and 3.",
+          "description": "Input channel index. Must be between 0 and 15.",
           "type": "integer",
           "format": "uint8",
-          "maximum": 255,
+          "maximum": 15,
           "minimum": 0
         },
         "filter": {

@@ -123,8 +123,8 @@ uniform float     iFrameRate;            // shader frame rate
 uniform int       iFrame;                // shader playback frame
 uniform vec4      iMouse;                // mouse pixel coords. xy: current (if MLB down), zw: click
 uniform vec4      iDate;                 // Year, month, day, time in seconds in .xyzw
-uniform vec3 iChannelResolution[4];
-uniform float iChannelTime[4];
+uniform vec3 iChannelResolution[16];
+uniform float iChannelTime[16];
 
 // Host-provided semantic music analysis. The packed vec4 uniforms keep the
 // renderer interface small; the aliases below are the shader-facing contract.
@@ -197,8 +197,8 @@ uniform int       iFrame;
 uniform int       iIteration;
 uniform vec4      iMouse;
 uniform vec4      iDate;
-uniform vec3      iChannelResolution[4];
-uniform float     iChannelTime[4];
+uniform vec3      iChannelResolution[16];
+uniform float     iChannelTime[16];
 
 uniform vec4 iMusicBands;
 uniform vec4 iMusicHits;
@@ -491,11 +491,11 @@ class RenderPass final {
     GLint mLocationMusicStereo{};
     GLint mLocationMusicStructure{};
     GLint mLocationMusicMeta{};
-    GLint mLocationChannel[4]{};
-    GLint mLocationChannelResolution[4]{};
-    GLint mLocationChannelTime[4]{};
+    std::array<GLint, MaxInputChannels> mLocationChannel{};
+    std::array<GLint, MaxInputChannels> mLocationChannelResolution{};
+    std::array<GLint, MaxInputChannels> mLocationChannelTime{};
     std::vector<Channel> mChannels;
-    std::array<GLuint, 4> mSamplers{};
+    std::array<GLuint, MaxInputChannels> mSamplers{};
     std::optional<Vec2> mFixedResolution;
     bool mClampOutput{};
     RenderFormat mFormat{ RenderFormat::RGBA32F };
@@ -560,7 +560,7 @@ class RenderPass final {
                 computeSrc += "uniform sampler";
                 computeSrc += channel.tex.type == TexType::CubeMap ? "Cube" : channel.tex.type == TexType::Tex2D ? "2D" : "3D";
                 computeSrc += " iChannel";
-                computeSrc += static_cast<char>(static_cast<uint32_t>('0') + channel.slot);
+                computeSrc += std::to_string(channel.slot);
                 computeSrc += ";\n";
             }
             computeSrc += "#line 1\n";
@@ -599,7 +599,7 @@ class RenderPass final {
             pixelSrc += "uniform sampler";
             pixelSrc += channel.tex.type == TexType::CubeMap ? "Cube" : channel.tex.type == TexType::Tex2D ? "2D" : "3D";
             pixelSrc += " iChannel";
-            pixelSrc += static_cast<char>(static_cast<uint32_t>('0') + channel.slot);
+            pixelSrc += std::to_string(channel.slot);
             pixelSrc += ";\n";
         }
         if(mClampOutput)
@@ -634,10 +634,6 @@ class RenderPass final {
         return program;
     }
     void refreshUniformLocations() {
-        auto& mLocationChannel0 = mLocationChannel[0];
-        auto& mLocationChannel1 = mLocationChannel[1];
-        auto& mLocationChannel2 = mLocationChannel[2];
-        auto& mLocationChannel3 = mLocationChannel[3];
 #define SHADERTOY_GET_UNIFORM_LOCATION(NAME) mLocation##NAME = glGetUniformLocation(mProgram, "i" #NAME)
         SHADERTOY_GET_UNIFORM_LOCATION(Resolution);
         SHADERTOY_GET_UNIFORM_LOCATION(Time);
@@ -653,19 +649,14 @@ class RenderPass final {
         SHADERTOY_GET_UNIFORM_LOCATION(MusicStereo);
         SHADERTOY_GET_UNIFORM_LOCATION(MusicStructure);
         SHADERTOY_GET_UNIFORM_LOCATION(MusicMeta);
-        SHADERTOY_GET_UNIFORM_LOCATION(Channel0);
-        SHADERTOY_GET_UNIFORM_LOCATION(Channel1);
-        SHADERTOY_GET_UNIFORM_LOCATION(Channel2);
-        SHADERTOY_GET_UNIFORM_LOCATION(Channel3);
-        SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[0]);
-        SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[1]);
-        SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[2]);
-        SHADERTOY_GET_UNIFORM_LOCATION(ChannelResolution[3]);
-        mLocationChannelTime[0] = glGetUniformLocation(mProgram, "iChannelTime[0]");
-        mLocationChannelTime[1] = glGetUniformLocation(mProgram, "iChannelTime[1]");
-        mLocationChannelTime[2] = glGetUniformLocation(mProgram, "iChannelTime[2]");
-        mLocationChannelTime[3] = glGetUniformLocation(mProgram, "iChannelTime[3]");
 #undef SHADERTOY_GET_UNIFORM_LOCATION
+        for(uint32_t slot = 0; slot < MaxInputChannels; ++slot) {
+            const auto suffix = std::to_string(slot);
+            mLocationChannel[slot] = glGetUniformLocation(mProgram, ("iChannel" + suffix).c_str());
+            mLocationChannelResolution[slot] =
+                glGetUniformLocation(mProgram, ("iChannelResolution[" + suffix + "]").c_str());
+            mLocationChannelTime[slot] = glGetUniformLocation(mProgram, ("iChannelTime[" + suffix + "]").c_str());
+        }
     }
 
 public:

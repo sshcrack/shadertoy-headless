@@ -234,3 +234,26 @@ fn named_preset_rejects_unknown_pass_and_unknown_selection() {
         .expect_err("unknown preset should fail");
     assert!(error.to_string().contains("unknown preset"), "{error}");
 }
+
+#[test]
+fn manifest_accepts_channel_15_and_rejects_channel_16() {
+    let mut manifest = Manifest::minimal("extended-channels");
+    manifest.passes[0].inputs.push(Input {
+        channel: 15,
+        source: "keyboard".into(),
+        kind: Some(InputKind::Keyboard),
+        output: 0,
+        frame: FrameRef::Current,
+        filter: Filter::Nearest,
+        wrap: Wrap::Clamp,
+    });
+    manifest
+        .validate_structure()
+        .expect("channel 15 should be valid");
+
+    manifest.passes[0].inputs[0].channel = 16;
+    let error = manifest
+        .validate_structure()
+        .expect_err("channel 16 should be rejected");
+    assert!(error.to_string().contains("0..=15"), "{error}");
+}

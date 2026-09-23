@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.5.0
+
+- Extended per-pass inputs from four channels to sixteen (`iChannel0` through `iChannel15`) across manifests, native rendering, CLI mutation/inspection/graph/render workflows, sampler state, schema, and GLSL docs.
+
 ## 2.4.5
 
 - Added --preview-transport auto|raw|mjpeg|png. Auto selects raw RGB24 WebSocket frames for loopback-bound previews and MJPEG for externally reachable binds; explicit raw, lossless PNG, and MJPEG overrides are available.

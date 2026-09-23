@@ -233,3 +233,176 @@ wrap = "clamp"
     assert!(pixel[1] <= 3, "{pixel:?}");
     assert!((i16::from(pixel[2]) - 128).abs() <= 3, "{pixel:?}");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn extended_texture_channel_keeps_mipmap_repeat_and_inspection_support() {
+    let temp = TempRoot::new("extended-texture");
+    let project = temp.0.join("project");
+    std::fs::create_dir_all(project.join("shaders")).expect("create shader directory");
+    std::fs::create_dir_all(project.join("assets")).expect("create asset directory");
+
+    let mut texture = image::RgbaImage::new(4, 4);
+    for y in 0..4 {
+        for x in 0..4 {
+            let pixel = if (x + y) % 2 == 0 {
+                image::Rgba([255, 0, 0, 255])
+            } else {
+                image::Rgba([0, 0, 255, 255])
+            };
+            texture.put_pixel(x, y, pixel);
+        }
+    }
+    texture
+        .save(project.join("assets/checker.png"))
+        .expect("save texture asset");
+
+    std::fs::write(
+        project.join("ShaderToy.toml"),
+        r#"format = 1
+
+[project]
+name = "extended-texture-channel"
+
+[render]
+width = 1
+height = 1
+fps = 60.0
+preview_time = 0.0
+
+[[asset]]
+name = "checker"
+kind = "texture"
+path = "assets/checker.png"
+
+[[pass]]
+name = "image"
+kind = "image"
+source = "shaders/image.frag"
+
+[[pass.input]]
+channel = 12
+source = "checker"
+kind = "texture"
+filter = "mipmap"
+wrap = "repeat"
+"#,
+    )
+    .expect("write manifest");
+    std::fs::write(
+        project.join("shaders/image.frag"),
+        r#"void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    vec4 repeated = textureLod(iChannel12, vec2(1.125, 0.125), 0.0);
+    vec4 mip = textureLod(iChannel12, vec2(0.5), 2.0);
+    float sizeOk = float(
+        iChannelResolution[12].x > 3.5 && iChannelResolution[12].x < 4.5 &&
+        iChannelResolution[12].y > 3.5 && iChannelResolution[12].y < 4.5
+    );
+    fragColor = vec4(repeated.r, mip.r, sizeOk, 1.0);
+}
+"#,
+    )
+    .expect("write image shader");
+
+    let project_arg = project.to_string_lossy().into_owned();
+
+    let checked = shadertoy(&["check", "--project", &project_arg]);
+    assert!(checked.status.success(), "{checked:?}");
+
+    let graph = shadertoy(&["--json", "graph", "--project", &project_arg]);
+    assert!(graph.status.success(), "{graph:?}");
+    let graph_json: serde_json::Value =
+        serde_json::from_slice(&graph.stdout).expect("parse graph json");
+    assert_eq!(graph_json["edges"][0]["channel"], 12);
+
+    let inspected = shadertoy(&[
+        "--json",
+        "inspect",
+        "--project",
+        &project_arg,
+        "channels",
+        "image",
+    ]);
+    assert!(inspected.status.success(), "{inspected:?}");
+    let inspect_json: serde_json::Value =
+        serde_json::from_slice(&inspected.stdout).expect("parse channel inspection json");
+    assert_eq!(inspect_json["channels"][0]["channel"], 12);
+    assert_eq!(inspect_json["channels"][0]["filter"], "mipmap");
+    assert_eq!(inspect_json["channels"][0]["wrap"], "repeat");
+
+    let inspected_pass = shadertoy(&[
+        "--json",
+        "inspect",
+        "--project",
+        &project_arg,
+        "pass",
+        "image",
+    ]);
+    assert!(inspected_pass.status.success(), "{inspected_pass:?}");
+    let pass_json: serde_json::Value =
+        serde_json::from_slice(&inspected_pass.stdout).expect("parse pass inspection json");
+    assert_eq!(pass_json["pass"]["input"][0]["channel"], 12);
+    assert_eq!(pass_json["pass"]["input"][0]["filter"], "mipmap");
+    assert_eq!(pass_json["pass"]["input"][0]["wrap"], "repeat");
+
+    let output_path = temp.0.join("extended.png");
+    let output_arg = output_path.to_string_lossy().into_owned();
+    let rendered = shadertoy(&[
+        "render",
+        "--project",
+        &project_arg,
+        "--pass",
+        "image",
+        "--frame",
+        "0",
+        "-o",
+        &output_arg,
+    ]);
+    assert!(rendered.status.success(), "{rendered:?}");
+
+    let image = image::open(&output_path)
+        .expect("open extended render")
+        .to_rgb8();
+    let pixel = image.get_pixel(0, 0).0;
+    assert!(pixel[0] >= 250, "{pixel:?}");
+    assert!((i16::from(pixel[1]) - 128).abs() <= 4, "{pixel:?}");
+    assert!(pixel[2] >= 250, "{pixel:?}");
+}
+
+#[test]
+fn channel_set_and_remove_accept_channel_15() {
+    let temp = TempRoot::new("channel-set-15");
+    let project = temp.0.join("project");
+    let project_arg = project.to_string_lossy().into_owned();
+
+    let created = shadertoy(&["new", &project_arg, "--template", "multipass"]);
+    assert!(created.status.success(), "{created:?}");
+
+    let set = shadertoy(&[
+        "channel",
+        "--project",
+        &project_arg,
+        "set",
+        "image",
+        "15",
+        "buffer-a",
+        "--filter",
+        "nearest",
+        "--wrap",
+        "repeat",
+    ]);
+    assert!(set.status.success(), "{set:?}");
+
+    let manifest = std::fs::read_to_string(project.join("ShaderToy.toml")).expect("read manifest");
+    assert!(manifest.contains("channel = 15"), "{manifest}");
+
+    let remove = shadertoy(&[
+        "channel",
+        "--project",
+        &project_arg,
+        "remove",
+        "image",
+        "15",
+    ]);
+    assert!(remove.status.success(), "{remove:?}");
+}

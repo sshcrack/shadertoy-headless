@@ -37,14 +37,14 @@ Fragment and compute passes receive:
   int   iFrame
   vec4  iMouse
   vec4  iDate
-  vec3  iChannelResolution[4]
-  float iChannelTime[4]
+  vec3  iChannelResolution[16]
+  float iChannelTime[16]
 
 Compute passes additionally receive:
 
   int iIteration
 
-Configured inputs are declared as iChannel0 through iChannel3. Their GLSL
+Configured inputs are declared as iChannel0 through iChannel15. Their GLSL
 sampler type is derived from the input kind:
 
   sampler2D    pass/buffer/compute output, texture, keyboard, music, video, webcam

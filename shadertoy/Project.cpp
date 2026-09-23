@@ -183,8 +183,8 @@ Result<ShaderDocument> makeProjectDocument(const ProjectDescription& project) {
             auto* consumer = passes.at(pass.name);
             std::unordered_set<uint32_t> usedChannels;
             for(const auto& input : pass.inputs) {
-                if(input.channel > 3)
-                    throw Error("Channel index must be between 0 and 3 in pass " + pass.name);
+                if(input.channel >= MaxInputChannels)
+                    throw Error("Channel index must be between 0 and 15 in pass " + pass.name);
                 if(!usedChannels.emplace(input.channel).second)
                     throw Error("Duplicate channel " + std::to_string(input.channel) + " in pass " + pass.name);
 

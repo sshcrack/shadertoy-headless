@@ -1,7 +1,7 @@
-Every pass may bind up to four inputs: iChannel0 through iChannel3.
+Every pass may bind up to sixteen inputs: iChannel0 through iChannel15.
 
 An input selects:
-  channel = 0..3
+  channel = 0..15
   source  = another pass, an asset, "keyboard", "music", or "webcam"
   output  = pass render-target index, default 0 (pass inputs only)
   frame   = "current" or "previous" (pass inputs only; output 0 for previous)

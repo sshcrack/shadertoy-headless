@@ -772,7 +772,7 @@ enum ChannelCommand {
     /// Set/replace one iChannel binding.
     Set {
         pass: String,
-        /// iChannel index, 0..3.
+        /// iChannel index, 0..15.
         channel: u8,
         source: String,
         #[arg(long, value_enum)]
@@ -790,7 +790,7 @@ enum ChannelCommand {
     /// Remove one iChannel binding.
     Remove {
         pass: String,
-        /// iChannel index, 0..3.
+        /// iChannel index, 0..15.
         channel: u8,
     },
 }

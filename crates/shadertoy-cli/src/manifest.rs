@@ -11,6 +11,7 @@ pub const MANIFEST_NAME: &str = "ShaderToy.toml";
 pub const FORMAT_VERSION: u32 = 1;
 pub const MAX_RENDER_DIMENSION: u32 = 16384;
 pub const MAX_RENDER_FPS: f32 = 1000.0;
+pub const MAX_INPUT_CHANNEL: u8 = 15;
 const RESERVED_INPUT_NAMES: [&str; 3] = ["keyboard", "music", "webcam"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -321,7 +322,8 @@ pub enum Wrap {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
-    /// ShaderToy iChannel index. Must be between 0 and 3.
+    /// Input channel index. Must be between 0 and 15.
+    #[schemars(range(max = 15))]
     pub channel: u8,
     /// Pass/asset name, or the reserved names "keyboard" and "music".
     pub source: String,
@@ -668,11 +670,12 @@ impl Manifest {
         for pass in &self.passes {
             let mut channels = HashSet::new();
             for input in &pass.inputs {
-                if input.channel > 3 {
+                if input.channel > MAX_INPUT_CHANNEL {
                     bail!(
-                        "pass '{}' uses invalid channel {}; valid channels are 0..3",
+                        "pass '{}' uses invalid channel {}; valid channels are 0..={}",
                         pass.name,
-                        input.channel
+                        input.channel,
+                        MAX_INPUT_CHANNEL
                     );
                 }
                 if !channels.insert(input.channel) {

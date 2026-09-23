@@ -177,8 +177,11 @@ pub fn set_channel(project_path: &Path, options: &ChannelSetOptions) -> Result<O
     use crate::manifest::{FrameRef, Input};
     use crate::scaffold::write_manifest;
 
-    if channel > 3 {
-        bail!("channel must be between 0 and 3");
+    if channel > crate::manifest::MAX_INPUT_CHANNEL {
+        bail!(
+            "channel must be between 0 and {}",
+            crate::manifest::MAX_INPUT_CHANNEL
+        );
     }
     let mut loaded = LoadedManifest::load(project_path)?;
     let pass = loaded
@@ -232,8 +235,11 @@ pub fn set_channel(project_path: &Path, options: &ChannelSetOptions) -> Result<O
 pub fn remove_channel(project_path: &Path, pass_name: &str, channel: u8) -> Result<Output> {
     use crate::scaffold::write_manifest;
 
-    if channel > 3 {
-        bail!("channel must be between 0 and 3");
+    if channel > crate::manifest::MAX_INPUT_CHANNEL {
+        bail!(
+            "channel must be between 0 and {}",
+            crate::manifest::MAX_INPUT_CHANNEL
+        );
     }
     let mut loaded = LoadedManifest::load(project_path)?;
     let pass = loaded
