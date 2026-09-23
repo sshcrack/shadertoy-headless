@@ -86,6 +86,7 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
                 options.height,
                 options.fps,
                 None,
+                &options.set_uniforms,
             )?;
             prepared.push(PreparedSource {
                 identity,
@@ -102,6 +103,7 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
                 options.height,
                 options.fps,
                 spec.preset.as_deref(),
+                &options.set_uniforms,
             )?;
             prepared.push(PreparedSource {
                 identity: source.clone(),
@@ -231,6 +233,7 @@ pub fn create_blind_comparison(options: &BlindCreateOptions) -> Result<Output> {
             "images_per_variant": image_count,
             "width": width,
             "height": height,
+            "set_uniforms": options.set_uniforms,
             "variants": public_variants,
         }),
     })
@@ -325,6 +328,7 @@ pub(super) fn prepare_path_source(
     height: Option<u32>,
     fps: Option<f32>,
     preset: Option<&str>,
+    set_uniforms: &[String],
 ) -> Result<Vec<RgbImage>> {
     if path.is_file() {
         if preset.is_some() {
@@ -334,7 +338,7 @@ pub(super) fn prepare_path_source(
             return Ok(vec![load_image(path)?]);
         }
         if path.extension().and_then(OsStr::to_str) == Some("sttf") {
-            return render_sttf_frames(path, frames, width, height, fps);
+            return render_sttf_frames(path, frames, width, height, fps, set_uniforms);
         }
         bail!(
             "unsupported blind source file {}; expected PNG/JPEG or .sttf",
@@ -346,13 +350,13 @@ pub(super) fn prepare_path_source(
     }
     match classify_directory_source(path)? {
         DirectorySource::Project(project) => {
-            render_project_frames(&project, frames, width, height, fps, preset)
+            render_project_frames(&project, frames, width, height, fps, preset, set_uniforms)
         }
         DirectorySource::Sttf(sttf) => {
             if preset.is_some() {
                 bail!("blind @preset is only valid for ShaderToy project sources");
             }
-            render_sttf_frames(&sttf, frames, width, height, fps)
+            render_sttf_frames(&sttf, frames, width, height, fps, set_uniforms)
         }
         DirectorySource::Images(paths) => {
             if preset.is_some() {
@@ -426,6 +430,7 @@ fn render_project_frames(
     height: Option<u32>,
     fps: Option<f32>,
     preset: Option<&str>,
+    set_uniforms: &[String],
 ) -> Result<Vec<RgbImage>> {
     let temp = tempfile::tempdir().context("failed to create temporary blind render directory")?;
     let output = render::render_frames_project(&RenderFramesOptions {
@@ -440,7 +445,7 @@ fn render_project_frames(
         fps,
         frames: frames.to_vec(),
         range: None,
-        set_uniforms: Vec::new(),
+        set_uniforms: set_uniforms.to_vec(),
     })?;
     let paths = output.json["outputs"]
         .as_array()
@@ -462,6 +467,7 @@ fn render_sttf_frames(
     width: Option<u32>,
     height: Option<u32>,
     fps: Option<f32>,
+    set_uniforms: &[String],
 ) -> Result<Vec<RgbImage>> {
     let width = width.unwrap_or(1280);
     let height = height.unwrap_or(720);
@@ -474,6 +480,7 @@ fn render_sttf_frames(
     runtime
         .load_sttf(path)
         .with_context(|| format!("failed to load STTF build {}", path.display()))?;
+    apply_sttf_uniform_overrides(&mut runtime, path, set_uniforms)?;
 
     let mut images = Vec::with_capacity(frames.len());
     let mut next = 0usize;
@@ -492,6 +499,82 @@ fn render_sttf_frames(
         }
     }
     Ok(images)
+}
+
+fn apply_sttf_uniform_overrides(
+    runtime: &mut Runtime<'_>,
+    path: &Path,
+    assignments: &[String],
+) -> Result<()> {
+    if assignments.is_empty() {
+        return Ok(());
+    }
+
+    let document: serde_json::Value = serde_json::from_slice(
+        &fs::read(path).with_context(|| format!("failed to read STTF build {}", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse STTF build {}", path.display()))?;
+    let uniforms = document
+        .get("uniforms")
+        .and_then(serde_json::Value::as_object)
+        .context("STTF build does not declare custom uniforms")?;
+
+    for assignment in assignments {
+        let Some((name, raw)) = assignment.split_once('=') else {
+            bail!("uniform override '{assignment}' must use NAME=VALUE");
+        };
+        let encoded = uniforms
+            .get(name)
+            .with_context(|| format!("unknown custom uniform '{name}'"))?;
+        let uniform_type = encoded
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .with_context(|| format!("STTF custom uniform '{name}' is missing its type"))?;
+        match uniform_type {
+            "Int" => {
+                let value = match raw.trim() {
+                    "true" => 1,
+                    "false" => 0,
+                    value => value.parse::<i32>().with_context(|| {
+                        format!("invalid value for uniform '{name}': expected integer or boolean")
+                    })?,
+                };
+                runtime.set_uniform_i32(name, value)?;
+            }
+            "Float" => {
+                let value = raw.trim().parse::<f32>().with_context(|| {
+                    format!("invalid value for uniform '{name}': expected float")
+                })?;
+                runtime.set_uniform_f32(name, &[value])?;
+            }
+            "Vec2" => apply_sttf_float_vector(runtime, name, raw, 2)?,
+            "Vec3" => apply_sttf_float_vector(runtime, name, raw, 3)?,
+            "Vec4" => apply_sttf_float_vector(runtime, name, raw, 4)?,
+            other => bail!("unsupported STTF custom uniform type '{other}' for '{name}'"),
+        }
+    }
+    Ok(())
+}
+
+fn apply_sttf_float_vector(
+    runtime: &mut Runtime<'_>,
+    name: &str,
+    raw: &str,
+    count: usize,
+) -> Result<()> {
+    let values = raw
+        .split(',')
+        .map(str::trim)
+        .map(|value| value.parse::<f32>())
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .with_context(|| {
+            format!("invalid value for uniform '{name}': expected {count} comma-separated floats")
+        })?;
+    if values.len() != count {
+        bail!("invalid value for uniform '{name}': expected {count} comma-separated floats");
+    }
+    runtime.set_uniform_f32(name, &values)?;
+    Ok(())
 }
 
 fn load_image(path: &Path) -> Result<RgbImage> {

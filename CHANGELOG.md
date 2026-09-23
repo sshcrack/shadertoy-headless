@@ -4,6 +4,10 @@ All notable changes to the Rust library and CLI are recorded here.
 
 ## Unreleased
 
+## 2.5.1
+
+- Added repeatable `--set NAME=VALUE` overrides to `blind create` and `experiment`, applying the same custom-uniform state to every rendered source; experiment profiling now uses the same overrides as its comparison frames.
+
 ## 2.5.0
 
 - Extended per-pass inputs from four channels to sixteen (`iChannel0` through `iChannel15`) across manifests, native rendering, CLI mutation/inspection/graph/render workflows, sampler state, schema, and GLSL docs.

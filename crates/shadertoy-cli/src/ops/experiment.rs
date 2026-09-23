@@ -18,6 +18,7 @@ pub struct ExperimentOptions {
     pub blind: bool,
     pub git_root: Option<PathBuf>,
     pub profile_samples: u32,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +117,7 @@ pub fn run_experiment(options: &ExperimentOptions) -> Result<Output> {
                 options.height,
                 options.fps,
                 None,
+                &options.set_uniforms,
             )?;
             let profile = profile_project_source(&project, None, &frames, options)?;
             let git_commit = git_commit(&project).ok();
@@ -140,6 +142,7 @@ pub fn run_experiment(options: &ExperimentOptions) -> Result<Output> {
                 options.height,
                 options.fps,
                 spec.preset.as_deref(),
+                &options.set_uniforms,
             )?;
             let is_direct_project = spec.path.join("ShaderToy.toml").is_file();
             let profile = if spec.explicit_project || is_direct_project {
@@ -296,6 +299,7 @@ pub fn run_experiment(options: &ExperimentOptions) -> Result<Output> {
         "width": width,
         "height": height,
         "metrics": metrics,
+        "set_uniforms": options.set_uniforms,
         "sources": public_sources,
         "comparisons": comparisons,
         "contact_sheet": contact_sheet,
@@ -366,7 +370,7 @@ fn profile_project_source(
         samples: options.profile_samples,
         sync_per_pass: false,
         discard_outliers: false,
-        set_uniforms: Vec::new(),
+        set_uniforms: options.set_uniforms.clone(),
     })?;
     Ok(Some(profile.json))
 }

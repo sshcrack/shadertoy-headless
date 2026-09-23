@@ -126,6 +126,7 @@ pub struct BlindCreateOptions {
     pub height: Option<u32>,
     pub fps: Option<f32>,
     pub git_root: Option<PathBuf>,
+    pub set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

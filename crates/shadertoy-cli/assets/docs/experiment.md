@@ -15,6 +15,8 @@ A normal baseline/candidate comparison:
     --metric rmse,ssim \
     --output-dir target/experiment
 
+Use repeatable `--set NAME=VALUE` overrides to render and profile every project/STTF source in the same custom-uniform state. For example, a storm comparison can use `--set u_storm=1`; static image sources are unaffected.
+
 Repeat --candidate or --variant for N-way experiments. Project and git sources
 are profiled by default; use --profile-samples 0 when only visual metrics are
 wanted. The output directory contains deterministic variant renders, a contact

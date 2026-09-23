@@ -441,6 +441,36 @@ fn blind_create_renders_projects_and_sttf_builds() {
     assert_eq!(report["images_per_variant"], 2);
     assert!(project_output.join("blind-contact-sheet.png").exists());
 
+    let override_output = temp.path().join("project-blind-override");
+    let override_output_arg = override_output.to_string_lossy().into_owned();
+    let overridden_projects = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &project_a_arg,
+        &project_b_arg,
+        "--frames",
+        "0",
+        "--set",
+        "gain=0.75",
+        "--output-dir",
+        &override_output_arg,
+    ]);
+    assert!(
+        overridden_projects.status.success(),
+        "{overridden_projects:?}"
+    );
+    let override_reds = ["A", "B"].map(|label| {
+        image::open(override_output.join(format!("variants/{label}/image-000.png")))
+            .expect("open overridden project blind render")
+            .to_rgb8()
+            .get_pixel(0, 0)[0]
+    });
+    assert!(
+        override_reds.iter().all(|red| (188..=194).contains(red)),
+        "shared project uniform override was not applied to every source: {override_reds:?}"
+    );
+
     let build_a = temp.path().join("a.sttf");
     let build_b = temp.path().join("b.sttf");
     let build_a_arg = build_a.to_string_lossy().into_owned();
@@ -544,6 +574,38 @@ fn blind_create_sttf_preserves_distinct_uniform_defaults() {
     assert!(
         (60..=70).contains(&reds[0]) && (185..=195).contains(&reds[1]),
         "STTF uniform defaults were not restored: {reds:?}"
+    );
+
+    let override_output = temp.path().join("blind-override");
+    let override_output_arg = override_output.to_string_lossy().into_owned();
+    let overridden = shadertoy(&[
+        "--json",
+        "blind",
+        "create",
+        &open_sttf_arg,
+        &storm_sttf_arg,
+        "--frames",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--set",
+        "gain=0.5",
+        "--output-dir",
+        &override_output_arg,
+    ]);
+    assert!(overridden.status.success(), "{overridden:?}");
+
+    let override_reds = ["A", "B"].map(|label| {
+        image::open(override_output.join(format!("variants/{label}/image-000.png")))
+            .expect("open overridden blinded STTF render")
+            .to_rgb8()
+            .get_pixel(0, 0)[0]
+    });
+    assert!(
+        override_reds.iter().all(|red| (125..=130).contains(red)),
+        "shared STTF uniform override was not applied to every source: {override_reds:?}"
     );
 }
 

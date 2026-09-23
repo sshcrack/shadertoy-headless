@@ -39,12 +39,12 @@ supported remote assets local.
    To blind old-vs-new images, projects, builds, or git revisions:
      shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
    To compare quality presets without temporary project copies:
-     shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
+     shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300 --set u_storm=1
      shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "concise visual rationale"
      shadertoy blind reveal target/old-vs-new/blind-session.json
    For a complete baseline/candidate experiment with metrics, provenance,
    profiling, contact sheets, and optional blind labels:
-     shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --blind
+     shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --set u_storm=1 --blind
 
 5. Debug multipass projects from the outside in:
      shadertoy inspect graph --json

@@ -17,10 +17,10 @@ shadertoy render-video --frames 180 -o target/clip.mp4
 shadertoy sweep --frame 120 --set foam_gain=0.8,1.0,1.2
 shadertoy sweep --blind --frame 120 --set foam_gain=0.8,1.0,1.2
 shadertoy blind create target/old-renders target/new-renders --output-dir target/old-vs-new
-shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300
+shadertoy blind create 'project:.@preset=high' 'project:.@preset=medium' 'project:.@preset=low' --frames 60,180,300 --set u_storm=1
 shadertoy blind judge target/old-vs-new/blind-session.json --pick B --reason "preferred breakup"
 shadertoy blind reveal target/old-vs-new/blind-session.json
-shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --blind
+shadertoy experiment --baseline git:main --candidate git:HEAD --frames 0,60,120 --set u_storm=1 --blind
 shadertoy inspect buffer buffer-a --frame 120 --pixel 8,8 --set foam_gain=1.0
 shadertoy inspect storage particle-state --frame 120 --type f32 --count 16
 shadertoy profile --preset medium --frame 120 --samples 30

@@ -188,6 +188,49 @@ fn experiment_compares_arbitrary_projects_with_metrics() {
 }
 
 #[test]
+fn experiment_applies_shared_uniform_overrides_to_all_sources() {
+    let temp = TempRoot::new("experiment-set");
+    let baseline = temp.0.join("baseline");
+    let candidate = temp.0.join("candidate");
+    write_color_project(&baseline, "baseline", 0.2, false);
+    write_color_project(&candidate, "candidate", 0.8, false);
+
+    let baseline_source = format!("project:{}", baseline.display());
+    let candidate_source = format!("project:{}", candidate.display());
+    let output = temp.0.join("experiment");
+    let output_arg = output.to_string_lossy().into_owned();
+    let run = shadertoy(&[
+        "--json",
+        "experiment",
+        "--baseline",
+        &baseline_source,
+        "--candidate",
+        &candidate_source,
+        "--frames",
+        "0",
+        "--set",
+        "gain=0.5",
+        "--profile-samples",
+        "0",
+        "--output-dir",
+        &output_arg,
+    ]);
+    assert!(run.status.success(), "{run:?}");
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&run.stdout).expect("parse experiment json");
+    let comparison = &report["comparisons"][0]["aggregate"];
+    assert!(comparison["rmse_mean"].as_f64().unwrap() < 1.0e-6);
+    assert!((comparison["ssim_mean"].as_f64().unwrap() - 1.0).abs() < 1.0e-6);
+
+    let persisted: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output.join("experiment-report.json")).expect("read experiment report"),
+    )
+    .expect("parse persisted experiment report");
+    assert_eq!(persisted["set_uniforms"][0], "gain=0.5");
+}
+
+#[test]
 fn trace_capture_inspect_and_replay_are_self_contained() {
     let temp = TempRoot::new("trace");
     let project = temp.0.join("project");

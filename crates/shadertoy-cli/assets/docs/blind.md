@@ -86,3 +86,5 @@ inspection so identities do not leak into normal agent context before judgment.
 This is a workflow guard against evaluation bias, not a security or
 cryptographic boundary: an actor deliberately inspecting implementation details
 can bypass it.
+
+Shared custom-uniform overrides can be applied to every rendered source with repeatable `--set NAME=VALUE`, e.g. `shadertoy blind create old-project new-project --set u_storm=1`. Static image sources are unaffected.

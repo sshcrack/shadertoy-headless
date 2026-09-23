@@ -394,6 +394,9 @@ struct ExperimentArgs {
     /// GPU profile samples for project/git sources; 0 disables profiling.
     #[arg(long, default_value_t = 8)]
     profile_samples: u32,
+    /// Override a declared custom uniform for every rendered source. May be repeated.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -432,6 +435,9 @@ struct BlindCreateArgs {
     /// Git repository root for git:REF sources. Defaults to the containing repository.
     #[arg(long)]
     git_root: Option<PathBuf>,
+    /// Override a declared custom uniform for every rendered source. May be repeated.
+    #[arg(long = "set", value_name = "NAME=VALUE")]
+    set_uniforms: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -1076,6 +1082,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 blind: args.blind,
                 git_root: args.git_root,
                 profile_samples: args.profile_samples,
+                set_uniforms: args.set_uniforms,
             })?
         }
         Command::Blind(args) => match args.command {
@@ -1087,6 +1094,7 @@ fn dispatch(command: Command, json_mode: bool) -> Result<Option<Output>> {
                 height: args.height,
                 fps: args.fps,
                 git_root: args.git_root,
+                set_uniforms: args.set_uniforms,
             })?,
             BlindCommand::Judge(args) => ops::judge_blind(&BlindJudgeOptions {
                 session: args.session,
